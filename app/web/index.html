@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>猛人字幕</title>
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="topbar">
+  <button class="btn icon-only" id="btnLibrary" title="显示/隐藏媒体库"><svg viewBox="0 0 24 24"><path d="M3 5h18M3 12h18M3 19h18"/></svg></button>
+  <div class="brand"><img src="icon.png" alt=""><span>猛人字幕</span></div>
+  <div class="file-title" id="fileTitle"></div>
+  <div class="teacher-chip" id="teacherChip" hidden>
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+    <select id="teacherSelect" title="这个视频是哪位老师的课（决定用哪份术语表）"></select>
+  </div>
+  <span class="grow"></span>
+  <nav class="actions">
+    <button class="btn" id="btnOpen" title="打开音视频文件（Ctrl+O）"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>打开</button>
+    <span class="sep"></span>
+    <button class="btn primary" id="btnTranscribe" disabled><svg viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>生成字幕</button>
+    <button class="btn" id="btnCorrect" disabled title="让 AI 按术语表校对识别错误"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>AI 校对</button>
+    <button class="btn" id="btnTranslate" disabled><svg viewBox="0 0 24 24"><path d="M4 5h9M8 3v2m3 0c-1 4-4 7-7 8m3-5c1 2 3 4 6 5"/><path d="M13 21l4-9 4 9m-7-3h6"/></svg>翻译</button>
+    <button class="btn" id="btnPipeline" disabled title="一次完成：生成字幕 → AI 校对 → 翻译 → 课程重点"><svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>一键整理</button>
+    <span class="sep"></span>
+    <button class="btn" id="btnSave" disabled title="保存（Ctrl+S）"><svg viewBox="0 0 24 24"><path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v6h8V3M7 21v-7h10v7"/></svg><span id="saveLabel">保存</span></button>
+    <div class="menu-wrap">
+      <button class="btn" id="btnExport" disabled><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>下载</button>
+      <div class="menu export-menu" id="menuExport">
+        <div class="menu-label">内容</div>
+        <label class="radio"><input type="radio" name="exMode" value="both" checked> 中英对照</label>
+        <label class="radio"><input type="radio" name="exMode" value="src"> 只要原文</label>
+        <label class="radio"><input type="radio" name="exMode" value="tr"> 只要中文译文</label>
+        <div class="menu-label">选项</div>
+        <label class="radio"><input type="checkbox" id="exStamps" checked> 带时间戳（TXT）</label>
+        <div class="menu-row">
+          <button class="btn primary small" data-export="txt">下载 TXT</button>
+          <button class="btn small" data-export="srt">下载 SRT</button>
+        </div>
+      </div>
+    </div>
+    <button class="btn" id="btnClip" disabled title="剪藏到 Obsidian：上半部分课程重点，下半部分完整字幕"><svg viewBox="0 0 24 24"><path d="M12 2l7 5-2 10-5 5-5-5-2-10z"/><path d="M12 2v20"/></svg>剪藏</button>
+    <span class="sep"></span>
+    <button class="btn icon-only" id="btnTheme" title="切换主题"><svg viewBox="0 0 24 24"><path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z"/></svg></button>
+    <button class="btn icon-only" id="btnSettings" title="设置"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  </nav>
+</header>
+
+<div class="jobbar" id="jobbar" hidden>
+  <div class="jobbar-fill" id="jobFill"></div>
+  <span id="jobText"></span>
+  <button class="btn small" id="jobCancel">取消</button>
+</div>
+<div class="banner" id="banner" hidden></div>
+
+<main class="workspace" id="workspace">
+  <!-- 媒体库 -->
+  <aside class="library" id="library">
+    <div class="lib-head">
+      <span class="lib-title">媒体库</span>
+      <span class="grow"></span>
+      <button class="btn icon-only small" id="libAddFolder" title="添加文件夹（包括子文件夹里的音视频）"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v6m-3-3h6"/></svg></button>
+      <button class="btn icon-only small" id="libAddFiles" title="添加文件"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M12 12v6m-3-3h6"/></svg></button>
+      <button class="btn icon-only small" id="libRefresh" title="刷新"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
+    </div>
+    <div class="lib-search"><input id="libSearch" placeholder="筛选文件名"></div>
+    <div class="lib-body" id="libBody"></div>
+  </aside>
+  <div class="splitter" id="libSplit" title="拖动调整媒体库宽度"></div>
+
+  <div class="stage" id="stage">
+    <div class="stage-empty" id="empty">
+      <div class="empty-card" id="dropZone">
+        <img src="icon.png" alt="">
+        <h1>猛人字幕</h1>
+        <p>在左边的媒体库添加文件夹，点哪个看哪个；也可以直接打开或拖入文件。</p>
+        <div class="empty-btns">
+          <button class="btn primary big" id="btnAddFolder2">添加文件夹</button>
+          <button class="btn big" id="btnOpen2">打开文件</button>
+        </div>
+        <div class="recent-list" id="recentList"></div>
+      </div>
+    </div>
+
+    <div class="stage-main" id="stageMain" hidden>
+      <section class="left" id="left">
+        <div class="player-area" id="playerArea">
+          <div class="player-wrap" id="playerWrap">
+            <video id="video" controls preload="metadata"></video>
+            <div class="audio-cover" id="audioCover" hidden><img src="icon.png" alt=""><span id="audioName"></span></div>
+            <div class="overlay" id="overlay" hidden></div>
+          </div>
+          <div class="player-tools">
+            <label class="switch" title="播放时字幕自动滚动到当前句"><input type="checkbox" id="optFollow"><span></span>字幕跟随</label>
+            <label class="switch" title="显示中文译文"><input type="checkbox" id="optTr"><span></span>译文</label>
+            <label class="switch" title="在画面上显示当前字幕"><input type="checkbox" id="optOverlay"><span></span>画面字幕</label>
+            <label class="switch" title="反复播放当前这一句"><input type="checkbox" id="optLoop"><span></span>单句循环</label>
+            <span class="grow"></span>
+            <select id="speed" title="播放速度">
+              <option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option>
+              <option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option>
+            </select>
+            <button class="btn small" id="btnShowAi" hidden title="显示 AI 区">AI</button>
+          </div>
+        </div>
+        <div class="hsplit" id="vSplit" title="上下拖动调整视频和 AI 区的高度"></div>
+        <div class="ai-dock-bottom" id="aiDockBottom"></div>
+      </section>
+      <div class="splitter" id="splitter" title="拖动调整视频和字幕的宽度"></div>
+      <section class="right" id="right">
+        <div class="sub-head">
+          <div class="search">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+            <input id="search" placeholder="搜索字幕（Enter 下一个）">
+            <span id="searchCount" class="muted"></span>
+          </div>
+          <span class="grow"></span>
+          <label class="switch" title="人工检查过字幕后打开，剪藏的笔记里会标注「已人工校对」"><input type="checkbox" id="optReviewed"><span></span>已校对</label>
+          <span class="muted small-text" id="cueCount"></span>
+          <div class="menu-wrap">
+            <button class="btn icon-only small" id="btnText" title="文字设置：字号、行距、宽度、字体"><b class="aa">Aa</b></button>
+            <div class="menu text-menu" id="menuText">
+              <div class="tm-row"><span>字号</span><button data-tx="font_size:-1">－</button><output id="txSize"></output><button data-tx="font_size:1">＋</button></div>
+              <div class="tm-row"><span>行距</span><button data-tx="line_height:-0.1">－</button><output id="txLine"></output><button data-tx="line_height:0.1">＋</button></div>
+              <div class="tm-row"><span>句间距</span><button data-tx="cue_gap:-2">－</button><output id="txGap"></output><button data-tx="cue_gap:2">＋</button></div>
+              <div class="tm-row"><span>宽度</span><button data-tx="cue_width:-60">→←</button><output id="txWidth"></output><button data-tx="cue_width:60">←→</button></div>
+              <div class="tm-row"><span>字体</span>
+                <select id="txFont">
+                  <option value="yahei">微软雅黑</option><option value="hei">黑体</option><option value="deng">等线</option>
+                  <option value="song">宋体</option><option value="kai">楷体</option><option value="fang">仿宋</option>
+                </select></div>
+              <div class="tm-row"><span>主题</span><select id="txTheme"></select></div>
+            </div>
+          </div>
+          <div class="menu-wrap">
+            <button class="btn icon-only small" id="btnVersions" title="字幕的历史版本、清空字幕"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg></button>
+            <div class="menu versions-menu" id="menuVersions"></div>
+          </div>
+          <button class="btn icon-only small" id="btnUndo" title="撤销拆分/合并/删除/校对（Ctrl+Z）" disabled><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+          <button class="btn icon-only small" id="btnHelp" title="使用说明"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14m0 3v.01"/></svg></button>
+        </div>
+        <div class="cues" id="cues"></div>
+      </section>
+      <div class="splitter" id="aiSplit" title="拖动调整 AI 区宽度"></div>
+      <aside class="ai-dock-side" id="aiDockSide"></aside>
+    </div>
+  </div>
+</main>
+
+<!-- AI 区（会被移到下方或右侧） -->
+<div class="ai-panel" id="aiPanel">
+  <div class="ai-tabs">
+    <button class="tab active" data-tab="summary">课程重点</button>
+    <button class="tab" data-tab="chat">AI 对话</button>
+    <span class="grow"></span>
+    <span class="ai-model" id="aiModel"></span>
+    <button class="btn icon-only small" id="btnAiMax" title="放大 AI 区（视频缩到最小）"><svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg></button>
+    <button class="btn icon-only small" id="btnAiDock" title="移到右侧 / 移回视频下方"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>
+    <button class="btn icon-only small" id="btnAiHide" title="隐藏 AI 区"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="ai-body" data-pane="summary">
+    <div class="ai-scroll md" id="summaryBox"></div>
+    <textarea class="summary-edit" id="summaryEdit" hidden spellcheck="false"></textarea>
+    <div class="ai-foot">
+      <button class="btn primary small" id="btnSummary">生成课程重点</button>
+      <button class="btn small" id="btnEditSummary" disabled>编辑</button>
+      <button class="btn small" id="btnCopySummary" disabled>复制</button>
+      <span class="muted small-text" id="summaryHint"></span>
+    </div>
+  </div>
+  <div class="ai-body" data-pane="chat" hidden>
+    <div class="ai-scroll" id="chatBox"></div>
+    <div class="chips" id="chips">
+      <button data-q="用 5 条要点概括这节课讲了什么，每条标注时间点。">概括要点</button>
+      <button data-q="这节课里有哪些容易误解或难懂的地方？请逐一解释。">解释难点</button>
+      <button data-q="根据这节课的内容出 5 道复习题，先只给题目，我答完你再批改。">出复习题</button>
+      <button data-q="把这节课提到的方法整理成可以照着做的步骤清单。">整理方法</button>
+      <button data-q="列出字幕里可能识别错的词（特别是术语和人名），并给出你认为正确的写法和时间点。">找识别错误</button>
+    </div>
+    <div class="chat-input">
+      <textarea id="chatInput" rows="2" placeholder="问问这节课…（Enter 发送，Shift+Enter 换行）"></textarea>
+      <div class="chat-btns">
+        <button class="btn primary small" id="btnSend">发送</button>
+        <button class="btn small" id="btnClearChat" title="清空对话">清空</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 生成字幕 -->
+<dialog id="dlgTranscribe" class="dialog">
+  <form method="dialog">
+    <h2>生成字幕</h2>
+    <div class="field">
+      <div class="label">视频里说的是</div>
+      <div class="seg-choice">
+        <label><input type="radio" name="lang" value="zh"> 中文</label>
+        <label><input type="radio" name="lang" value="en"> 英文</label>
+      </div>
+    </div>
+    <div class="field">
+      <div class="label">老师 / 术语表</div>
+      <select id="trTeacher"></select>
+      <div class="hint" id="trTeacherHint"></div>
+    </div>
+    <div class="field">
+      <div class="label">识别服务</div>
+      <select id="trProvider">
+        <option value="doubao">豆包语音（火山引擎）</option>
+        <option value="siliconflow">硅基流动</option>
+        <option value="openai">OpenAI Whisper</option>
+      </select>
+      <div class="hint" id="trProviderHint"></div>
+    </div>
+    <div class="field"><label class="check"><input type="checkbox" id="trCorrect"> 识别完后让 AI 按术语表校对一遍</label></div>
+    <p class="warn" id="trWarn" hidden>这个视频已经有字幕了。重新生成前，现在的字幕会自动存成历史版本，之后可以在字幕栏上方的「历史版本」按钮里恢复。</p>
+    <div class="dialog-btns">
+      <button value="cancel" class="btn">取消</button>
+      <button value="ok" class="btn primary">开始</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 一键整理 -->
+<dialog id="dlgPipeline" class="dialog">
+  <form method="dialog">
+    <h2>一键整理</h2>
+    <p class="muted">按顺序自动完成下面勾选的步骤。整理完建议你检查一遍字幕，打开「已校对」，再剪藏。</p>
+    <div class="field">
+      <label class="check"><input type="checkbox" id="plAsr"> <span id="plAsrLabel">生成字幕</span></label>
+      <label class="check"><input type="checkbox" id="plCorrect"> AI 按术语表校对</label>
+      <label class="check"><input type="checkbox" id="plTranslate"> 翻译成中文（英文课程）</label>
+      <label class="check"><input type="checkbox" id="plSummary"> 生成课程重点</label>
+      <label class="check"><input type="checkbox" id="plClip"> 最后剪藏到 Obsidian</label>
+    </div>
+    <div class="field"><div class="label">老师 / 术语表</div><select id="plTeacher"></select></div>
+    <div class="field" id="plLangField"><div class="label">视频里说的是</div>
+      <div class="seg-choice"><label><input type="radio" name="plLang" value="zh"> 中文</label><label><input type="radio" name="plLang" value="en"> 英文</label></div></div>
+    <div class="dialog-btns">
+      <button value="cancel" class="btn">取消</button>
+      <button value="ok" class="btn primary">开始</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 翻译 -->
+<dialog id="dlgTranslate" class="dialog">
+  <form method="dialog">
+    <h2>翻译成中文</h2>
+    <p id="tlInfo"></p>
+    <div class="dialog-btns">
+      <button value="cancel" class="btn">取消</button>
+      <button value="all" class="btn" id="tlAll">全部重新翻译</button>
+      <button value="missing" class="btn primary" id="tlMissing">翻译</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 说明 -->
+<dialog id="dlgHelp" class="dialog">
+  <form method="dialog">
+    <h2>使用说明</h2>
+    <ul class="help">
+      <li><b>点字幕</b>：跳到这一句，同时可以直接修改；改完自动保存。<b>点时间</b>：只跳转。</li>
+      <li><b>空格</b>：播放 / 暂停（不在编辑时）　<b>Ctrl + K</b>：任何时候播放 / 暂停</li>
+      <li><b>Ctrl + ← / →</b>：后退 / 前进 3 秒　<b>Ctrl + ↑ / ↓</b>：上一句 / 下一句</li>
+      <li><b>Enter / Esc</b>：结束编辑　<b>Ctrl + S</b>：立即保存　<b>Ctrl + Z</b>：撤销拆分、合并、删除和 AI 校对</li>
+      <li>鼠标移到字幕上，右侧有工具：对齐到当前时间、在光标处拆分、与下一句合并、删除。</li>
+      <li><b>术语表</b>：在「设置 → 老师与术语表」里给每位老师建一份；在顶栏选择这个视频是哪位老师的课。也可以在媒体库的文件夹上绑定老师，里面的视频会自动用这位老师。</li>
+      <li><b>剪藏</b>：笔记上半部分是课程重点，下半部分是完整带时间戳的字幕，可以直接用来蒸馏。</li>
+    </ul>
+    <div class="dialog-btns"><button value="ok" class="btn primary">知道了</button></div>
+  </form>
+</dialog>
+
+<!-- 设置 -->
+<dialog id="dlgSettings" class="dialog settings">
+  <div class="settings-wrap">
+    <aside class="settings-nav" id="settingsNav">
+      <div class="nav-label">常用</div>
+      <button data-sec="look" class="active">外观</button>
+      <button data-sec="teachers">老师与术语表</button>
+      <button data-sec="tasks">任务用哪个 AI</button>
+      <button data-sec="template">课程重点模板</button>
+      <button data-sec="obsidian">Obsidian</button>
+      <div class="nav-label">字幕识别</div>
+      <button data-sec="asr">识别设置</button>
+      <button data-sec="doubao">豆包语音</button>
+      <button data-sec="siliconflow">硅基流动</button>
+      <button data-sec="openai">OpenAI</button>
+      <div class="nav-label">AI 服务</div>
+      <button data-sec="codex">ChatGPT 账号</button>
+      <button data-sec="claude">Claude</button>
+      <button data-sec="gemini">Gemini</button>
+      <button data-sec="deepseek">DeepSeek</button>
+      <button data-sec="ark">豆包大模型</button>
+      <button data-sec="net">网络代理</button>
+      <div class="nav-label">其他</div>
+      <button data-sec="about">关于与数据</button>
+    </aside>
+    <div class="settings-body" id="settingsBody">
+      <section data-sec="look">
+        <h3>外观</h3>
+        <div class="field"><div class="label">主题</div><div class="theme-pick" id="themePick"></div></div>
+        <div class="field"><div class="label">强调色</div><div class="accent-pick" id="accentPick"></div></div>
+        <p class="hint">字号、行距、字体在字幕栏顶部的「Aa」里调整。</p>
+      </section>
+
+      <section data-sec="teachers" hidden>
+        <h3>老师与术语表</h3>
+        <p class="hint">给每位老师建一份术语表。生成字幕时，术语会传给识别服务（豆包、OpenAI），识别完还可以让 AI 按术语表校对；翻译、课程重点和对话也会参考它。</p>
+        <div class="teacher-wrap">
+          <div class="teacher-list" id="teacherList"></div>
+          <div class="teacher-edit" id="teacherEdit">
+            <div class="grid2">
+              <div class="field"><div class="label">老师名字</div><input id="tName" placeholder="例如：大聪老师"></div>
+              <div class="field"><div class="label">课程通常是</div><select id="tLang"><option value="zh">中文</option><option value="en">英文</option></select></div>
+            </div>
+            <div class="field"><div class="label">老师和课程背景（可选）</div><input id="tAbout" placeholder="例如：期货交易，讲交易底层逻辑、波段和仓位管理"></div>
+            <div class="field"><div class="label">术语表</div>
+              <textarea id="tTerms" rows="10" spellcheck="false" placeholder="每行一个或几个术语（逗号隔开）：&#10;峰级, 峰级线, 破级&#10;&#10;常见识别错误（交给 AI 结合上下文判断，不直接替换）：&#10;风级, 风机 => 峰级&#10;&#10;确定不会误伤的，加感叹号，识别完直接替换：&#10;托破旋 =>! 拓扑学"></textarea>
+              <div class="hint" id="tTermsHint"></div>
+              <div class="hint">写法：<code>术语1, 术语2</code>　<code>错写 => 正确</code>（AI 结合上下文判断）　<code>错写 =>! 正确</code>（直接替换，只用于不会误伤的长词）。术语会传给豆包和 Whisper；对照只给 AI 校对用。</div></div>
+            <div class="field"><div class="label label-row">术语说明 / 参考资料（可选，可以放整份术语表文档）<button class="btn small" id="tImport">从文件导入…</button></div>
+              <textarea id="tNotes" rows="6" spellcheck="false" placeholder="例如每个术语的含义、口诀、老师的固定说法。只给 AI 校对、翻译、课程重点和对话参考，不传给识别服务。"></textarea>
+              <div class="hint" id="tNotesHint"></div></div>
+            <div class="grid2">
+              <div class="field"><div class="label">剪藏时的子文件夹（可选）</div><input id="tFolder" placeholder="默认用老师名字"></div>
+              <div class="field"><div class="label">&nbsp;</div><label class="check"><input type="checkbox" id="tOwnTemplate"> 这位老师用单独的课程重点模板</label></div>
+            </div>
+            <div class="field" id="tTemplateField" hidden><textarea id="tTemplate" rows="8" spellcheck="false"></textarea></div>
+            <div class="test-row"><button class="btn primary small" id="tSave">保存这位老师</button><button class="btn small danger" id="tDelete">删除</button><span class="test-result" id="tMsg"></span></div>
+          </div>
+        </div>
+      </section>
+
+      <section data-sec="tasks" hidden>
+        <h3>任务用哪个 AI</h3>
+        <div class="field"><div class="label">课程重点和 AI 对话</div><select data-k="chat" class="provider-select"></select></div>
+        <div class="field"><div class="label">AI 按术语表校对</div><select data-k="correct" class="provider-select"></select></div>
+        <div class="field"><div class="label">翻译</div><select data-k="translate" class="provider-select"></select></div>
+        <p class="hint">标着「未设置」的服务需要先在左边「AI 服务」里填写 API Key 或登录。课程重点建议用能力强的模型（如 Claude、ChatGPT）；校对和翻译量大，用便宜快速的（如 DeepSeek）就够了。</p>
+      </section>
+
+      <section data-sec="template" hidden>
+        <h3>课程重点模板</h3>
+        <p class="hint">「生成课程重点」时发给 AI 的要求。可以按你的蒸馏需要修改结构；老师档案里也可以给某位老师单独设置。</p>
+        <div class="field"><textarea data-k="summary_template" id="summaryTemplate" rows="20" spellcheck="false"></textarea></div>
+        <button class="btn small" id="resetTemplate">恢复默认模板</button>
+      </section>
+
+      <section data-sec="obsidian" hidden>
+        <h3>Obsidian</h3>
+        <div class="field"><div class="label">库的位置</div><div class="key-row"><input data-k="obsidian.vault"><button class="btn small" id="pickVault">选择…</button></div></div>
+        <div class="field"><div class="label">存到库里的哪个文件夹</div><div class="key-row"><input data-k="obsidian.folder" placeholder="例如：猛人字幕 或 学习/视频笔记"><button class="btn small" id="pickFolder">选择…</button></div></div>
+        <div class="field"><label class="check"><input type="checkbox" data-k="obsidian.teacher_subfolder"> 按老师分子文件夹（例如 猛人字幕/大聪老师/）</label></div>
+        <p class="hint">文件夹不存在会自动创建。同一个视频再次剪藏，会更新原来那篇笔记。笔记结构：属性（老师、系列、时长、是否校对）→ 课程重点 → 完整带时间戳的字幕。</p>
+      </section>
+
+      <section data-sec="asr" hidden>
+        <h3>识别设置</h3>
+        <div class="field"><div class="label">英文视频用</div>
+          <select data-k="asr_en"><option value="openai">OpenAI Whisper</option><option value="doubao">豆包语音</option><option value="siliconflow">硅基流动</option></select></div>
+        <div class="field"><div class="label">中文视频用</div>
+          <select data-k="asr_zh"><option value="doubao">豆包语音</option><option value="siliconflow">硅基流动</option><option value="openai">OpenAI Whisper</option></select></div>
+        <div class="field"><label class="check"><input type="checkbox" data-k="auto_correct"> 选了老师时，识别完默认让 AI 按术语表校对</label></div>
+      </section>
+
+      <section data-sec="doubao" hidden>
+        <h3>豆包语音（火山引擎）</h3>
+        <div class="field"><div class="label">模型</div><select data-k="providers.doubao.model" id="doubaoModel"></select><div class="hint" id="doubaoNote"></div></div>
+        <div class="field"><div class="label">鉴权方式</div>
+          <div class="seg-choice">
+            <label><input type="radio" name="dbAuth" value="new"> 新版控制台（API Key）</label>
+            <label><input type="radio" name="dbAuth" value="old"> 旧版控制台（App ID + Access Token）</label>
+          </div></div>
+        <div class="field" data-auth="new"><div class="label">API Key</div><div class="key-row"><input data-k="providers.doubao.key" data-secret placeholder="在火山引擎控制台「豆包语音」里创建"><button class="btn small" data-clear="providers.doubao.key">清除</button></div></div>
+        <div class="field" data-auth="old"><div class="label">App ID</div><input data-k="providers.doubao.app_id"></div>
+        <div class="field" data-auth="old"><div class="label">Access Token</div><div class="key-row"><input data-k="providers.doubao.access_token" data-secret><button class="btn small" data-clear="providers.doubao.access_token">清除</button></div></div>
+        <div class="field"><label class="check"><input type="checkbox" data-k="providers.doubao.enable_ddc"> 去掉口头语（「嗯」「啊」、重复词）</label></div>
+        <div class="field" data-kind="stream"><div class="label">流式识别发送倍速</div><input type="number" min="1" max="20" step="1" data-k="providers.doubao.stream_speed">
+          <div class="hint">流式接口按实时速度设计。倍速越高越快，太高可能被服务端拒绝；4 倍时 1 小时的视频约 8 分钟。</div></div>
+        <div class="tos" data-kind="task">
+          <div class="label strong">火山引擎对象存储（TOS）</div>
+          <p class="hint">标准版和闲时版只接受网上的音频链接，所以要先把音频临时传到你自己的存储桶，识别完会自动删除。</p>
+          <div class="grid2">
+            <div class="field"><div class="label">Access Key ID</div><input data-k="providers.doubao.tos_ak"></div>
+            <div class="field"><div class="label">Secret Access Key</div><input data-k="providers.doubao.tos_sk" data-secret></div>
+            <div class="field"><div class="label">存储桶名称</div><input data-k="providers.doubao.tos_bucket"></div>
+            <div class="field"><div class="label">地域</div><input data-k="providers.doubao.tos_region" placeholder="cn-beijing"></div>
+            <div class="field"><div class="label">访问域名</div><input data-k="providers.doubao.tos_endpoint" placeholder="tos-cn-beijing.volces.com"></div>
+          </div>
+        </div>
+        <div class="field"><div class="label">接口地址</div><input data-k="providers.doubao.base_url"></div>
+        <div class="test-row"><button class="btn small" data-test="doubao" data-kind="asr">测试连接</button><span class="test-result"></span></div>
+      </section>
+
+      <section data-sec="siliconflow" hidden>
+        <h3>硅基流动</h3>
+        <div class="field"><div class="label">API Key</div><div class="key-row"><input data-k="providers.siliconflow.key" data-secret placeholder="cloud.siliconflow.cn → API 密钥"><button class="btn small" data-clear="providers.siliconflow.key">清除</button></div></div>
+        <div class="field"><div class="label">识别模型</div><input data-k="providers.siliconflow.asr_model" list="sfModels">
+          <datalist id="sfModels"><option value="Qwen/Qwen3-ASR-1.7B"><option value="FunAudioLLM/SenseVoiceSmall"><option value="XingChenAGI/XingChenASR-V3.2"></datalist>
+          <div class="hint">硅基流动只返回文字、不返回时间，软件会按停顿切成二三十秒一段，时间可能差几秒。</div></div>
+        <div class="field"><div class="label">对话 / 翻译 / 校对模型（同一个 Key 就能用）</div>
+          <div class="key-row"><input data-k="providers.siliconflow.chat_model" list="dl-siliconflow" placeholder="点「获取模型列表」选择"><button class="btn small" data-models="siliconflow">获取模型列表</button></div><datalist id="dl-siliconflow"></datalist></div>
+        <div class="field"><div class="label">接口地址</div><input data-k="providers.siliconflow.base_url"></div>
+        <div class="test-row"><button class="btn small" data-test="siliconflow" data-kind="asr">测试识别</button><button class="btn small" data-test="siliconflow" data-kind="chat">测试对话</button><span class="test-result"></span></div>
+      </section>
+
+      <section data-sec="openai" hidden>
+        <h3>OpenAI（API Key）</h3>
+        <div class="field"><div class="label">API Key</div><div class="key-row"><input data-k="providers.openai.key" data-secret placeholder="sk-…"><button class="btn small" data-clear="providers.openai.key">清除</button></div></div>
+        <div class="grid2">
+          <div class="field"><div class="label">识别模型</div><input data-k="providers.openai.asr_model" list="oaAsr"><datalist id="oaAsr"><option value="whisper-1"><option value="gpt-4o-transcribe"><option value="gpt-4o-mini-transcribe"></datalist>
+            <div class="hint">whisper-1 带逐句时间戳，推荐。</div></div>
+          <div class="field"><div class="label">对话 / 翻译模型</div><div class="key-row"><input data-k="providers.openai.chat_model" list="dl-openai"><button class="btn small" data-models="openai">列表</button></div><datalist id="dl-openai"></datalist></div>
+        </div>
+        <div class="field"><div class="label">接口地址</div><input data-k="providers.openai.base_url"><div class="hint">用中转服务时改成中转地址。</div></div>
+        <div class="field"><label class="check"><input type="checkbox" data-k="providers.openai.use_proxy"> 通过网络代理连接</label></div>
+        <div class="test-row"><button class="btn small" data-test="openai" data-kind="asr">测试识别</button><button class="btn small" data-test="openai" data-kind="chat">测试对话</button><span class="test-result"></span></div>
+      </section>
+
+      <section data-sec="codex" hidden>
+        <h3>ChatGPT（账号登录，不用 API Key）</h3>
+        <p class="hint">用你的 ChatGPT Plus / Pro / Business 账号登录，调用套餐里的 Codex 额度做总结、对话、校对和翻译，不另外花 API 费用。和乔木剪藏插件用的是同一种登录方式。</p>
+        <div class="account-box" id="codexBox"></div>
+        <div class="paste-box" id="codexPaste" hidden>
+          <p class="hint">已在浏览器打开登录页。登录完成后会自动回到这里。如果浏览器显示「无法访问此网站」，请把浏览器地址栏里以 <code>http://localhost:1455/auth/callback</code> 开头的完整网址复制下来，粘贴到这里：</p>
+          <div class="key-row"><input id="codexUrl" placeholder="http://localhost:1455/auth/callback?code=…"><button class="btn small primary" id="codexDone">完成登录</button></div>
+        </div>
+        <div class="field"><div class="label">模型</div><div class="key-row"><input data-k="providers.codex.chat_model" list="dl-codex" placeholder="登录后点「获取模型列表」"><button class="btn small" data-models="codex">获取模型列表</button></div><datalist id="dl-codex"></datalist></div>
+        <div class="field"><label class="check"><input type="checkbox" data-k="providers.codex.use_proxy"> 通过网络代理连接</label></div>
+        <div class="test-row"><button class="btn small" data-test="codex" data-kind="chat">测试对话</button><span class="test-result"></span></div>
+      </section>
+
+      <section data-sec="claude" hidden>
+        <h3>Claude（Anthropic API）</h3>
+        <p class="hint">Anthropic 不允许第三方软件使用 Claude.ai 的 Pro / Max 账号登录，所以这里只能用 API Key（console.anthropic.com 创建）。</p>
+        <div class="field"><div class="label">API Key</div><div class="key-row"><input data-k="providers.claude.key" data-secret placeholder="sk-ant-…"><button class="btn small" data-clear="providers.claude.key">清除</button></div></div>
+        <div class="field"><div class="label">模型</div><div class="key-row"><input data-k="providers.claude.chat_model" list="dl-claude"><button class="btn small" data-models="claude">获取模型列表</button></div>
+          <datalist id="dl-claude"><option value="claude-opus-5-5"><option value="claude-sonnet-5-5"><option value="claude-haiku-5-5"></datalist>
+          <div class="hint">claude-opus-5-5 最强，适合课程重点；claude-sonnet-5-5 便宜一半；claude-haiku-5-5 最便宜，适合翻译和校对。</div></div>
+        <div class="field"><label class="check"><input type="checkbox" data-k="providers.claude.use_proxy"> 通过网络代理连接</label></div>
+        <div class="test-row"><button class="btn small" data-test="claude" data-kind="chat">测试对话</button><span class="test-result"></span></div>
+      </section>
+
+      <section data-sec="gemini" hidden>
+        <h3>Gemini（Google AI Studio）</h3>
+        <p class="hint">Google 不允许第三方软件借用 Gemini 账号登录，这里用 AI Studio 的 API Key（aistudio.google.com 免费申请，有免费额度）。</p>
+        <div class="field"><div class="label">API Key</div><div class="key-row"><input data-k="providers.gemini.key" data-secret placeholder="AIza…"><button class="btn small" data-clear="providers.gemini.key">清除</button></div></div>
+        <div class="field"><div class="label">模型</div><div class="key-row"><input data-k="providers.gemini.chat_model" list="dl-gemini"><button class="btn small" data-models="gemini">获取模型列表</button></div>
+          <datalist id="dl-gemini"><option value="gemini-flash-latest"><option value="gemini-pro-latest"></datalist></div>
+        <div class="field"><label class="check"><input type="checkbox" data-k="providers.gemini.use_proxy"> 通过网络代理连接</label></div>
+        <div class="test-row"><button class="btn small" data-test="gemini" data-kind="chat">测试对话</button><span class="test-result"></span></div>
+      </section>
+
+      <section data-sec="deepseek" hidden>
+        <h3>DeepSeek</h3>
+        <div class="field"><div class="label">API Key</div><div class="key-row"><input data-k="providers.deepseek.key" data-secret placeholder="platform.deepseek.com → API keys"><button class="btn small" data-clear="providers.deepseek.key">清除</button></div></div>
+        <div class="field"><div class="label">模型</div><div class="key-row"><input data-k="providers.deepseek.chat_model" list="dl-deepseek"><button class="btn small" data-models="deepseek">获取模型列表</button></div>
+          <datalist id="dl-deepseek"><option value="deepseek-flash"><option value="deepseek-v4-pro"></datalist></div>
+        <div class="field"><div class="label">接口地址</div><input data-k="providers.deepseek.base_url"></div>
+        <div class="test-row"><button class="btn small" data-test="deepseek" data-kind="chat">测试连接</button><span class="test-result"></span></div>
+      </section>
+
+      <section data-sec="ark" hidden>
+        <h3>豆包大模型（火山方舟）</h3>
+        <p class="hint">这是豆包的对话模型，和「豆包语音」是两个不同的服务，需要在火山方舟控制台另外创建 API Key。</p>
+        <div class="field"><div class="label">API Key</div><div class="key-row"><input data-k="providers.ark.key" data-secret placeholder="火山方舟控制台 → API Key 管理"><button class="btn small" data-clear="providers.ark.key">清除</button></div></div>
+        <div class="field"><div class="label">模型 ID 或推理接入点 ID</div><div class="key-row"><input data-k="providers.ark.chat_model" list="dl-ark" placeholder="例如 doubao-seed-… 或 ep-…"><button class="btn small" data-models="ark">获取模型列表</button></div><datalist id="dl-ark"></datalist></div>
+        <div class="field"><div class="label">接口地址</div><input data-k="providers.ark.base_url"></div>
+        <div class="test-row"><button class="btn small" data-test="ark" data-kind="chat">测试连接</button><span class="test-result"></span></div>
+      </section>
+
+      <section data-sec="net" hidden>
+        <h3>网络代理</h3>
+        <div class="field"><div class="label">代理地址</div><input data-k="proxy" placeholder="例如 http://127.0.0.1:7897（Clash Verge 默认端口）"><div class="hint">只给勾选了「通过网络代理连接」的服务用。默认 ChatGPT、OpenAI、Claude、Gemini 走代理。</div></div>
+        <div class="field"><label class="check"><input type="checkbox" data-k="providers.deepseek.use_proxy"> DeepSeek 也走代理</label></div>
+        <div class="field"><label class="check"><input type="checkbox" data-k="providers.siliconflow.use_proxy"> 硅基流动也走代理</label></div>
+        <div class="field"><label class="check"><input type="checkbox" data-k="providers.ark.use_proxy"> 豆包大模型也走代理</label></div>
+        <div class="field"><label class="check"><input type="checkbox" data-k="providers.doubao.use_proxy"> 豆包语音也走代理</label></div>
+      </section>
+
+      <section data-sec="about" hidden>
+        <h3>关于与数据</h3>
+        <p>猛人字幕　版本 <b id="aboutVersion"></b>　·　开源项目：<a href="#" id="aboutHome">github.com/longpeng1413/mengren-subtitles</a></p>
+
+        <div class="label strong">换电脑：导出 / 导入设置</div>
+        <p class="hint">导出成一个文件，在新电脑的猛人字幕里导入，就能直接用原来的设置、各家 API 密钥、ChatGPT 登录、老师和术语表。</p>
+        <div class="field">
+          <label class="check"><input type="checkbox" id="exKeys" checked> 包含 API 密钥和 ChatGPT 登录（文件要妥善保管，不要发给别人）</label>
+          <label class="check"><input type="checkbox" id="exLibrary"> 包含媒体库的文件夹列表（新电脑上路径相同时才有用）</label>
+        </div>
+        <div class="test-row"><button class="btn small primary" id="btnExportSettings">导出设置…</button><button class="btn small" id="btnImportSettings">导入设置…</button><span class="test-result" id="ioMsg"></span></div>
+
+        <div class="label strong" style="margin-top:22px">缓存和日志放在哪里</div>
+        <p class="hint">默认放在软件所在的文件夹里，文件夹名就写着「可随时删除」，不占 C 盘。更改后重启软件生效。</p>
+        <div class="field"><div class="key-row"><code class="path" id="aboutRoot"></code><button class="btn small" id="btnStorage">更改位置…</button><button class="btn small" id="btnStorageReset">恢复默认</button></div></div>
+
+        <p class="hint">软件出问题时（报错、卡住、关不掉），日志里会记下原因。把日志文件夹里的 app.log 发给 Claude 就能查。日志不包含 API Key。设置、老师档案和媒体库很小，放在下面「设置」那个文件夹里。</p>
+        <div class="field"><div class="label">日志</div><div class="key-row"><code class="path" id="aboutLog"></code><button class="btn small" data-dir="log">打开日志文件夹</button></div></div>
+        <div class="field"><div class="label">设置、老师档案、媒体库</div><div class="key-row"><code class="path" id="aboutData"></code><button class="btn small" data-dir="data">打开</button></div></div>
+        <div class="field"><div class="label">缓存（转换后的视频、抽出的音频）　当前 <b id="aboutCacheSize"></b></div><div class="key-row"><code class="path" id="aboutCache"></code><button class="btn small" data-dir="cache">打开</button><button class="btn small" id="clearCache">清空缓存</button></div>
+          <div class="hint">会自动清理：抽出的音频保留 3 天；转换后的视频最多保留 5GB，超出时先删最久没看的。日志最多 4 个文件、每个 2MB，满了自动删最旧的。清空缓存不会删除字幕、设置和你的视频。</div></div>
+      </section>
+    </div>
+  </div>
+  <div class="dialog-btns settings-btns">
+    <span class="muted small-text">密钥和登录信息只保存在这台电脑上。</span>
+    <span class="grow"></span>
+    <button class="btn" id="setCancel">关闭</button>
+    <button class="btn primary" id="setSave">保存设置</button>
+  </div>
+</dialog>
+
+<div class="ctx-menu" id="ctxMenu" hidden></div>
+<div class="toasts" id="toasts"></div>
+<script src="app.js"></script>
+</body>
+</html>

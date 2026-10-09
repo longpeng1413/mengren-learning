@@ -1,0 +1,57 @@
+{
+ "version": 1,
+ "title": "演示视频",
+ "lang": "en",
+ "segments": [
+  {
+   "start": 0.5,
+   "end": 4.7,
+   "text": "Welcome to this lesson on trading psychology.",
+   "tr": "欢迎来到交易心理学这一课。"
+  },
+  {
+   "start": 5.3,
+   "end": 9.5,
+   "text": "Today we talk about fear and greed in the market.",
+   "tr": "今天我们聊聊市场中的恐惧与贪婪。"
+  },
+  {
+   "start": 10.1,
+   "end": 14.3,
+   "text": "Most traders lose money because they cannot control risk.",
+   "tr": "大多数交易者亏钱，是因为无法控制风险。"
+  },
+  {
+   "start": 14.9,
+   "end": 19.1,
+   "text": "Before every trade, decide how much you are willing to lose.",
+   "tr": "每次交易前，先决定你愿意亏多少。"
+  },
+  {
+   "start": 19.7,
+   "end": 23.9,
+   "text": "If the market breaks the level, you follow it.",
+   "tr": "如果市场突破了这个位置，你就跟上。"
+  },
+  {
+   "start": 24.5,
+   "end": 28.7,
+   "text": "Never add to a losing position.",
+   "tr": ""
+  },
+  {
+   "start": 29.3,
+   "end": 33.5,
+   "text": "Let your profits run, and cut your losses short.",
+   "tr": ""
+  },
+  {
+   "start": 34.1,
+   "end": 38.3,
+   "text": "This is the core of the edge cycle system.",
+   "tr": ""
+  }
+ ],
+ "summary": "",
+ "chat": []
+}
