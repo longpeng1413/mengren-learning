@@ -6,7 +6,7 @@ import threading
 import time
 from pathlib import Path
 
-from core import asr, book, cache, codex_auth, config, doc as docs, frames, jobs, library, llm, media
+from core import asr, book, cache, codex_auth, config, doc as docs, frames, glossary, jobs, library, llm, media
 from core.log import LOG_DIR, log
 
 MEDIA_FILTER = ('音视频和文档 (*.mp4;*.m4v;*.mov;*.mkv;*.webm;*.avi;*.flv;*.ts;*.wmv;*.3gp;*.mpg;*.mpeg;'
@@ -239,6 +239,27 @@ class Api:
             return {'summary': out, 'added': n, 'before': round(before, 3), 'after': round(after, 3)}
         return {'job': jobs.start('review', run).id}
 
+    def do_terms_suggest(self, b):
+        """从这节课里找新术语和识别错误（校对改动 + 完整字幕），去掉术语表里已有的，交给用户勾选。"""
+        d = b.get('doc') or {}
+        teacher = config.get_teacher(d.get('teacher'))
+        if not teacher:
+            raise ValueError('先在顶栏选择老师，才知道和哪份术语表比对、加进哪份术语表')
+        if not d.get('segments'):
+            raise ValueError('还没有字幕')
+        s = config.load()
+        name = s['chat']
+        llm.check(s, name)
+
+        def run(job):
+            job.report(0.05, 'AI 正在找这节课的新术语…')
+            return llm.suggest_terms(s, name, d, teacher)
+        return {'job': jobs.start('terms', run).id}
+
+    def do_terms_add(self, b):
+        """把勾选的新术语和识别错误加进老师的术语表（关联了 Obsidian 文件就写进文件，先备份）。"""
+        return glossary.add(b.get('teacher'), b.get('terms'), b.get('errors'), str(b.get('title') or ''))
+
     def do_coverage(self, b):
         d = b.get('doc') or {}
         ratio, gaps = llm.coverage(d.get('segments'), d.get('summary') or '')
@@ -296,7 +317,7 @@ class Api:
         boundary = docs.source_boundary(d, media.tail_problem(mp) if mp and os.path.isfile(mp) else '')
         shot = (lambda t: frames.grab(mp, t)) if mp and os.path.isfile(mp) else None
         return docs.clip(d, ob.get('vault'), ob.get('folder'), teacher, series, ob.get('teacher_subfolder', True),
-                         ob.get('name_pattern') or '{title}', boundary, shot, ob.get('include_frames', True))
+                         ob.get('name_pattern') or '{title}', boundary, shot)
 
     def do_reveal(self, b):
         """在资源管理器里显示文件，或用 Obsidian 打开笔记。"""

@@ -45,6 +45,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     document.execCommand('insertText', false, '改过的第一句');
     src0.blur();
     ok('自动保存', await until(() => !S.dirty && !S.saving, 5000));
+    ok('手动改字幕记下改动（用来积累术语表）', (S.doc.fixes || []).some(f => f.after === '改过的第一句' && f.by === 'manual' && f.before && f.before !== f.after), S.doc.fixes);
     const reread = await api('open', { path: base + '演示视频.mp4' });
     ok('修改和老师都保存到磁盘', reread.doc.segments[0].text === '改过的第一句' && reread.doc.teacher === tr.teacher.id);
     ok('媒体库里的状态跟着更新', await until(() => [...document.querySelectorAll('.lib-item.active .tag')].length >= 1));
@@ -55,7 +56,9 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     cue1.querySelector('.src').focus();
     const mb = cue1.querySelector('[data-act="merge"]').getBoundingClientRect();
     const hitEl = document.elementFromPoint(mb.left + mb.width / 2, mb.top + mb.height / 2);
-    ok('工具按钮排成两列，「合并」点得到、属于这一句', mb.width > 0 && hitEl && hitEl.closest('[data-act="merge"]') && hitEl.closest('.cue') === cue1,
+    const mouseOnCues = !!document.querySelector('.cues-inner:hover');  // 真实鼠标正好停在字幕上时，悬停状态会干扰这项检查
+    if (mouseOnCues) console.log('鼠标停在字幕上，跳过「合并」按钮的点击位置检查');
+    ok('工具按钮排成两列，「合并」点得到、属于这一句', mouseOnCues || (mb.width > 0 && hitEl && hitEl.closest('[data-act="merge"]') && hitEl.closest('.cue') === cue1),
        [mb.top, mb.height, cue1.getBoundingClientRect().bottom, hitEl && hitEl.outerHTML.slice(0, 80)]);
     cue1.querySelector('.src').blur();
 
@@ -149,6 +152,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     updateButtons();
     ok('有存疑句时可以用画面复核', !document.querySelector('#btnRecheck').disabled);
     const plOrder = [...document.querySelectorAll('#dlgPipeline input[type=checkbox]')].map(x => x.id);
+    ok('一键整理：最后一步找新术语', plOrder[plOrder.length - 1] === 'plTerms', plOrder);
     ok('一键整理：先校对，再找关键帧、用画面复核存疑句', plOrder.indexOf('plCorrect') < plOrder.indexOf('plFrames') && plOrder.indexOf('plFrames') < plOrder.indexOf('plRecheck'), plOrder);
     ok('字幕栏上方显示存疑数量',!document.querySelector('#btnDoubts').hidden && document.querySelector('#btnDoubts').textContent === '存疑 1');
     document.querySelector('#btnDoubts').click();
@@ -181,6 +185,19 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     renderSummary();
     ok('有课程重点时可以查漏补缺', !document.querySelector('#btnReview').disabled);
     ok('显示字幕被引用的比例', await until(() => document.querySelector('#summaryHint').textContent.includes('字幕被引用约')), document.querySelector('#summaryHint').textContent);
+
+    // 新术语：勾选确认后加进术语表
+    ok('「新术语」按钮可用', !document.querySelector('#btnTerms').disabled);
+    S.doc.terms_pending = { terms: [{ term: '测试新术语', t: 1, quote: '原话' }, { term: '不要的词', t: 2, quote: '' }], errors: [{ wrong: '风机', right: '峰级', t: 3, quote: '' }] };
+    updateButtons();
+    ok('有待确认的新术语时按钮显示数量', document.querySelector('#btnTerms').textContent === '新术语 3');
+    const termsShown = openTerms();
+    ok('新术语对话框：列出新术语和识别错误', document.querySelector('#dlgTerms').open && document.querySelectorAll('#tmList .tm-row').length === 3);
+    document.querySelectorAll('#tmList .tm-row')[1].querySelector('input[type=checkbox]').checked = false;
+    document.querySelector('#dlgTerms').close('add');
+    await termsShown;
+    const tTerms = (teacherById(S.doc.teacher) || {}).terms || '';
+    ok('勾选的加进老师术语表，没勾的不加', tTerms.includes('测试新术语') && !tTerms.includes('不要的词') && tTerms.includes('风机 => 峰级') && !S.doc.terms_pending, tTerms);
 
     // 收起媒体库
     document.querySelector('#btnLibrary').click();

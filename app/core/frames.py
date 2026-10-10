@@ -26,6 +26,7 @@ SAME = 2.5            # 两张小图平均差小于这个值（0–255）算重�
 MASK_BOTTOM = 0.2     # 比较时不看最下面 20%（烧录字幕一直在变）
 CUES = re.compile(r'大家请看|大家看一下|你们看|请看|来看一下|看一下这|看这[里个张幅]|如图|这张图|板书|画一下|写一下|我画')
 SCREEN_BATCH = 8
+PICK_LIMIT = 8  # 一节课最多留几张可插的图（课程重点最多插 3 张）
 DESCRIBE_BATCH = 3
 WORKERS = 3
 
@@ -159,25 +160,53 @@ def _run_batches(batches, work, cancel, progress, label, lo, hi):
 
 SCREEN_PROMPT = (
     '下面是一节视频课程里按时间顺序截的几张画面（缩小过），每张前面标了编号和时间，后面附了这段时间的字幕。\n'
-    '请挑出值得留下的画面：画面里有知识信息——课件 / PPT 上的文字和图、板书、图表、K 线、老师现场手写手画的内容或标注。\n'
+    '请挑出可能需要插进课程笔记的画面：只有那些光看文字不好理解、看图才明白的——走势图、K 线图和上面的标注、老师手画的曲线和图形、结构关系图。\n'
     '规则：\n'
-    '- 同一页课件或同一块板书，只留内容最完整、被人挡得最少的一张；如果后面的图比前面的写得更多、画得更多，留后面的；\n'
-    '- 课程标题页、章节标题页要留（上面的课程名、章节名会在画面记录里照录）；\n'
-    '- 只有老师在讲话、屏幕内容和别的图一样、片头片尾装饰、屏幕看不清的，不留；\n'
-    '- 宁可少留，不要留重复的。\n'
-    '只输出 JSON：{"保留": [{"图": 编号, "原因": "一句话，比如：新的一页课件 / 板书比前一张多了交易曲线"}]}；一张都不值得留就输出 {"保留": []}。'
+    '- 纯文字的课件页、标题页、列表、只有老师在讲话的画面，一律不留（这些用文字就能写清楚）；\n'
+    '- 同一张图只留画得最完整、被人挡得最少的一张；后面的比前面画得更多，留后面的；\n'
+    '- 宁可少留，一节课一般只有几张。\n'
+    '只输出 JSON：{"保留": [{"图": 编号, "原因": "一句话，比如：老师手画的上升趋势曲线"}]}；一张都不需要就输出 {"保留": []}。'
 )
 
 DESCRIBE_PROMPT = (
-    '下面是一节视频课程的几张关键画面（原尺寸），每张前面标了编号和时间，后面附了这段时间老师说的话（语音识别字幕，可能有错字）。\n'
-    '请为每张写「画面记录」，给以后整理课程笔记的人当证据用：\n'
-    '- 照录课件 / PPT 上的标题、文字、数字、表格；\n'
-    '- 照录老师现场写的板书，描述老师手画的图形、箭头、圈、曲线、K 线标注和它们的位置关系；要分清哪些是课件原有的、哪些是老师现场写画的；\n'
-    '- 画面底部如果有字幕，单独抄在「字幕」里；\n'
-    '- 只写看得见的，不推测含义、不解释、不补充知识；看不清的字写「（看不清）」，拿不准的写「（疑似：…）」；\n'
-    '- 「插图」：默认 false。只有文字确实说不清的（手绘曲线的形状、K 线上标注的具体位置、复杂的结构关系图）才写 true；课件文字、板书文字、列表、简单流程都能用文字写清楚，写 false。\n'
-    '只输出 JSON：{"画面": [{"图": 编号, "记录": "……", "字幕": "画面上的字幕，没有就空", "插图": true 或 false}]}'
+    '下面是一节视频课程的几张画面（原尺寸），每张前面标了编号和时间，后面附了这段时间老师说的话（语音识别字幕，可能有错字）。\n'
+    '课程笔记只插必要的图，帮助理解文字说不清的地方。请对每张：\n'
+    '- 「插图」：只有文字确实说不清的（手绘曲线的形状、K 线上标注的具体位置、复杂的结构关系图）才写 true；纯文字课件、列表、简单流程写 false；\n'
+    '- 「说明」：一句话说清图上画的是什么，40 字以内，方便放到笔记对应的位置（例如：老师手画的下跌趋势，标出峰和级的位置）；只写看得见的，不解释含义、不补充知识，不要照抄课件上的文字。\n'
+    '只输出 JSON：{"画面": [{"图": 编号, "说明": "……", "插图": true 或 false}]}'
 )
+
+
+PICK_PROMPT = (
+    '下面是 AI 从一节课里挑出的可插图画面：每张有编号、时间、一句话说明，以及那段时间老师说的话。'
+    '课程笔记整节课最多插 3 张图，只插文字确实说不清的地方。请从中选出最值得插的，不超过 {limit} 张：\n'
+    '- 同一张图只留一张：说明几乎一样、或者讲的是同一件事的，留画得最完整的那张（通常是后面那张）；说明里写了被老师挡住的，换成同一张图里没被挡住的；\n'
+    '- 优先留老师重点讲解、文字最难说清的（手绘曲线的形状、K 线上标注的位置、结构关系）；\n'
+    '- 宁可少留。\n'
+    '只输出 JSON：{{"保留": [编号, …]}}'
+)
+
+
+def pick(settings, name, frames, segments, limit=PICK_LIMIT):
+    """可插的图太多时，让 AI 按说明去重、只留最必要的几张（只看文字，不再传图）。"""
+    from . import llm
+    if len(frames) <= limit:
+        return frames
+    lines = []
+    for k, f in enumerate(frames, 1):
+        said = _subs_between(segments, f['t'] - 20, f['t'] + 10, 300).replace('\n', ' ')
+        lines.append(f'{k}. [{_fmt(f["t"])}] {f.get("note") or ""}\n   老师说：{said}')
+    msg = PICK_PROMPT.format(limit=limit) + '\n\n' + '\n'.join(lines)
+    for _ in range(2):
+        try:
+            data = _json(llm.complete(settings, name, [{'role': 'user', 'content': msg}], json_mode=True))
+            keep = {int(x) for x in (data.get('保留') or [])}
+            out = [f for k, f in enumerate(frames, 1) if k in keep][:limit]
+            if out:
+                return out
+        except (ValueError, TypeError, AttributeError):
+            continue
+    return frames[:limit]
 
 
 def _json(raw):
@@ -239,20 +268,21 @@ def describe(settings, name, path, frames, segments, cancel=None, progress=lambd
                 for x in items:
                     k = int(x.get('图', 0)) if isinstance(x, dict) else 0
                     if 1 <= k <= len(batch):
-                        out[k - 1].update(note=str(x.get('记录') or '').strip(), caption=str(x.get('字幕') or '').strip(),
-                                          figure=bool(x.get('插图')))
+                        out[k - 1].update(note=str(x.get('说明') or x.get('记录') or '').strip()[:120], caption='',
+                                          figure=bool(x.get('插图')) or bool(out[k - 1].get('manual')))  # 手动截的是用户挑的，默认可插
                 if on_part:
                     on_part(out)
                 return out
             except (ValueError, TypeError, AttributeError):
                 continue
-        raise llm.LlmError('画面记录结果格式不对，请重试或换一个 AI 服务')
-    results = _run_batches(batches, work, cancel, progress, 'AI 正在写画面记录', lo, hi)
+        raise llm.LlmError('插图说明结果格式不对，请重试或换一个 AI 服务')
+    results = _run_batches(batches, work, cancel, progress, 'AI 正在判断哪些图需要插', lo, hi)
     return [f for r in results for f in (r or [])]
 
 
 def extract(settings, name, path, duration, segments, cancel=None, progress=lambda f, m=None: None, on_part=None):
-    """完整流程：候选 → AI 筛选 → 画面记录。name 为空时只截候选图（没有能看图的 AI）。返回 [{t, why, note, caption, figure}]。"""
+    """完整流程：候选 → AI 挑可能要插的图 → 再确认、写一句说明，只留确实需要插的。
+    name 为空时只截候选图（没有能看图的 AI）。返回 [{t, why, note, figure}]。"""
     progress(0.0, '正在分析画面…')
     samples = _samples(path, duration, lambda f: progress(0.15 * f, '正在分析画面…'), cancel)
     if not samples:
@@ -269,7 +299,9 @@ def extract(settings, name, path, duration, segments, cancel=None, progress=lamb
     chosen = screen(settings, name, path, cands, segments, cancel, progress, 0.3, 0.6)
     if not chosen:
         return []
-    return describe(settings, name, path, chosen, segments, cancel, progress, 0.6, 1.0, on_part)
+    kept = [f for f in describe(settings, name, path, chosen, segments, cancel, progress, 0.6, 0.95, on_part) if f.get('figure')]
+    progress(0.96, '正在去掉重复的图…')
+    return pick(settings, name, kept, segments)
 
 
 RECHECK_PROMPT = (

@@ -215,8 +215,9 @@ def doubt_map(doc):
     return out
 
 
-def to_markdown(doc, teacher=None, series='', status='待审计', boundary='', include_frames=True):
-    """蒸馏用的笔记：上半部分课程重点，下半部分完整带时间戳的字幕（审核校验用的原始数据）。"""
+def to_markdown(doc, teacher=None, series='', status='待审计', boundary=''):
+    """蒸馏用的笔记：上半部分课程重点（含必要的插图），下半部分完整带时间戳的字幕（审核校验用的原始数据）。
+    画面记录不写进笔记（用户 2026-10 要求：笔记只要课程重点和完整字幕）。"""
     media = doc.get('media', '')
     uri = Path(media).as_uri() if media else ''
     try:
@@ -266,13 +267,6 @@ def to_markdown(doc, teacher=None, series='', status='待审计', boundary='', i
         lines.append((f'[{fmt(s["start"])}] {s.get("text", "")}' + (f' 〔存疑：{why}〕' if why else '')).rstrip())
         if s.get('tr'):
             lines.append(f'　　{s["tr"]}')
-    shots = [f for f in sorted(doc.get('frames') or [], key=lambda f: float(f.get('t', 0))) if f.get('note')] if include_frames else []
-    if shots:
-        lines += ['', '## 画面记录', '', '> AI 看关键帧写的画面内容（课件文字、板书、老师手写手画的内容、画面上的字幕），作为字幕之外的证据。']
-        for f in shots:
-            lines += ['', f'**[{fmt(float(f["t"]))}]** ' + str(f['note']).strip()]
-            if f.get('caption'):
-                lines.append(f'画面字幕：「{f["caption"]}」')
     return '\n'.join(lines).rstrip() + '\n'
 
 
@@ -369,8 +363,7 @@ def place_figures(summary, frames_list, note_dir: Path, title, shot):
     return _FIG.sub(repl, summary)
 
 
-def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolder=True, name_pattern='{title}', boundary='', shot=None,
-         include_frames=True):
+def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolder=True, name_pattern='{title}', boundary='', shot=None):
     if not vault or not Path(vault).is_dir():
         raise OSError('找不到 Obsidian 库文件夹，请到「设置 → Obsidian」检查库的位置')
     target_dir = Path(vault) / (folder or '')
@@ -393,7 +386,7 @@ def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolde
     status = (_old_status(path) if path.exists() else None) or '待审计'
     path.parent.mkdir(parents=True, exist_ok=True)
     out = dict(doc, summary=place_figures(doc.get('summary') or '', doc.get('frames'), path.parent, doc.get('title') or '字幕', shot))
-    path.write_text(to_markdown(out, teacher, series, status, boundary, include_frames), encoding='utf-8')
+    path.write_text(to_markdown(out, teacher, series, status, boundary), encoding='utf-8')
     vault_name = Path(vault).name
     rel = path.relative_to(Path(vault)).as_posix()
     from urllib.parse import quote

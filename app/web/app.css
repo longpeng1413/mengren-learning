@@ -413,3 +413,14 @@ body.mode-book .video-only { display: none !important; }
 .btn.doubt-btn { color: #e09a2a; border-color: color-mix(in srgb, #f0a030 40%, transparent); }
 .file-link { display: flex; gap: 6px; align-items: center; }
 .file-link code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- 新术语 ---------- */
+.terms-dlg { width: 760px; }
+.terms-dlg #tmInfo { margin: 0 0 12px; line-height: 1.6; }
+.tm-list { max-height: 56vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; }
+.tm-head { font-weight: 600; margin: 10px 0 4px; color: var(--muted); font-size: 13px; }
+.tm-row { display: grid; grid-template-columns: 22px minmax(140px, auto) 64px 1fr; gap: 8px; align-items: center; padding: 4px 0; }
+.tm-row .tm-in { width: 100%; min-width: 0; padding: 4px 8px; }
+.tm-pair { display: grid; grid-template-columns: 1fr 16px 1fr; gap: 4px; align-items: center; min-width: 260px; }
+.tm-quote { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dialog-btns .grow { flex: 1; }

@@ -699,6 +699,15 @@ function onCueInput(e) {
   if (el.classList.contains('src')) seg.text = el.textContent; else seg.tr = el.textContent;
   markDirty();
 }
+/* 记下每句字幕从什么改成了什么（AI 校对、画面复核、手动修改），用来找这节课的识别错误、积累术语表 */
+function recordFix(doc, seg, before, after, by) {
+  if (!doc || !seg || !before || before === after) return;
+  const list = doc.fixes || (doc.fixes = []);
+  const old = list.find(f => Math.abs(f.t - seg.start) < 0.05 && f.after === before);
+  if (old) { old.after = after; if (by === 'manual') old.by = 'manual'; }
+  else list.push({ t: seg.start, before, after, by });
+  if (list.length > 1500) list.splice(0, list.length - 1500);
+}
 function snapshot() {
   S.undo.push(JSON.stringify(S.doc.segments));
   if (S.undo.length > 60) S.undo.shift();
@@ -815,6 +824,10 @@ function updateButtons() {
   $('#btnDescribe').disabled = !S.doc || busy || !((S.doc && S.doc.frames) || []).some(f => !f.note);
   $('#btnRecheck').disabled = !S.doc || busy || !vid || !doubtIndexes().length;
   $('#btnReview').disabled = !has || busy || !(S.doc && (S.doc.summary || '').trim()) || !!S.chatAbort;
+  $('#btnTerms').disabled = !has || busy;
+  const pend = S.doc && S.doc.terms_pending, nPend = pend ? pend.terms.length + pend.errors.length : 0;
+  $('#btnTerms').textContent = nPend ? `新术语 ${nPend}` : '新术语';
+  $('#btnTerms').classList.toggle('primary', !!nPend);
   $('#btnSend').disabled = !has;
 }
 
@@ -995,6 +1008,7 @@ async function startCorrect(auto) {
         for (const it of list) {
           const seg = refs[it.i]; if (!seg) continue;
           if (it.doubt) { doubts.push({ t: seg.start, reason: it.doubt, text: seg.text }); continue; }
+          recordFix(S.doc, seg, seg.text, it.text, 'ai');
           seg.text = it.text; n++;
           const el = cueEl(S.doc.segments.indexOf(seg));
           if (el) { $('.src', el).textContent = it.text; el.classList.add('fixed'); }
@@ -1071,20 +1085,22 @@ function openPipeline() {
   $('#plTeacher').onchange = () => {
     const t = teacherById($('#plTeacher').value);
     if (t && !S.doc.lang) $$('input[name=plLang]').forEach(r => r.checked = r.value === t.lang);
+    $('#plTerms').checked = !!t;
     sync();
   };
   $$('input[name=plLang]').forEach(r => r.onchange = sync);
   sync();
   $('#plSummary').checked = true;
   $('#plClip').checked = false;
+  $('#plTerms').checked = !!$('#plTeacher').value;
   const vid = !!(S.info && S.info.has_video), nShots = (S.doc.frames || []).length;
   $('#plFrames').disabled = !vid;
   $('#plFrames').checked = vid && !nShots && providerReady(S.settings.vision);
   $('#plRecheck').disabled = !vid;
   $('#plRecheck').checked = vid && providerReady(S.settings.vision);
   $('#plFramesLabel').textContent = !vid ? '找关键帧（这是音频文件，没有画面）'
-    : nShots ? `重新找关键帧（现在有 ${nShots} 张画面记录，会替换自动找的那些）`
-      : `找关键帧、写画面记录${providerReady(S.settings.vision) ? '' : '（还没设置画面识别用的 AI）'}`;
+    : nShots ? `重新挑插图（现在有 ${nShots} 张，会替换自动挑的那些）`
+      : `挑必要的插图${providerReady(S.settings.vision) ? '' : '（还没设置画面识别用的 AI）'}`;
   dlg.returnValue = '';
   dlg.showModal();
   dlg.onclose = () => { if (dlg.returnValue === 'ok') runPipeline(); };
@@ -1101,6 +1117,7 @@ async function runPipeline() {
   if ($('#plTranslate').checked && !$('#plTranslate').disabled) steps.push(['翻译', () => startTranslate(false)]);
   if ($('#plSummary').checked) steps.push(['课程重点', () => doSummary()]);
   if ($('#plClip').checked) steps.push(['剪藏', () => doClip()]);
+  if ($('#plTerms').checked) steps.push(['新术语', () => findTerms(true)]);
   for (const [name, fn] of steps) {
     if (S.cancelPipeline) { toast('一键整理已停止'); return; }
     if (name !== '生成字幕' && !S.doc.segments.length) { toast('没有字幕，一键整理已停止', { error: true }); return; }
@@ -1125,6 +1142,77 @@ async function doExport(kind) {
   } catch (e) { fail(e); }
 }
 
+/* ----------------------------------------------------------- 新术语 ---- */
+/* 从这节课里找术语表里还没有的新术语和识别错误，用户勾选确认后加进老师的术语表（逐课积累） */
+async function findTerms(auto) {
+  if (!teacherById(S.doc.teacher)) {
+    if (!auto) toast('先在顶栏选择老师，才知道加进哪份术语表', { error: true });
+    return !!auto;
+  }
+  try {
+    await flushSave();
+    const r = await api('terms_suggest', { doc: S.doc });
+    let res = null;
+    const ok = await runJob(r.job, 'AI 正在找这节课的新术语…', { onDone: job => { res = job.result; } });
+    if (!ok || !res) return false;
+    if (!res.terms.length && !res.errors.length) {
+      S.doc.terms_pending = null; markDirty(); save(); updateButtons();
+      toast('没有发现术语表里还没有的新术语');
+      return true;
+    }
+    S.doc.terms_pending = res; markDirty(); save(); updateButtons();
+    await openTerms();
+    return true;
+  } catch (e) { fail(e); return false; }
+}
+function termRow(kind, x, i) {
+  const ts = `<a class="tslink" data-t="${x.t}" title="跳到这里听一下">[${fmt(x.t)}]</a>`;
+  const q = x.quote ? `<span class="tm-quote" title="${esc(x.quote)}">${esc(x.quote)}</span>` : '<span class="tm-quote"></span>';
+  return kind === 'term'
+    ? `<div class="tm-row" data-kind="term" data-i="${i}"><input type="checkbox" checked><input class="tm-in" data-f="term" value="${esc(x.term)}">${ts}${q}</div>`
+    : `<div class="tm-row" data-kind="error" data-i="${i}"><input type="checkbox" checked><span class="tm-pair"><input class="tm-in" data-f="wrong" value="${esc(x.wrong)}"><span>→</span><input class="tm-in" data-f="right" value="${esc(x.right)}"></span>${ts}${q}</div>`;
+}
+function openTerms() {
+  const pend = S.doc.terms_pending; if (!pend) return Promise.resolve();
+  const t = teacherById(S.doc.teacher) || {};
+  const dlg = $('#dlgTerms');
+  const file = t.terms_file ? t.terms_file.split(/[\\/]/).pop() : '';
+  $('#tmInfo').innerHTML = `加进 <b>${esc(t.name || '')}</b> 的术语表` +
+    (file ? `：写在「${esc(file)}」末尾的「逐课补充（猛人学习）」一节，写之前自动备份。` : '（老师档案里的术语）。') +
+    '只记录名称，不写定义。不对的去掉勾，写错的可以直接改；点时间可以回听。';
+  $('#tmList').innerHTML =
+    (pend.terms.length ? `<div class="tm-head">新术语（以后识别时当热词）</div>` + pend.terms.map((x, i) => termRow('term', x, i)).join('') : '') +
+    (pend.errors.length ? `<div class="tm-head">识别错误（以后校对时参考）</div>` + pend.errors.map((x, i) => termRow('error', x, i)).join('') : '');
+  dlg.returnValue = '';
+  dlg.showModal();
+  return new Promise(resolve => {
+    dlg.onclose = async () => {
+      const v = dlg.returnValue;
+      if (v === 'add') await addTerms();
+      else if (v === 'drop') { S.doc.terms_pending = null; markDirty(); save(); }
+      updateButtons();
+      resolve();
+    };
+  });
+}
+async function addTerms() {
+  const terms = [], errors = [];
+  $$('#tmList .tm-row').forEach(row => {
+    if (!$('input[type=checkbox]', row).checked) return;
+    const pend = S.doc.terms_pending, i = +row.dataset.i;
+    const val = f => ($(`[data-f="${f}"]`, row) || {}).value.trim();
+    if (row.dataset.kind === 'term') { const x = pend.terms[i]; if (val('term')) terms.push({ ...x, term: val('term') }); }
+    else { const x = pend.errors[i]; if (val('wrong') && val('right')) errors.push({ ...x, wrong: val('wrong'), right: val('right') }); }
+  });
+  if (!terms.length && !errors.length) { toast('一条都没勾，术语表没有改动；这些候选还留着，点「新术语」可以再看'); return; }
+  try {
+    const r = await api('terms_add', { teacher: S.doc.teacher, terms, errors, title: S.doc.title });
+    S.doc.terms_pending = null; markDirty(); save();
+    if (!r.file) await refreshSettingsOnly();
+    toast(r.terms || r.errors ? `已加进术语表：新术语 ${r.terms} 条，识别错误 ${r.errors} 条。下次识别和校对就会用上` : '这些都已经在术语表里了', { ms: 7000 });
+  } catch (e) { fail(e); }
+}
+
 /* ------------------------------------------------------------- 剪藏 ---- */
 async function doClip() {
   try {
@@ -1138,7 +1226,7 @@ async function doClip() {
 }
 
 /* -------------------------------------------------------------- 画面 ---- */
-/* 关键帧和画面记录：AI 校对、课程重点、对话都会参考；课程重点里的 ![[画面 mm:ss]] 剪藏时换成图片 */
+/* 插图：只挑文字说不清、需要看图的画面，每张一句说明；课程重点里的 ![[画面 mm:ss]] 剪藏时换成图片 */
 function frameUrl(t, small) {
   const key = `${S.path}|${t}|${small ? 's' : ''}`;
   if (!S.frameUrls[key]) S.frameUrls[key] = api('frame_url', { path: S.path, t, small }).then(r => r.url).catch(() => { delete S.frameUrls[key]; return ''; });
@@ -1160,8 +1248,8 @@ function shotHTML(f, i) {
         <label class="check" title="课程重点里可以插这张图"><input type="checkbox" data-fig ${f.figure ? 'checked' : ''}> 可插图</label>
         ${f.why ? `<span class="why" title="${esc(f.why)}">${esc(f.manual ? '手动截取' : f.why).slice(0, 24)}</span>` : (f.manual ? '<span class="why">手动截取</span>' : '')}
         <span class="grow"></span>
-        <button data-redo title="让 AI 重新写这张的画面记录">重新识别</button><button data-del title="删除这张画面">删除</button></div>
-      <textarea data-note spellcheck="false" placeholder="${f.note === undefined ? '还没有画面记录，点「补写画面记录」让 AI 写，或者自己写' : ''}">${esc(f.note || '')}</textarea>
+        <button data-redo title="让 AI 重新写这张图的说明">重新识别</button><button data-del title="删除这张画面">删除</button></div>
+      <textarea data-note spellcheck="false" placeholder="${f.note === undefined ? '还没有说明，点「补写说明」让 AI 写一句，或者自己写' : ''}">${esc(f.note || '')}</textarea>
       ${f.caption ? `<div class="cap">画面字幕：「${esc(f.caption)}」</div>` : ''}
     </div></div>`;
 }
@@ -1170,7 +1258,7 @@ function renderFrames() {
   const list = (S.doc && S.doc.frames) || [];
   $('#framesCount').textContent = list.length ? list.length : '';
   if (!S.doc || !list.length) {
-    box.innerHTML = `<div class="ai-empty">${S.info && !S.info.has_video ? '这是音频文件，没有画面。' : '点「找关键帧」：软件会挑出课件、板书、老师手绘这类有内容的画面，<br>让能看图的 AI 写成画面记录（照录课件文字和板书、分清哪些是老师现场画的）。<br>AI 校对、课程重点和对话都会参考；课程重点里还可以插图。'}</div>`;
+    box.innerHTML = `<div class="ai-empty">${S.info && !S.info.has_video ? '这是音频文件，没有画面。' : '点「找插图」：软件挑出光看文字不好理解、需要看图的画面（走势图、K 线标注、老师手画的曲线），<br>每张写一句说明。课程重点里只在文字确实说不清的地方插图，整节课最多 3 张；纯文字的课件不插。'}</div>`;
   } else {
     box.innerHTML = list.map(shotHTML).join('');
     $$('img[data-st]', box).forEach(img => frameUrl(+img.dataset.st, true).then(u => { if (u) img.src = u; }));
@@ -1193,13 +1281,13 @@ async function findFrames(auto) {
     const r = await api('frames_extract', { path: S.path, segments: doc.segments, duration: doc.duration || (S.info && S.info.duration) || 0 });
     const got = [];
     return await runJob(r.job, '正在找关键帧…', {
-      onItems: items => { if (S.doc !== doc) return; got.push(...items); doc.frames = manual.concat(got); sortFrames(); renderFrames(); },
+      onItems: items => { if (S.doc !== doc) return; got.push(...items.filter(f => f.figure)); doc.frames = manual.concat(got); sortFrames(); renderFrames(); },
       onDone: job => {
         if (S.doc !== doc) return;
         doc.frames = manual.concat(job.result.frames || []); sortFrames();
         renderFrames(); markDirty(); save();
         const n = (job.result.frames || []).length;
-        toast(n ? `找到 ${n} 张有内容的画面，已写好画面记录。AI 校对、课程重点和对话会参考它们` : '没有找到有内容的画面（只有老师讲话的视频很正常）', { ms: 7000 });
+        toast(n ? `挑出 ${n} 张需要看图才好理解的画面，课程重点里会在必要的地方插图（最多 3 张）` : '没有需要插图的画面（纯文字课件或只有老师讲话的视频很正常）', { ms: 7000 });
       },
       onError: job => { if (S.doc === doc) { doc.frames = old; renderFrames(); } if (job.status === 'error') fail(new Error(job.error)); },
     });
@@ -1219,9 +1307,9 @@ async function describeFrames(list) {
       }
       if (S.doc === doc) renderFrames();
     };
-    return await runJob(r.job, 'AI 正在写画面记录…', {
+    return await runJob(r.job, 'AI 正在写图片说明…', {
       onItems: apply,
-      onDone: job => { apply(job.result.frames || []); markDirty(); save(); toast('画面记录写好了'); },
+      onDone: job => { apply(job.result.frames || []); markDirty(); save(); toast('图片说明写好了'); },
       onError: job => { renderFrames(); if (job.status === 'error') fail(new Error(job.error)); },
     });
   } catch (e) { renderFrames(); fail(e); return false; }
@@ -1239,7 +1327,7 @@ async function captureFrame() {
   $$('.ai-tabs .tab')[2].click();
   renderFrames(); markDirty();
   if (providerReady(S.settings.vision)) await describeFrames([f]);
-  else toast('已截取。还没设置「画面识别」用的 AI，可以自己在下面写画面记录', { ms: 6000 });
+  else toast('已截取。还没设置「画面识别」用的 AI，可以自己在下面写一句说明', { ms: 6000 });
 }
 /* 用画面复核存疑句：AI 校对后还拿不准的句子，截下说话时的画面再核对一次 */
 async function recheckDoubts(auto) {
@@ -1262,7 +1350,7 @@ async function recheckDoubts(auto) {
           const seg = segs[x.i]; if (!seg) continue;
           const d = doubtOf(seg);
           if (x.text !== undefined) {
-            if (x.text !== seg.text) { seg.text = x.text; fixed++; }
+            if (x.text !== seg.text) { recordFix(doc, seg, seg.text, x.text, 'frames'); seg.text = x.text; fixed++; }
             if (d) doc.doubts = doc.doubts.filter(y => y !== d);
             if (S.doc === doc) { const el = cueEl(x.i); if (el) { $('.src', el).textContent = seg.text; el.classList.add('fixed'); } }
           } else if (d && x.doubt) d.reason = x.doubt;
@@ -1788,10 +1876,11 @@ function bind() {
       S.loopIdx = i;
     }
   });
-  box.addEventListener('focusin', e => { if (e.target.matches('.src, .tr')) S.editing = e.target; });
+  box.addEventListener('focusin', e => { if (e.target.matches('.src, .tr')) { S.editing = e.target; e.target._orig = e.target.textContent; } });
   box.addEventListener('focusout', e => {
     if (e.target.matches('.src, .tr')) {
       const cue = e.target.closest('.cue');
+      if (e.target.matches('.src') && S.doc) recordFix(S.doc, S.doc.segments[+cue.dataset.i], e.target._orig, e.target.textContent, 'manual');
       lastCaret = { i: +cue.dataset.i, field: e.target.classList.contains('src') ? 'src' : 'tr', pos: e.target._caret ?? null };
       S.editing = null;
     }
@@ -1912,6 +2001,7 @@ function bind() {
     const img = e.target.closest('.shot-fig img'); if (img && img.src) showLightbox(img.src);
   });
   $('#btnReview').onclick = () => { if (!S.job) runReview(); };
+  $('#btnTerms').onclick = () => { if (S.job) return; if (S.doc.terms_pending) openTerms(); else findTerms(false); };
   $('#tDelete').onclick = deleteTeacher;
   $('#tTerms').oninput = countTerms;
   $('#tNotes').oninput = countTerms;

@@ -4,6 +4,7 @@
 - ChatGPT 账号登录（Codex 接口）；
 - Claude（Anthropic 官方 SDK）；
 - Gemini（Google 的 REST 接口）。"""
+import difflib
 import json
 import re
 import time
@@ -384,6 +385,15 @@ def terms_from_markdown(text):
     i = 0
     while i < len(lines):
         head = lines[i].strip()
+        first = head.strip('|').split('|')[0].strip() if head.startswith('|') else ''
+        if first in ('术语', '新术语') and i + 1 < len(lines) and re.match(r'^\s*\|[\s:|-]+\|\s*$', lines[i + 1]):
+            i += 2
+            while i < len(lines) and lines[i].strip().startswith('|'):
+                w = lines[i].strip().strip('|').split('|')[0].strip().strip('*“”"')
+                if w and len(w) <= 20:
+                    words.append(w)
+                i += 1
+            continue
         if head.startswith('|') and re.search(r'ASR|误识|识别|错误', head) and i + 1 < len(lines) and re.match(r'^\s*\|[\s:|-]+\|\s*$', lines[i + 1]):
             i += 2
             while i < len(lines) and lines[i].strip().startswith('|'):
@@ -440,9 +450,8 @@ def frames_block(doc, a=None, b=None, limit=30000):
     text = notes_text(doc.get('frames'), a, b, limit)
     if not text:
         return ''
-    return ('===== 画面记录 =====\n'
-            '（AI 看关键帧写的：课件文字、板书、老师手写手画的内容和画面上的字幕，只是画面上看得到的东西。'
-            '画面字幕和看图也可能有错，要和字幕互相核对。标了「可插图」的画面可以插进笔记。）\n' + text + '\n===== 画面记录结束 =====')
+    return ('===== 画面（可插图）=====\n'
+            '（AI 挑出的、文字不好说清需要看图的画面，每张一句话说明图上画的是什么。标了「可插图」的可以插进笔记。）\n' + text + '\n===== 画面结束 =====')
 
 
 def system_prompt(doc, teacher=None):
@@ -466,14 +475,14 @@ DEFAULT_TEMPLATE = """请整理这节课的「课程重点」。它会放在 Mar
 - 为了把逻辑关系讲清楚，可以调整讲解顺序、把分散在不同时间讲的同一件事合并到一起；合并时每一处的原意分别保留、分别标时间，不能拼成老师没说过的新判断。
 - 只写老师讲过的内容。不补充老师没讲的知识，不替老师推理结论，不评价对错，不加自己的建议。
 - 宁可多写，不要漏写。凡是有知识意义的内容都要有着落：概念、定义、规则、条件、方法、举例、类比、列举的具体事物、数字、对错误做法的纠正、反复强调的话。
-- 老师的自述也要保留，并写明是「老师自述」，不评价、不核实：个人经历、从业和研究年限、教过多少学生、出书和出版社、「原创」之类的说法、对自己水平的评价、对弟子或师门的称呼。
-- 课程安排也要保留：哪些内容老师说放到后面的课、线下课或专栏里讲，这节课为后面哪些内容做了铺垫。
+- 老师自述一律保留，不评价、不核实、不删除，每条前面写「老师自述：」。包括：个人经历、从业和研究年限、教过多少学生、出书和出版社、「原创」之类的声明、对自己水平的评价、对弟子或师门的称呼。老师对市场、对别人的看法不是自述，不加这个标签。
+- 课程安排也按老师自述处理，同样保留、写「老师自述：」：哪些内容老师说放到后面的课、线下课或专栏里讲，这节课为后面哪些内容做了铺垫。
 - 老师给出的定义、口诀、规则、条件、数字和阈值要照录；能体现老师观点和表达习惯的关键原话，用引号原样保留，引号里的断句按意思断清楚。
 - 不要写「这说明……」「核心是……」「本质上……」「换句话说……」「老师真正想表达的是……」这类你自己的归纳。确实需要说明来源情况时（比如原话前后不一致、话没说完），单独写成「整理者注：……」，整理者注里不能补充知识。
-- 画面：没有「画面记录」时，不要写「图示中」「画面显示」，老师指着图讲的地方写成「老师结合走势举例」这类说法。有画面记录时，只来自画面的信息（课件文字、板书、手绘图形）写成「画面显示……」，不能写成老师说的；画面和字幕对不上时以老师说的为准，必要时写整理者注。
-- 插图：非必要不插图，笔记要尽量小。只有文字确实说不清的（手绘曲线的形状、K 线上标注的具体位置、复杂的结构关系图）才插——在对应要点后面另起一行写 `![[画面 mm:ss]]`，时间必须是画面记录里标了「可插图」的；整节课最多 3 张。课件文字、板书文字、列表、简单流程，一律用文字写清楚，不插图。
+- 画面：老师指着图讲的地方，写成「老师结合走势举例」这类说法，不要写「图示中」「画面显示」；画面说明只用来决定在哪里插图，不要把它写成老师讲的内容。只有能看出老师口述和课件不一致时，才两边分别保留，写成「老师口述：……」「课件写的是：……」，再加一行「整理者注：口述与课件不一致」，不替老师判断哪个对；没有不一致时不要写「老师口述：」。
+- 插图：非必要不插图，笔记要尽量小。只有文字确实说不清的（手绘曲线的形状、K 线上标注的具体位置、复杂的结构关系图）才插——在对应要点后面另起一行写 `![[画面 mm:ss]]`，时间必须是「画面（可插图）」里列出的；整节课最多 3 张，没有必要就一张都不插。课件文字、板书文字、列表、简单流程，一律用文字写清楚，不插图。
 - 每个要点后面标注出处时间，写成 [mm:ss] 或 [h:mm:ss]；合并了多处内容时，把几个时间都标上。
-- 术语一律用术语表里的写法。字幕可能有识别错字，按上下文理解；拿不准的地方标注「（存疑）」，老师没讲清楚的标注「（未讲明）」，不要自己补全。
+- 术语一律用术语表里的写法。字幕可能有识别错字，按上下文理解；拿不准的地方标注「（存疑）」。老师提到但没讲明的（没给定义、没说条件、话没说完、说以后再讲），在那句后面标「（未讲明）」，只标这一次，不要再另写「本节未讲明」；不补写、不推测。
 - 格式：不要写总标题，直接用一两句话说明这节课讲了什么，然后用「##」开始各部分，下面可以用「###」；不要开场白和结束语。"""
 
 
@@ -483,6 +492,85 @@ def summary_messages(doc, teacher, template, boundary=''):
         ask += '\n\n来源情况（软件检查得到）：' + boundary + '\n请在最后用一行「整理者注：」如实说明，不要补写缺失或没说完的内容。'
     return [{'role': 'system', 'content': system_prompt(doc, teacher)},
             {'role': 'user', 'content': ask}]
+
+
+# ------------------------------------------------------------------ 新术语 ----
+TERMS_SYSTEM = (
+    '你在帮用户逐课积累一份课程专用术语表，用作语音识别的热词和 AI 校对的参考。从这节课里找两类东西：\n'
+    '1. 新术语：老师在这门课里使用的专有名词——理论和概念的名称、口诀、形态和工具的名字、老师自创的说法、对师门的称呼等。'
+    '不要大众通用词（趋势、价格、止损、均线这类，除非老师给了特殊的叫法），不要普通口语，不要术语表里已经有的。\n'
+    '2. 识别错误：只从「校对改动」里找——语音识别把术语识别成了同音、近音的别的字（例如把「峰级」识别成「风机」）。'
+    '不要普通错别字、标点、语气词、增删字；正确写法应当是术语表里已有的术语或这次的新术语；错写写成字幕里实际出现的样子，可以比改动的字多带一两个字，让它成为完整的词。\n'
+    '只记录名称，不写定义。拿不准的不要列。每条写出处时间 mm:ss 和老师原话片段（40 字以内，照抄字幕）。\n'
+    '只输出 JSON 对象：{"新术语": [{"术语": "", "时间": "mm:ss", "原话": ""}], "识别错误": [{"错写": "", "正确": "", "时间": "mm:ss", "原话": ""}]}；'
+    '没有就输出空列表。'
+)
+
+
+def fix_spans(fixes, limit=300):
+    """字幕改动（AI 校对、画面复核、手动修改）→ 每处换掉的几个字：[{t, wrong, right, before, after, by}]。
+    只看「替换」：拆分、合并、删字、加字不算识别错误。"""
+    out = []
+    for f in fixes or []:
+        a, b = str(f.get('before') or ''), str(f.get('after') or '')
+        if not a or not b or a == b:
+            continue
+        for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+            wrong, right = a[i1:i2].strip(), b[j1:j2].strip()
+            if op == 'replace' and wrong and right and len(wrong) <= 8 and len(right) <= 8 and re.search(r'\w', right):
+                out.append({'t': float(f.get('t') or 0), 'wrong': wrong, 'right': right, 'before': a, 'after': b, 'by': f.get('by') or 'ai'})
+    return out[:limit]
+
+
+def terms_messages(doc, teacher):
+    now = {str(s.get('text') or '') for s in doc.get('segments') or []}
+    spans = fix_spans([f for f in doc.get('fixes') or [] if f.get('after') in now])  # 撤销掉的改动不算
+    by = {'manual': '人工改', 'frames': '看画面改', 'ai': 'AI 改'}
+    changes = '\n'.join(f'[{fmt(x["t"])}] 「{x["wrong"]}」→「{x["right"]}」（{by.get(x["by"], "AI 改")}）　原句：{x["before"][:80]}　改后：{x["after"][:80]}'
+                         for x in spans) or '（这节课没有校对改动）'
+    return [{'role': 'system', 'content': TERMS_SYSTEM},
+            {'role': 'user', 'content': f'课程标题：{doc.get("title") or ""}\n' + teacher_block(teacher, with_notes=False) +
+             '\n\n===== 校对改动（原识别 → 改正后）=====\n' + changes +
+             '\n\n===== 完整字幕 =====\n' + transcript_text(doc)[:80000]}]
+
+
+def _secs(v):
+    m = re.match(r'^\[?(\d{1,2}):(\d{2})(?::(\d{2}))?\]?$', str(v or '').strip())
+    if not m:
+        return 0.0
+    a, b, c = m.groups()
+    return float(int(a) * 3600 + int(b) * 60 + int(c)) if c is not None else float(int(a) * 60 + int(b))
+
+
+def known_terms(teacher):
+    """术语表里已有的：(术语集合, 已有的错写集合)。"""
+    words, hints, forced = parse_terms((teacher or {}).get('terms'))
+    known = set(words)
+    wrongs = set()
+    for w, right in hints + forced:
+        wrongs.add(w)
+        known.add(re.split(r'[（(]', right)[0].strip())
+    return known, wrongs
+
+
+def suggest_terms(settings, name, doc, teacher):
+    """返回 {'terms': [{term, t, quote}], 'errors': [{wrong, right, t, quote}]}，已去掉术语表里有的。"""
+    data = _json_from(complete(settings, name, terms_messages(doc, teacher), json_mode=True)) or {}
+    known, wrongs = known_terms(teacher)
+    terms, errors, seen = [], [], set()
+    for x in data.get('新术语') or []:
+        w = str((x or {}).get('术语') or '').strip().strip('「」“”"')
+        if w and len(w) <= 20 and w not in known and w not in seen:
+            seen.add(w)
+            terms.append({'term': w, 't': _secs(x.get('时间')), 'quote': str(x.get('原话') or '').strip()[:60]})
+    pairs = set()
+    for x in data.get('识别错误') or []:
+        a = str((x or {}).get('错写') or '').strip().strip('「」“”"')
+        b = str((x or {}).get('正确') or '').strip().strip('「」“”"')
+        if a and b and a != b and len(a) <= 20 and len(b) <= 20 and a not in wrongs and (a, b) not in pairs:
+            pairs.add((a, b))
+            errors.append({'wrong': a, 'right': b, 't': _secs(x.get('时间')), 'quote': str(x.get('原话') or '').strip()[:60]})
+    return {'terms': terms, 'errors': errors}
 
 
 # ------------------------------------------------------------------ 查漏补缺 ----
@@ -530,7 +618,8 @@ REVIEW_SYSTEM = (
     '要找的包括：概念、定义、规则、条件、方法、举例、类比、列举的具体事物、数字；老师自述（经历、年限、学生数量、出版、原创说法、对自己的评价、对弟子或师门的称呼）；'
     '课程安排（放到后面的课、线下课或专栏讲的内容）和对后面内容的铺垫。'
     '已经写到的（哪怕换了说法）不算漏。口头语、寒暄、重复、没说完又重说的话不算漏。'
-    '只写老师讲过的，不补充、不评价；老师自述要写明「老师自述」；每条标出处时间 [mm:ss]；术语用术语表的写法。'
+    '只写老师讲过的，不补充、不评价；老师自述和课程安排每条前面写「老师自述：」；老师没讲明的标「（未讲明）」，不补写；'
+    '口述和课件不一致时两边分别写出，再加「整理者注：口述与课件不一致」；每条标出处时间 [mm:ss]；术语用术语表的写法。'
     '只输出 JSON 对象：{"补充": [{"放在": "课程重点里已有的小标题原文（找不到合适的就写空字符串）", "内容": "- 一条 Markdown 要点 [mm:ss]"}, ...]}；没有漏掉的就输出 {"补充": []}。'
 )
 
@@ -678,7 +767,7 @@ def correct_batch(settings, name, items, title, teacher, before='', after='', vi
     """返回 (改动 {编号: 新句子}, 存疑 {编号: 原因})。visual：同一时间段的画面记录。"""
     payload = {str(i): t for i, t in items}
     user = (f'课程标题：{title}\n' + teacher_block(teacher) + '\n' +
-            (f'同一时间段的画面记录（课件文字、板书和画面上的字幕，可以用来核对术语、人名和数字；画面字幕也可能有错，要结合判断）：\n{visual}\n' if visual else '') +
+            (f'同一时间段的画面（一句话说明，仅供参考）：\n{visual}\n' if visual else '') +
             (f'前文（仅供参考，不要输出）：{before}\n' if before else '') +
             (f'后文（仅供参考，不要输出）：{after}\n' if after else '') +
             '请校对下面的字幕（JSON，键是编号）：\n' + json.dumps(payload, ensure_ascii=False))

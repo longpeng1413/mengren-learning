@@ -279,7 +279,7 @@ nt = frames.notes_text(shots)
 check('画面记录写成文字', '[00:05]（可插图） 课件标题：交易心理学　画面字幕：「欢迎来到」' in nt and '[00:20] 老师手画曲线' in nt, nt)
 check('画面记录按时间段取', '老师手画曲线' not in frames.notes_text(shots, 0, 10))
 sp = llm.system_prompt({'title': 'x', 'segments': [], 'frames': shots}, None)
-check('画面记录写进 AI 提示', '===== 画面记录 =====' in sp and '课件标题：交易心理学' in sp)
+check('画面说明写进 AI 提示', '===== 画面（可插图）=====' in sp and '课件标题：交易心理学' in sp)
 check('没有画面记录时不写', '画面记录' not in llm.system_prompt({'title': 'x', 'segments': []}, None))
 check('课程重点要求：有画面时怎么写、怎么插图', '![[画面 mm:ss]]' in llm.DEFAULT_TEMPLATE and '画面显示' in llm.DEFAULT_TEMPLATE)
 seen = {}
@@ -293,11 +293,98 @@ c6 = api.call('clip', {'doc': d15})
 b6 = Path(c6['path']).read_text(encoding='utf-8')
 img = Path(c6['path']).parent / 'image' / '演示视频__00-05.jpg'
 check('剪藏：插图复制到笔记旁边的 image 文件夹', '![[image/演示视频__00-05.jpg]]' in b6 and img.exists() and img.stat().st_size > 1000, b6[:800])
-check('剪藏：笔记最后附画面记录', b6.index('## 完整字幕') < b6.index('## 画面记录') and '**[00:05]** 课件标题：交易心理学' in b6)
+check('剪藏：笔记只有课程重点和完整字幕，不附画面记录', '## 画面记录' not in b6 and '课件标题：交易心理学' not in b6 and b6.index('## 课程重点') < b6.index('## 完整字幕'))
 check('剪藏：插图压缩得比原截图小', img.stat().st_size < frames.grab(mp4, 5.0).stat().st_size, (img.stat().st_size, frames.grab(mp4, 5.0).stat().st_size))
-api.call('settings', {'settings': {'obsidian': dict(config.load()['obsidian'], include_frames=False)}})
-check('可以不附画面记录', '## 画面记录' not in Path(api.call('clip', {'doc': dict(d15, clip={'path': c6['path']})})['path']).read_text(encoding='utf-8'))
-check('插图非必要不用：最多 3 张', '最多 3 张' in llm.DEFAULT_TEMPLATE and '默认 false' in frames.DESCRIBE_PROMPT)
+check('插图非必要不用：最多 3 张，纯文字课件不插', '最多 3 张' in llm.DEFAULT_TEMPLATE and '纯文字课件' in frames.DESCRIBE_PROMPT
+      and '纯文字的课件页' in frames.SCREEN_PROMPT and '不要照抄课件上的文字' in frames.DESCRIBE_PROMPT)
+
+# 找插图：只留确实需要插的图；手动截取的默认可插
+orig_screen, orig_describe = frames.screen, frames.describe
+frames.screen = lambda *a, **k: [{'t': 5.0, 'why': '手画曲线'}, {'t': 20.0, 'why': '文字页'}]
+frames.describe = lambda *a, **k: [{'t': 5.0, 'why': '手画曲线', 'note': '老师手画的上升趋势', 'figure': True},
+                                   {'t': 20.0, 'why': '文字页', 'note': '纯文字课件', 'figure': False}]
+ex = frames.extract({}, 'codex', mp4, 40, [])
+frames.screen, frames.describe = orig_screen, orig_describe
+check('找插图：只留需要插的图', [f['t'] for f in ex] == [5.0], ex)
+many = [{'t': float(i * 30), 'note': f'第{i}张', 'figure': True} for i in range(12)]
+seen_p = {}
+llm.complete = lambda s_, n_, msgs, **k: seen_p.setdefault('u', msgs[-1]['content']) and json.dumps({'保留': [2, 5, 9]})
+pk = frames.pick({}, 'codex', many, [{'start': 60.0, 'end': 62.0, 'text': '看这张图'}])
+check('可插的图太多时去重、只留最必要的几张', [f['t'] for f in pk] == [30.0, 120.0, 240.0] and '不超过 8 张' in seen_p['u'] and '看这张图' in seen_p['u'], pk)
+check('可插的图不多时不再筛', frames.pick({}, 'codex', many[:5], []) == many[:5])
+llm.complete = orig_complete
+orig_c = llm.complete
+llm.complete = lambda *a, **k: json.dumps({'画面': [{'图': 1, '说明': '一页文字课件', '插图': False}]})
+dm = frames.describe({}, 'codex', mp4, [{'t': 5.0, 'manual': True}], [])
+llm.complete = orig_c
+check('手动截取的画面：写一句说明，默认可插', dm[0]['figure'] and dm[0]['note'] == '一页文字课件' and not dm[0].get('caption'), dm)
+
+# 课程重点：老师自述、口述与课件不一致、未讲明
+T = llm.DEFAULT_TEMPLATE
+check('课程重点：老师自述（含课程安排）一律保留并标「老师自述：」', '老师自述一律保留，不评价、不核实、不删除' in T and '课程安排也按老师自述处理' in T and '原创' in T and '出版社' in T)
+check('课程重点：口述与课件不一致时分别保留并加整理者注', '老师口述：……' in T and '整理者注：口述与课件不一致' in T)
+check('课程重点：没讲明的标（未讲明），只标一次，不补写', '标「（未讲明）」，只标这一次' in T and '不补写、不推测' in T)
+check('课程重点：对别人的看法不算自述；没有不一致时不写「老师口述」', '不是自述' in T and '没有不一致时不要写「老师口述：」' in T)
+check('查漏补缺也照这几条写', '「老师自述：」' in llm.REVIEW_SYSTEM and '（未讲明）' in llm.REVIEW_SYSTEM and '口述与课件不一致' in llm.REVIEW_SYSTEM)
+
+# 逐课积累术语表
+sp_ = llm.fix_spans([{'t': 3.0, 'before': '这个风机线很重要', 'after': '这个峰级线很重要', 'by': 'ai'},
+                     {'t': 9.0, 'before': '甲乙丙丁戊', 'after': '甲乙', 'by': 'manual'}])
+check('校对改动 → 换掉的字（拆分、删字不算）', [(x['wrong'], x['right']) for x in sp_] == [('风机', '峰级')], sp_)
+md_terms = '| 术语 | 首次出现 | 老师原话 |\n| --- | --- | --- |\n| 棍态 | 《第4课》[01:00] | 原话 |\n\n| ASR常见识别 | 正确术语 | 出处 |\n| --- | --- | --- |\n| 风机线 | 峰级线 | 《第4课》[05:13] |\n'
+tm = llm.terms_from_markdown(md_terms)
+check('术语表文档：逐课补充的新术语表和识别错误表都认得', '棍态' in tm and '风机线 => 峰级线' in tm, tm)
+
+from core import glossary  # noqa: E402
+base = '---\ntitle: 术语表\n---\n\n# 一、峰\n\n正确写法：\n\n> **峰**\n\n# 二、级\n\n正确写法：\n\n> **级**\n'
+m1, nt, ne = glossary.merge_markdown(base, [{'term': '棍态', 't': 60, 'quote': '这叫棍态'}],
+                                     [{'wrong': '风机线', 'right': '峰级线', 't': 313, 'quote': '风机线'}], '4、基本功-峰级分析')
+check('写进术语表：原来的内容一个字不动，末尾加「逐课补充」一节', m1.startswith(base.rstrip('\n')) and '# 三、逐课补充（猛人学习）' in m1 and nt == 1 and ne == 1, m1[-500:])
+check('写进术语表：表格行带出处', '| 棍态 | 《4、基本功-峰级分析》[01:00] | 这叫棍态 |' in m1 and '| 风机线 | 峰级线 | 《4、基本功-峰级分析》[05:13] |' in m1, m1[-500:])
+m2, nt2, ne2 = glossary.merge_markdown(m1, [{'term': '棍态', 't': 1}, {'term': '夹棍', 't': 2}],
+                                       [{'wrong': '风级线', 'right': '峰级线', 't': 5}, {'wrong': '风机线', 'right': '峰级线', 't': 6}], '5、下一课')
+check('再加一课：重复的不加，同一个正确写法的错写并进一行', nt2 == 1 and ne2 == 1 and m2.count('| 棍态 |') == 1 and '| 风机线、风级线 | 峰级线 |' in m2
+      and m2.count('逐课补充（猛人学习）') == 1 and '《5、下一课》[00:05]' in m2, m2[-600:])
+m3 = glossary.merge_markdown(base.replace('\n', '\r\n'), [{'term': '棍态', 't': 1}], [], 'x')[0]
+check('写进术语表：保留原来的换行格式', '\r\n' in m3 and '\n' not in m3.replace('\r\n', ''))
+tm2 = llm.terms_from_markdown(m2)
+check('写进去的内容下次就能用上', '棍态' in tm2 and '夹棍' in tm2 and '风机线, 风级线 => 峰级线' in tm2, tm2)
+
+gfile = TMP / '课程术语表.md'
+gfile.write_text(base, encoding='utf-8')
+gt = config.save_teacher({'name': '术语积累测试', 'terms_file': str(gfile)})
+orig_check, orig_c = llm.check, llm.complete
+llm.check = lambda *a, **k: None
+seen3 = {}
+
+
+def fake_terms(s_, n_, msgs, **k):
+    seen3['u'] = msgs[-1]['content']
+    return json.dumps({'新术语': [{'术语': '峰', '时间': '00:01', '原话': '峰'}, {'术语': '棍态', '时间': '01:00', '原话': '这叫棍态'}],
+                       '识别错误': [{'错写': '风机', '正确': '峰级', '时间': '00:03', '原话': '风机线'}, {'错写': '峰', '正确': '峰', '时间': '00:01'}]})
+
+
+llm.complete = fake_terms
+tdoc = {'title': '第4课', 'teacher': gt['id'], 'segments': [{'start': 3.0, 'end': 5.0, 'text': '这个峰级线很重要', 'tr': ''}, {'start': 60.0, 'end': 62.0, 'text': '这叫棍态', 'tr': ''}],
+        'fixes': [{'t': 3.0, 'before': '这个风机线很重要', 'after': '这个峰级线很重要', 'by': 'manual'},
+                  {'t': 60.0, 'before': '这叫滚态', 'after': '这叫棍态了', 'by': 'ai'}]}
+tj = wait(api.call('terms_suggest', {'doc': tdoc})['job'])
+llm.check, llm.complete = orig_check, orig_c
+check('找新术语：去掉术语表里已有的', tj['status'] == 'done' and [x['term'] for x in tj['result']['terms']] == ['棍态']
+      and [(x['wrong'], x['right'], x['t']) for x in tj['result']['errors']] == [('风机', '峰级', 3.0)], tj)
+check('找新术语：把校对改动交给 AI，撤销掉的不算', '「风机」→「峰级」（人工改）' in seen3['u'] and '滚态' not in seen3['u'], seen3['u'][:600])
+check('没选老师时不找新术语', '先在顶栏选择老师' in api.call('terms_suggest', {'doc': dict(tdoc, teacher='')})['error'])
+ta = api.call('terms_add', {'teacher': gt['id'], 'title': '第4课', 'terms': tj['result']['terms'], 'errors': tj['result']['errors']})
+gtext = gfile.read_text(encoding='utf-8')
+check('加进关联的术语表文件', ta['file'] == str(gfile) and ta['terms'] == 1 and ta['errors'] == 1 and '| 棍态 | 《第4课》[01:00] | 这叫棍态 |' in gtext and gtext.startswith(base.rstrip('\n')), ta)
+check('写之前先备份', any((config.DATA_DIR / 'backups' / '术语表').glob('课程术语表-*.md')))
+rt = config.get_teacher(gt['id'])
+check('老师档案下次读到新术语和识别错误', '棍态' in rt['terms'] and '风机 => 峰级' in rt['terms'], rt['terms'][-200:])
+nt_ = config.save_teacher({'name': '没关联文件的老师', 'terms': '峰级'})
+ta2 = api.call('terms_add', {'teacher': nt_['id'], 'terms': [{'term': '棍态'}, {'term': '峰级'}], 'errors': [{'wrong': '风机', 'right': '峰级'}]})
+check('没关联文件时加进老师档案', ta2['file'] == '' and ta2['terms'] == 1 and config.get_teacher(nt_['id'])['terms'] == '峰级\n棍态\n风机 => 峰级', config.get_teacher(nt_['id'])['terms'])
+config.delete_teacher(gt['id'])
+config.delete_teacher(nt_['id'])
 seen2 = {}
 
 

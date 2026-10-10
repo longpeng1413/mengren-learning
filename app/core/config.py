@@ -135,7 +135,7 @@ DEFAULTS = {
     'last_lang': 'zh',
     'last_teacher': '',
     'storage_dir': '',
-    'obsidian': {'vault': '', 'folder': '猛人学习', 'teacher_subfolder': True, 'name_pattern': '{title}', 'include_frames': True,
+    'obsidian': {'vault': '', 'folder': '猛人学习', 'teacher_subfolder': True, 'name_pattern': '{title}',
                  'book_folder': '猛人学习/书籍', 'book_dir_pattern': '《{title}》{author}'},
     'book_rules_file': '',
     'auto_review': True,
