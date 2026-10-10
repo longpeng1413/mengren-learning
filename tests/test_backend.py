@@ -155,8 +155,103 @@ check('老师信息写进 AI 提示', '底层逻辑、峰级、破级、拓扑�
 again['teacher'] = t['id']
 again['clip'] = None
 c3 = api.call('clip', {'doc': again})
-check('按老师分子文件夹', Path(c3['path']).parent.name == '大聪老师', c3)
+check('没有剪藏记录时，按视频路径找到已有笔记并更新', c3['path'] == c['path'], c3)
 check('笔记属性里有老师', 'teacher: "大聪老师"' in Path(c3['path']).read_text(encoding='utf-8'))
+shutil.rmtree(vault / '学习')
+c3b = api.call('clip', {'doc': again})
+check('按老师分子文件夹', Path(c3b['path']).parent.name == '大聪老师', c3b)
+
+# ---------------------------------------------------------------- 1.4 ----
+# 关联 Obsidian 术语表文件
+gloss = TMP / '课程术语表.md'
+gloss.write_text('''# 课程术语表 V1.1
+
+# 三、峰
+
+正确写法：
+
+> **峰**
+
+# 十、破级
+
+- **标准写法**：破级
+
+# 三十七、已知ASR常见错误映射
+
+| ASR常见识别 | 正确术语 |
+| --- | --- |
+| 风、分 | 峰 |
+| 破极、破局 | 破级 |
+| 止行、部分“止盈” | 可能为“指形”，必须结合上下文 |
+| 冲门 | 葱门（仅限上下文明确指向师门群体） |
+
+--hotwords "大葱老师,峰级线"
+''', encoding='utf-8')
+extracted = llm.terms_from_markdown(gloss.read_text(encoding='utf-8'))
+w2, h2, f2 = llm.parse_terms(extracted)
+check('从术语表文档读出术语', w2[:4] == ['峰', '破级', '大葱老师', '峰级线'] and not f2, (w2, extracted))
+check('读出识别错误对照（只作参考）', ('冲门', '葱门（仅限上下文明确指向师门群体）') in h2 and ('分', '峰') in h2 and ('止行', '指形（可能为“指形”，必须结合上下文）') in h2, h2)
+check('识别错误的说明不进热词', '葱门' in w2 and all('仅限' not in x for x in w2), w2)
+t2 = api.call('teacher_save', {'teacher': {'name': '咖米大葱老师', 'display': '大葱老师', 'terms': '底层逻辑', 'terms_file': str(gloss)}})['teacher']
+rt = config.get_teacher(t2['id'])
+check('关联文件：术语合并、整份文件当术语说明', '底层逻辑' in rt['terms'] and '冲门 => 葱门' in rt['terms'] and '已知ASR常见错误映射' in rt['notes'])
+check('原始档案不被改动', config.get_teacher(t2['id'], resolve=False)['terms'] == '底层逻辑')
+check('Obsidian 里改了术语表，软件用最新的', (gloss.write_text(gloss.read_text(encoding='utf-8') + '\n# 九、新术语\n\n正确写法：**新词**\n', encoding='utf-8') or True)
+      and '新词' in config.get_teacher(t2['id'])['terms'])
+pv = api.call('terms_preview', {'path': str(gloss)})
+check('术语表文件预览', pv['ok'] and pv['words'] >= 5 and pv['hints'] >= 4, pv)
+gloss.unlink()
+check('文件不见了也能继续用档案里的术语', config.get_teacher(t2['id'])['terms'] == '底层逻辑' and config.get_teacher(t2['id']).get('terms_file_error'))
+
+# 课程重点要求：老师自述、课程安排、不加自己的归纳
+for key in ('老师自述', '课程安排', '整理者注', '不要写「这说明', '不要写「图示中」'):
+    check('课程重点要求：' + key, key in llm.DEFAULT_TEMPLATE)
+
+# 覆盖率和查漏插入
+segs = [{'start': i * 10.0, 'end': i * 10 + 9.0, 'text': f'第{i}句讲了一些内容，有知识意义的话。', 'tr': ''} for i in range(30)]
+summ = '一句话说明。\n\n## 一、开头\n\n- 要点一 [00:00] [00:30]\n\n## 二、结尾\n\n- 要点二 [04:10]'
+ratio, gaps = llm.coverage(segs, summ)
+check('覆盖率：找出没有出处的大段', 0 < ratio < 1 and gaps and gaps[0][0] == 70.0, (ratio, [(a, b) for a, b, _ in gaps]))
+new = llm.insert_additions(summ, [{'放在': '一、开头', '内容': '- 老师自述：教过两万多学生 [01:20]'}, {'放在': '不存在的小节', '内容': '课程安排：线下课讲 [03:00]'}])
+check('查漏：补到对应小节末尾', new.index('教过两万多学生') < new.index('## 二、结尾') and new.index('要点一') < new.index('教过两万多学生'), new)
+check('查漏：找不到小节的放到最后', new.rstrip().endswith('- 课程安排：线下课讲 [03:00]') and '## 其他补充' in new, new)
+orig_complete = llm.complete
+llm.complete = lambda *a, **k: json.dumps({'补充': [{'放在': '二、结尾', '内容': '- 漏掉的举例 [02:00]'}]}, ensure_ascii=False)
+out, n_add, b4, af = llm.review_summary({}, 'codex', {'title': 't', 'segments': segs}, None, summ)
+check('查漏流程：补完覆盖率变高', n_add == 1 and af > b4 and '漏掉的举例 [02:00]' in out, (n_add, b4, af))
+
+# AI 校对：存疑句
+llm.complete = lambda *a, **k: json.dumps({'改动': {'1': '峰级的入门'}, '存疑': {'2': '疑似识别错误，可能是「讲论」'}}, ensure_ascii=False)
+fx2, dbt = llm.correct_batch({}, 'codex', [(1, '风级的入门'), (2, '这是一个关于峰级的讲论文')], 't', None)
+check('AI 校对：改动和存疑分开返回', fx2 == {1: '峰级的入门'} and dbt == {2: '疑似识别错误，可能是「讲论」'}, (fx2, dbt))
+llm.complete = lambda *a, **k: json.dumps({'改动': {'1': '峰级的入门'}})
+check('AI 校对：兼容没有存疑的回答', llm.correct_batch({}, 'codex', [(1, '风级的入门')], 't', None) == ({1: '峰级的入门'}, {}))
+llm.complete = orig_complete
+
+# 来源情况、标题层级、剪藏
+bd = docs.source_boundary({'duration': 1478.0, 'segments': [{'start': 1460.68, 'end': 1464.0, 'text': '特别是在大葱老师线下课啊，你也可以'}]})
+check('来源情况：字幕提前结束、最后一句没说完', '最后约 14 秒' in bd and '没有说完' in bd, bd)
+check('来源情况：完整的不报', docs.source_boundary({'duration': 10, 'segments': [{'start': 0, 'end': 9.5, 'text': '好。'}]}) == '')
+sh = docs._shift_headings('# 课程重点：交易底层逻辑\n\n概述\n\n## 一、人事钱\n\n### 1. 钱\n')
+check('课程重点去掉总标题、标题降一级', sh.startswith('概述') and '### 一、人事钱' in sh and '#### 1. 钱' in sh, sh)
+shutil.rmtree(vault / '学习')
+d14 = dict(again, teacher=t2['id'], clip=None, summary='# 课程重点：演示\n\n## 一、开头\n要点 [00:05]',
+           doubts=[{'t': again['segments'][1]['start'], 'reason': '疑似识别错误'}])
+api.call('settings', {'settings': {'obsidian': {'vault': str(vault), 'folder': '学习/猛人字幕', 'teacher_subfolder': True, 'name_pattern': '{title}（猛人字幕）'}}})
+c4 = api.call('clip', {'doc': d14})
+n4 = Path(c4['path'])
+b4_ = n4.read_text(encoding='utf-8')
+check('笔记文件名格式、老师称呼', n4.name == '演示视频（猛人字幕）.md' and n4.parent.name == '大葱老师' and 'teacher: "大葱老师"' in b4_, c4)
+check('笔记：标题层级、状态、存疑句', '\n### 一、开头' in b4_ and '# 课程重点：演示' not in b4_ and 'status: "待审计"' in b4_ and '〔存疑：疑似识别错误〕' in b4_, b4_[:600])
+moved = vault / '别处' / '改了名.md'
+moved.parent.mkdir()
+n4.replace(moved)
+moved.write_text(moved.read_text(encoding='utf-8').replace('status: "待审计"', 'status: "已确认-资料"'), encoding='utf-8')
+d14['clip'] = {'path': str(n4)}
+c5 = api.call('clip', {'doc': d14})
+check('笔记被移动改名后，再剪藏仍更新原笔记', Path(c5['path']) == moved and not n4.exists(), c5)
+check('再剪藏保留笔记里的 status', 'status: "已确认-资料"' in moved.read_text(encoding='utf-8'))
+api.call('teacher_delete', {'id': t2['id']})
 
 # 媒体库
 lib = api.call('library_add_folder', {'path': str(MEDIA)})

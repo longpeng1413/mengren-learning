@@ -365,12 +365,18 @@ const ICONS = {
   merge: '<svg viewBox="0 0 24 24"><path d="M7 4v6a5 5 0 0 0 10 0V4M12 15v5"/></svg>',
   del: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
 };
+function doubtOf(seg) {
+  const ds = S.doc && S.doc.doubts;
+  return ds && seg ? ds.find(d => Math.abs(d.t - seg.start) < 0.02) || null : null;
+}
 function cueHTML(seg, i) {
-  return `<div class="cue" data-i="${i}">
+  const d = doubtOf(seg);
+  return `<div class="cue${d ? ' doubt' : ''}" data-i="${i}">
     <button class="ts" tabindex="-1" title="跳到这里">${fmt(seg.start)}</button>
     <div class="cue-body">
       <div class="src" contenteditable="plaintext-only" spellcheck="false">${esc(seg.text)}</div>
       <div class="tr" contenteditable="plaintext-only" spellcheck="false" data-ph="${S.doc.lang === 'en' ? '（还没有译文，点「翻译」或在这里手动输入）' : ''}">${esc(seg.tr || '')}</div>
+      ${d ? `<div class="doubt-tag"><span class="why" title="${esc(d.reason)}">存疑：${esc(d.reason)}</span><button data-doubt="play" title="单句循环播放这一句">回听</button><button data-doubt="ok" title="已经回听确认（或改好了），去掉标记">已确认</button></div>` : ''}
     </div>
     <div class="cue-tools">
       <button data-act="align" title="把这一句的开始时间设为当前播放位置">${ICONS.align}</button>
@@ -387,6 +393,7 @@ function renderCues() {
     : `<div class="cues-empty">这个文件还没有字幕。<br>点上方的「生成字幕」或「一键整理」开始。</div>`;
   S.active = -1;
   $('#cueCount').textContent = segs.length ? `${segs.length} 句` : '';
+  updateDoubtBtn();
   runSearch(false);
   updateActive(true);
 }
@@ -434,6 +441,33 @@ function seek(t, play) {
   v.currentTime = Math.max(0, t + 0.01);
   if (play) v.play().catch(() => {});
   setTimeout(() => updateActive(true), 30);
+}
+function doubtIndexes() {
+  if (!S.doc || !(S.doc.doubts || []).length) return [];
+  return S.doc.segments.map((seg, i) => doubtOf(seg) ? i : -1).filter(i => i >= 0);
+}
+function updateDoubtBtn() {
+  const n = doubtIndexes().length;
+  $('#btnDoubts').hidden = !n;
+  $('#btnDoubts').textContent = `存疑 ${n}`;
+}
+function playLoop(i) {
+  const seg = S.doc.segments[i]; if (!seg) return;
+  $('#optLoop').checked = true; S.loopIdx = i;
+  seek(seg.start, true);
+  const el = cueEl(i); if (el) { el.scrollIntoView({ block: 'center' }); S.userScrollAt = Date.now(); }
+}
+function nextDoubt() {
+  const list = doubtIndexes(); if (!list.length) return;
+  const i = list.find(x => x > S.active) ?? list[0];
+  playLoop(i);
+}
+function resolveDoubt(i) {
+  const seg = S.doc.segments[i], d = doubtOf(seg); if (!d) return;
+  S.doc.doubts = S.doc.doubts.filter(x => x !== d);
+  const el = cueEl(i);
+  if (el) { el.classList.remove('doubt'); const tag = $('.doubt-tag', el); if (tag) tag.remove(); }
+  updateDoubtBtn(); markDirty();
 }
 function onCueInput(e) {
   const el = e.target.closest('.src, .tr'); if (!el) return;
@@ -544,6 +578,7 @@ function updateButtons() {
   $('#btnExport').disabled = !has;
   $('#btnClip').disabled = !has;
   $('#btnSummary').disabled = !has;
+  $('#btnReview').disabled = !has || busy || !(S.doc && (S.doc.summary || '').trim()) || !!S.chatAbort;
   $('#btnSend').disabled = !has;
 }
 
@@ -585,7 +620,7 @@ function teacherHint(id) {
   const t = teacherById(id);
   if (!t) return '不用术语表。可以在「设置 → 老师与术语表」里添加。';
   const n = (t.terms || '').split(/[\r\n,，、;；]+/).filter(x => x.trim()).length;
-  return `术语表约 ${n} 个词条${t.about ? '　背景：' + t.about.slice(0, 40) : ''}`;
+  return `${t.terms_file ? '关联了术语表文件（自动读最新内容）　' : ''}${n ? `手写术语约 ${n} 个词条` : ''}${t.about ? '　背景：' + t.about.slice(0, 40) : ''}`;
 }
 function openTranscribe() {
   const dlg = $('#dlgTranscribe');
@@ -716,22 +751,32 @@ async function startCorrect(auto) {
     const items = refs.map((s, i) => [i, s.text]).filter(([, txt]) => txt.trim());
     const r = await api('correct', { items, title: S.doc.title, teacher: S.doc.teacher });
     snapshot();
+    const oldDoubts = S.doc.doubts || [];
+    const doubts = [];
     let n = 0;
     const ok = await runJob(r.job, 'AI 校对中…', {
-      onItems: pairs => {
-        for (const [i, fixed] of pairs) {
-          const seg = refs[i]; if (!seg) continue;
-          seg.text = fixed; n++;
+      onItems: list => {
+        for (const it of list) {
+          const seg = refs[it.i]; if (!seg) continue;
+          if (it.doubt) { doubts.push({ t: seg.start, reason: it.doubt, text: seg.text }); continue; }
+          seg.text = it.text; n++;
           const el = cueEl(S.doc.segments.indexOf(seg));
-          if (el) { $('.src', el).textContent = fixed; el.classList.add('fixed'); }
+          if (el) { $('.src', el).textContent = it.text; el.classList.add('fixed'); }
         }
-        if (pairs.length) markDirty();
+        if (list.length) markDirty();
       },
     });
     if (ok) {
-      S.doc.corrected = true; markDirty(); save();
-      toast(n ? `AI 校对完成，改了 ${n} 句（绿色下划线标出），不满意可以按「撤销」恢复` : 'AI 校对完成，没有发现需要改的地方', { ms: 6000 });
-    } else if (!n) { S.undo.pop(); $('#btnUndo').disabled = !S.undo.length; }
+      S.doc.doubts = doubts; S.doc.corrected = true;
+      const fixedNow = $$('.cue.fixed', $('#cues')).map(el => +el.dataset.i);
+      renderCues(); fixedNow.forEach(i => { const el = cueEl(i); if (el) el.classList.add('fixed'); });
+      markDirty(); save();
+      toast((n ? `AI 校对完成，改了 ${n} 句（绿色下划线标出），不满意可以按「撤销」恢复` : 'AI 校对完成，没有发现需要改的地方')
+        + (doubts.length ? `。另有 ${doubts.length} 句存疑（橙色），点字幕栏上方的「存疑」逐句回听` : ''), { ms: 8000 });
+    } else {
+      S.doc.doubts = oldDoubts;
+      if (!n) { S.undo.pop(); $('#btnUndo').disabled = !S.undo.length; }
+    }
     return ok;
   } catch (e) { fail(e); return false; }
 }
@@ -856,6 +901,35 @@ function renderSummary() {
   $('#btnCopySummary').disabled = !s;
   $('#btnEditSummary').disabled = !S.doc;
   $('#summaryHint').textContent = s ? '可以编辑；剪藏时放在笔记上半部分' : '';
+  updateButtons();
+  if (s) refreshCoverage();
+}
+/* 字幕有多少被课程重点的出处时间引用到（粗略估计，用来判断有没有大段漏掉） */
+function refreshCoverage() {
+  const doc = S.doc; if (!doc || !(doc.summary || '').trim()) return;
+  api('coverage', { doc: { segments: doc.segments, summary: doc.summary } }).then(r => {
+    if (S.doc !== doc || S.chatAbort) return;
+    const gaps = r.gaps.length ? `，有 ${r.gaps.length} 段没有出处（如 ${r.gaps.slice(0, 3).map(g => fmt(g[0])).join('、')}）` : '';
+    $('#summaryHint').textContent = `字幕被引用约 ${Math.round(r.ratio * 100)}%${gaps}；可以编辑，剪藏时放在笔记上半部分`;
+  }).catch(() => {});
+}
+async function runReview() {
+  if (!S.doc || !(S.doc.summary || '').trim()) return false;
+  try {
+    await flushSave();
+    const doc = S.doc;
+    const r = await api('review', { doc });
+    return await runJob(r.job, 'AI 正在对照字幕查漏…', {
+      onDone: job => {
+        const x = job.result;
+        if (S.doc !== doc) return;
+        if (x.added) { doc.summary = x.summary; markDirty(); save(); }
+        renderSummary();
+        toast(x.added ? `查漏补缺：补了 ${x.added} 条（放进了对应的小节）。字幕被引用约 ${Math.round(x.before * 100)}% → ${Math.round(x.after * 100)}%`
+          : `查漏补缺：没有发现漏掉的内容（字幕被引用约 ${Math.round(x.after * 100)}%）`, { ms: 8000 });
+      },
+    });
+  } catch (e) { fail(e); return false; }
 }
 function toggleSummaryEdit(on) {
   summaryEditing = on ?? !summaryEditing;
@@ -903,6 +977,7 @@ async function doSummary() {
     if (text.trim()) { S.doc.summary = text.trim(); markDirty(); save(); ok = true; }
   } catch (e) { if (e.name !== 'AbortError') fail(e); }
   renderSummary();
+  if (ok && S.settings.auto_review) await runReview();  // 查漏失败不影响课程重点本身
   return ok;
 }
 async function sendChat(q) {
@@ -1099,6 +1174,8 @@ function editTeacher(t) {
   editingTeacher = t ? t.id : null;
   $$('#teacherList button').forEach(b => b.classList.toggle('active', b.dataset.tid === (t ? t.id : '__new')));
   $('#tName').value = t ? t.name : '';
+  $('#tDisplay').value = t ? (t.display || '') : '';
+  setTermsFile(t ? (t.terms_file || '') : '');
   $('#tAbout').value = t ? t.about : '';
   $('#tTerms').value = t ? t.terms : '';
   $('#tNotes').value = t ? (t.notes || '') : '';
@@ -1118,10 +1195,37 @@ function countTerms() {
   const words = lines.filter(x => !/=>|->|→/.test(x)).join(',').split(/[,，、;；]+/).filter(x => x.trim()).length;
   $('#tTermsHint').textContent = `${words} 个术语，${hints} 条识别错误参考，${forced} 条直接替换。最值得加的是：老师自创的说法、专有名词、人名和容易听错的词。`;
   const n = $('#tNotes').value.length;
-  $('#tNotesHint').textContent = n ? `${n} 个字${n > 12000 ? '（超过 12000 字的部分不会发给 AI）' : ''}` : '';
+  $('#tNotesHint').textContent = n ? `${n} 个字${n > 20000 ? '（超过 20000 字的部分不会发给 AI）' : ''}` : '';
+}
+/* 关联 Obsidian 里的术语表文件 */
+async function setTermsFile(path, preview) {
+  const el = $('#tFile');
+  el.dataset.path = path || '';
+  el.textContent = path || '没有关联';
+  el.title = path || '';
+  $('#tFileClear').hidden = !path;
+  if (!path) { $('#tFileHint').textContent = TERMS_FILE_HINT; return; }
+  try {
+    const r = preview || await api('terms_preview', { path });
+    if (($('#tFile').dataset.path || '') !== path) return;
+    $('#tFileHint').textContent = `从文件里读到 ${r.words} 个术语、${r.hints} 条识别错误参考（文件 ${r.chars} 字，整份给 AI 当术语说明）。以后在 Obsidian 里改，软件会自动用最新的。`;
+  } catch (e) { $('#tFileHint').textContent = '⚠ ' + e.message; }
+}
+const TERMS_FILE_HINT = '关联后，软件每次都读这个文件的最新内容：小节里的「正确写法 / 标准写法」和热词当术语，「ASR 常见错误」表当识别错误参考，整份文件给 AI 当术语说明。以后只在 Obsidian 里改术语表就行。';
+async function pickTermsFile() {
+  try {
+    const r = await api('terms_preview', {});
+    if (!r.path) return;
+    await setTermsFile(r.path, r);
+    if ($('#tNotes').value.trim() && confirm('关联文件后，文件内容会自动作为「术语说明」给 AI。\n下面「术语说明」框里已有内容（可能是旧版术语表），要清空吗？\n不清空的话，两份会一起发给 AI。')) {
+      $('#tNotes').value = ''; countTerms();
+    }
+    toast('已选择术语表文件，记得点「保存这位老师」');
+  } catch (e) { fail(e); }
 }
 async function saveTeacher() {
-  const t = { id: editingTeacher, name: $('#tName').value, about: $('#tAbout').value, terms: $('#tTerms').value, notes: $('#tNotes').value, lang: $('#tLang').value,
+  const t = { id: editingTeacher, name: $('#tName').value, display: $('#tDisplay').value, terms_file: $('#tFile').dataset.path || '',
+    about: $('#tAbout').value, terms: $('#tTerms').value, notes: $('#tNotes').value, lang: $('#tLang').value,
     folder: $('#tFolder').value, template: $('#tOwnTemplate').checked ? $('#tTemplate').value : '' };
   if (!t.name.trim()) { $('#tName').focus(); return toast('请填写老师名字', { error: true }); }
   try {
@@ -1262,6 +1366,8 @@ function bind() {
     const tool = e.target.closest('.cue-tools button');
     const cue = e.target.closest('.cue'); if (!cue) return;
     const i = +cue.dataset.i;
+    const db = e.target.closest('[data-doubt]');
+    if (db) { if (db.dataset.doubt === 'play') playLoop(i); else resolveDoubt(i); return; }
     if (tool) { cueAction(tool.dataset.act, i); return; }
     if (e.target.closest('.ts')) { seek(S.doc.segments[i].start, true); S.loopIdx = i; return; }
     if (e.target.closest('.src, .tr')) {
@@ -1375,6 +1481,10 @@ function bind() {
   };
   $('#teacherList').onclick = e => { const b = e.target.closest('button'); if (!b) return; editTeacher(b.dataset.tid === '__new' ? null : teacherById(b.dataset.tid)); if (b.dataset.tid === '__new') $('#tName').focus(); };
   $('#tSave').onclick = saveTeacher;
+  $('#tFilePick').onclick = pickTermsFile;
+  $('#tFileClear').onclick = () => setTermsFile('');
+  $('#btnDoubts').onclick = nextDoubt;
+  $('#btnReview').onclick = () => { if (!S.job) runReview(); };
   $('#tDelete').onclick = deleteTeacher;
   $('#tTerms').oninput = countTerms;
   $('#tNotes').oninput = countTerms;

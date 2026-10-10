@@ -67,6 +67,29 @@ def probe(path: str) -> dict:
     }
 
 
+_tail_cache = {}
+
+
+def tail_problem(path: str, seconds=30) -> str:
+    """解码文件最后 30 秒，看结尾是否损坏（比如没下载完整）。没问题返回空字符串。"""
+    try:
+        key = (os.path.abspath(path).lower(), os.path.getmtime(path), os.path.getsize(path))
+    except OSError:
+        return ''
+    if key in _tail_cache:
+        return _tail_cache[key]
+    msg = ''
+    try:
+        r = run([tool('ffmpeg'), '-v', 'error', '-sseof', f'-{seconds}', '-i', path, '-f', 'null', '-'], timeout=120)
+        lines = [x for x in r.stderr.splitlines() if x.strip()]
+        if r.returncode != 0 or any(re.search(r'partial file|Invalid NAL|corrupt|truncat|error while decoding|Invalid data', x, re.I) for x in lines):
+            msg = '视频结尾解码出错（文件可能不完整）'
+    except (MediaError, subprocess.TimeoutExpired, OSError):
+        msg = ''
+    _tail_cache[key] = msg
+    return msg
+
+
 def play_plan(path: str, info: dict) -> str:
     """direct：直接播放；remux：只换容器（很快）；transcode：重新编码（较慢）。"""
     ext = Path(path).suffix.lower()

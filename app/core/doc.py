@@ -145,7 +145,54 @@ def _yaml(v):
     return '"' + str(v or '').replace('\\', '/').replace('"', "'") + '"'
 
 
-def to_markdown(doc, teacher=None, series=''):
+_END_PUNCT = tuple('。！？!?.…”"」』）)～~')
+
+
+def source_boundary(doc, tail_problem=''):
+    """来源情况：字幕在视频结束前很久就没了、最后一句没说完、视频结尾损坏。没有问题返回空字符串。"""
+    segs = [s for s in doc.get('segments') or [] if str(s.get('text') or '').strip()]
+    if not segs:
+        return ''
+    notes = []
+    last = segs[-1]
+    dur = float(doc.get('duration') or 0)
+    if dur and dur - last['end'] > 8:
+        notes.append(f'字幕在 {fmt(last["end"])} 结束，视频时长 {fmt(dur)}，最后约 {int(dur - last["end"])} 秒没有识别到讲话')
+    text = last['text'].strip()
+    if not text.endswith(_END_PUNCT):
+        notes.append(f'最后一句没有说完（[{fmt(last["start"])}]「{text[-30:]}」）')
+    if tail_problem:
+        notes.append(tail_problem)
+    return '；'.join(notes)
+
+
+def _shift_headings(summary):
+    """课程重点放在笔记的「## 课程重点」下面：去掉 AI 写的总标题，其余标题降到 ### 起。"""
+    lines = (summary or '').strip().split('\n')
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    if lines and re.match(r'^#{1,6}\s+.*(课程重点|重点|笔记)', lines[0]) and len(lines[0]) < 60:
+        lines.pop(0)
+    levels = [len(m.group(1)) for m in (re.match(r'^(#{1,6})\s', x) for x in lines) if m]
+    if levels:
+        shift = 3 - min(levels)
+        if shift:
+            lines = [re.sub(r'^(#{1,6})(?=\s)', lambda m: '#' * max(1, min(6, len(m.group(1)) + shift)), x) for x in lines]
+    return '\n'.join(lines).strip()
+
+
+def doubt_map(doc):
+    """AI 校对时标出的存疑句：{开始时间（保留两位小数）: 原因}。"""
+    out = {}
+    for d in doc.get('doubts') or []:
+        try:
+            out[round(float(d.get('t')), 2)] = str(d.get('reason') or '').strip()
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def to_markdown(doc, teacher=None, series='', status='待审计', boundary=''):
     """蒸馏用的笔记：上半部分课程重点，下半部分完整带时间戳的字幕（审核校验用的原始数据）。"""
     media = doc.get('media', '')
     uri = Path(media).as_uri() if media else ''
@@ -153,7 +200,7 @@ def to_markdown(doc, teacher=None, series=''):
         lesson_date = time.strftime('%Y-%m-%d', time.localtime(os.path.getmtime(media))) if media else ''
     except OSError:
         lesson_date = ''
-    tname = (teacher or {}).get('name', '')
+    tname = (teacher or {}).get('display') or (teacher or {}).get('name', '')
     segs = doc.get('segments', [])
     lines = [
         '---',
@@ -165,9 +212,10 @@ def to_markdown(doc, teacher=None, series=''):
         f'duration: "{fmt(doc.get("duration") or 0)}"',
         f'language: {doc.get("lang") or ""}',
         f'asr: {_yaml(doc.get("provider"))}',
-        f'glossary: {_yaml(tname if teacher and teacher.get("terms") else "")}',
+        f'glossary: {_yaml((teacher or {}).get("name", "") if teacher and teacher.get("terms") else "")}',
         f'corrected: {"true" if doc.get("corrected") else "false"}',
         f'reviewed: {"true" if doc.get("reviewed") else "false"}',
+        f'status: {_yaml(status)}',
         f'segments: {len(segs)}',
         f'clipped: {time.strftime("%Y-%m-%d %H:%M")}',
         'tags:',
@@ -183,33 +231,87 @@ def to_markdown(doc, teacher=None, series=''):
     if uri:
         meta.append(f'视频：[{Path(media).name}]({uri.replace(" ", "%20")})')
     lines += ['> ' + ' ｜ '.join(meta), '']
-    lines += ['## 课程重点', '', (doc.get('summary') or '').strip() or '（还没有生成课程重点）', '']
+    lines += ['## 课程重点', '', _shift_headings(doc.get('summary')) or '（还没有生成课程重点）', '']
+    if boundary and '整理者注' not in (doc.get('summary') or ''):  # 课程重点里已经写了就不重复
+        lines += [f'> 来源情况（软件检查）：{boundary}。整理时没有补写缺失或没说完的内容。', '']
+    doubts = doubt_map(doc)
     lines += ['## 完整字幕', '', '> 以下是带时间戳的完整字幕，作为审核和校验的原始数据。'
-              + ('已人工校对。' if doc.get('reviewed') else '尚未人工校对。'), '']
+              + ('已人工校对。' if doc.get('reviewed') else '尚未人工校对。')
+              + ('〔存疑：…〕是 AI 校对时标出、需要回听确认的句子。' if doubts else ''), '']
     for s in segs:
-        lines.append(f'[{fmt(s["start"])}] {s.get("text", "")}'.rstrip())
+        why = doubts.get(round(float(s['start']), 2))
+        lines.append((f'[{fmt(s["start"])}] {s.get("text", "")}' + (f' 〔存疑：{why}〕' if why else '')).rstrip())
         if s.get('tr'):
             lines.append(f'　　{s["tr"]}')
     return '\n'.join(lines).rstrip() + '\n'
 
 
-def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolder=True):
+def _same_media(a, b):
+    norm = lambda p: os.path.normcase(os.path.abspath(str(p).replace('/', os.sep))) if p else ''
+    return bool(a) and norm(a) == norm(b)
+
+
+def find_note(vault: Path, media: str, prefer: Path = None):
+    """找已经剪藏过的笔记（用户可能在 Obsidian 里移动或改了名）：按笔记属性里的 source 找。"""
+    roots = [p for p in (prefer, vault) if p and p.is_dir()]
+    seen = set()
+    for root in roots:
+        for p in root.rglob('*.md'):
+            if p in seen or '.obsidian' in p.parts or '.trash' in p.parts:
+                continue
+            seen.add(p)
+            try:
+                with open(p, 'r', encoding='utf-8', errors='replace') as f:
+                    head = f.read(1500)
+            except OSError:
+                continue
+            if not head.startswith('---') or '猛人字幕' not in head:
+                continue
+            m = re.search(r'(?m)^source:\s*"?(.*?)"?\s*$', head)
+            if m and _same_media(m.group(1), media):
+                return p
+    return None
+
+
+def _old_status(path: Path):
+    try:
+        head = path.read_text(encoding='utf-8', errors='replace')[:3000]
+    except OSError:
+        return None
+    m = re.search(r'(?m)^status:\s*"?(.*?)"?\s*$', head.split('\n---', 1)[0])
+    return m.group(1).strip() if m and m.group(1).strip() else None
+
+
+def note_name(pattern, doc, teacher=None, series=''):
+    name = (pattern or '{title}')
+    for k, v in (('{title}', doc.get('title') or '字幕'), ('{teacher}', (teacher or {}).get('display') or (teacher or {}).get('name', '')),
+                 ('{series}', series or '')):
+        name = name.replace(k, v)
+    return safe_name(name)
+
+
+def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolder=True, name_pattern='{title}', boundary=''):
     if not vault or not Path(vault).is_dir():
         raise OSError('找不到 Obsidian 库文件夹，请到「设置 → Obsidian」检查库的位置')
     target_dir = Path(vault) / (folder or '')
     if teacher and teacher_subfolder:
-        target_dir = target_dir / safe_name(teacher.get('folder') or teacher.get('name') or '')
-    target_dir.mkdir(parents=True, exist_ok=True)
+        target_dir = target_dir / safe_name(teacher.get('folder') or teacher.get('display') or teacher.get('name') or '')
     previous = (doc.get('clip') or {}).get('path')
-    if previous and Path(previous).parent == target_dir and Path(previous).exists():
+    path = None
+    if previous and Path(previous).is_file():
         path = Path(previous)  # 同一个视频再次剪藏时更新原来的笔记
-    else:
-        path = target_dir / (safe_name(doc.get('title') or '字幕') + '.md')
+    elif doc.get('media'):
+        path = find_note(Path(vault), doc['media'], prefer=target_dir if target_dir.is_dir() else Path(vault) / (folder or ''))
+    if path is None:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        base = note_name(name_pattern, doc, teacher, series)
+        path = target_dir / (base + '.md')
         n = 2
         while path.exists():
-            path = target_dir / f'{safe_name(doc.get("title") or "字幕")} ({n}).md'
+            path = target_dir / f'{base} ({n}).md'
             n += 1
-    path.write_text(to_markdown(doc, teacher, series), encoding='utf-8')
+    status = (_old_status(path) if path.exists() else None) or '待审计'
+    path.write_text(to_markdown(doc, teacher, series, status, boundary), encoding='utf-8')
     vault_name = Path(vault).name
     rel = path.relative_to(Path(vault)).as_posix()
     from urllib.parse import quote

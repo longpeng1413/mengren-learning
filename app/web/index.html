@@ -117,6 +117,7 @@
             <span id="searchCount" class="muted"></span>
           </div>
           <span class="grow"></span>
+          <button class="btn small doubt-btn" id="btnDoubts" hidden title="AI 校对时标出的存疑句，点一下跳到下一句（会单句循环播放，方便回听）"></button>
           <label class="switch" title="人工检查过字幕后打开，剪藏的笔记里会标注「已人工校对」"><input type="checkbox" id="optReviewed"><span></span>已校对</label>
           <span class="muted small-text" id="cueCount"></span>
           <div class="menu-wrap">
@@ -165,6 +166,7 @@
     <textarea class="summary-edit" id="summaryEdit" hidden spellcheck="false"></textarea>
     <div class="ai-foot">
       <button class="btn primary small" id="btnSummary">生成课程重点</button>
+      <button class="btn small" id="btnReview" disabled title="对照完整字幕，找出课程重点漏掉的内容，补进对应的小节">查漏补缺</button>
       <button class="btn small" id="btnEditSummary" disabled>编辑</button>
       <button class="btn small" id="btnCopySummary" disabled>复制</button>
       <span class="muted small-text" id="summaryHint"></span>
@@ -269,6 +271,8 @@
       <li><b>Enter / Esc</b>：结束编辑　<b>Ctrl + S</b>：立即保存　<b>Ctrl + Z</b>：撤销拆分、合并、删除和 AI 校对</li>
       <li>鼠标移到字幕上，右侧有工具：对齐到当前时间、在光标处拆分、与下一句合并、删除。</li>
       <li><b>术语表</b>：在「设置 → 老师与术语表」里给每位老师建一份；在顶栏选择这个视频是哪位老师的课。也可以在媒体库的文件夹上绑定老师，里面的视频会自动用这位老师。</li>
+      <li><b>存疑句</b>：AI 校对时拿不准、读起来不通的句子会用橙色标出，不会乱改。点字幕栏上方的「存疑」按钮逐句跳过去，会单句循环播放方便回听；改好后点「已确认」。</li>
+      <li><b>查漏补缺</b>：对照完整字幕，把课程重点漏掉的内容补进对应小节，并显示字幕被引用到的比例。</li>
       <li><b>剪藏</b>：笔记上半部分是课程重点，下半部分是完整带时间戳的字幕，可以直接用来蒸馏。</li>
     </ul>
     <div class="dialog-btns"><button value="ok" class="btn primary">知道了</button></div>
@@ -318,8 +322,12 @@
               <div class="field"><div class="label">老师名字</div><input id="tName" placeholder="例如：大聪老师"></div>
               <div class="field"><div class="label">课程通常是</div><select id="tLang"><option value="zh">中文</option><option value="en">英文</option></select></div>
             </div>
+            <div class="field"><div class="label">笔记里的称呼（可选）</div><input id="tDisplay" placeholder="剪藏笔记里写的老师名字，默认用上面的名字，例如：大葱老师"></div>
+            <div class="field"><div class="label">关联 Obsidian 里的术语表文件（推荐）</div>
+              <div class="file-link"><code class="path" id="tFile">没有关联</code><button class="btn small" id="tFilePick">选择文件…</button><button class="btn small" id="tFileClear">取消关联</button></div>
+              <div class="hint" id="tFileHint">关联后，软件每次都读这个文件的最新内容：小节里的「正确写法 / 标准写法」和热词当术语，「ASR 常见错误」表当识别错误参考，整份文件给 AI 当术语说明。以后只在 Obsidian 里改术语表就行。</div></div>
             <div class="field"><div class="label">老师和课程背景（可选）</div><input id="tAbout" placeholder="例如：期货交易，讲交易底层逻辑、波段和仓位管理"></div>
-            <div class="field"><div class="label">术语表</div>
+            <div class="field"><div class="label">术语表（手写，可选；关联了文件时，这里的会和文件里的合在一起用）</div>
               <textarea id="tTerms" rows="10" spellcheck="false" placeholder="每行一个或几个术语（逗号隔开）：&#10;峰级, 峰级线, 破级&#10;&#10;常见识别错误（交给 AI 结合上下文判断，不直接替换）：&#10;风级, 风机 => 峰级&#10;&#10;确定不会误伤的，加感叹号，识别完直接替换：&#10;托破旋 =>! 拓扑学"></textarea>
               <div class="hint" id="tTermsHint"></div>
               <div class="hint">写法：<code>术语1, 术语2</code>　<code>错写 => 正确</code>（AI 结合上下文判断）　<code>错写 =>! 正确</code>（直接替换，只用于不会误伤的长词）。术语会传给豆包和 Whisper；对照只给 AI 校对用。</div></div>
@@ -349,6 +357,7 @@
         <p class="hint">「生成课程重点」时发给 AI 的要求。可以按你的蒸馏需要修改结构；老师档案里也可以给某位老师单独设置。</p>
         <div class="field"><textarea data-k="summary_template" id="summaryTemplate" rows="20" spellcheck="false"></textarea></div>
         <button class="btn small" id="resetTemplate">恢复默认模板</button>
+        <div class="field" style="margin-top:14px"><label class="check"><input type="checkbox" data-k="auto_review"> 生成课程重点后，自动让 AI 对照完整字幕「查漏补缺」（多一次 AI 调用，补上漏掉的老师自述、举例、课程安排等）</label></div>
       </section>
 
       <section data-sec="obsidian" hidden>
@@ -356,7 +365,9 @@
         <div class="field"><div class="label">库的位置</div><div class="key-row"><input data-k="obsidian.vault"><button class="btn small" id="pickVault">选择…</button></div></div>
         <div class="field"><div class="label">存到库里的哪个文件夹</div><div class="key-row"><input data-k="obsidian.folder" placeholder="例如：猛人字幕 或 学习/视频笔记"><button class="btn small" id="pickFolder">选择…</button></div></div>
         <div class="field"><label class="check"><input type="checkbox" data-k="obsidian.teacher_subfolder"> 按老师分子文件夹（例如 猛人字幕/大聪老师/）</label></div>
-        <p class="hint">文件夹不存在会自动创建。同一个视频再次剪藏，会更新原来那篇笔记。笔记结构：属性（老师、系列、时长、是否校对）→ 课程重点 → 完整带时间戳的字幕。</p>
+        <div class="field"><div class="label">笔记文件名</div><input data-k="obsidian.name_pattern" placeholder="{title}">
+          <div class="hint">{title} 是视频名，{teacher} 是老师，{series} 是媒体库文件夹名。例如 <code>{title}（猛人字幕）</code>。</div></div>
+        <p class="hint">文件夹不存在会自动创建。同一个视频再次剪藏，会更新原来那篇笔记；你在 Obsidian 里移动或改名了也能找到（按笔记属性里的视频路径找），笔记里的 status 也会保留。笔记结构：属性（老师、系列、时长、是否校对、状态）→ 课程重点 → 来源情况 → 完整带时间戳的字幕（存疑句会标出来）。</p>
       </section>
 
       <section data-sec="asr" hidden>

@@ -114,7 +114,8 @@ DEFAULTS = {
     'last_lang': 'zh',
     'last_teacher': '',
     'storage_dir': '',
-    'obsidian': {'vault': '', 'folder': '猛人字幕', 'teacher_subfolder': True},
+    'obsidian': {'vault': '', 'folder': '猛人字幕', 'teacher_subfolder': True, 'name_pattern': '{title}'},
+    'auto_review': True,
     'recent': [],
 }
 
@@ -261,6 +262,8 @@ def save_teacher(t: dict) -> dict:
             'lang': t.get('lang') if t.get('lang') in ('zh', 'en') else 'zh',
             'folder': str(t.get('folder') or '').strip().strip('/\\'),
             'template': str(t.get('template') or '').strip(),
+            'terms_file': str(t.get('terms_file') or '').strip(),
+            'display': str(t.get('display') or '').strip(),
         }
         items = [x for x in items if x['id'] != t['id']] + [t]
         items.sort(key=lambda x: x['name'])
@@ -273,8 +276,40 @@ def delete_teacher(tid: str) -> None:
         _write_json(TEACHERS_FILE, [x for x in load_teachers() if x['id'] != tid])
 
 
-def get_teacher(tid: str):
-    return next((t for t in load_teachers() if t['id'] == tid), None) if tid else None
+def get_teacher(tid: str, resolve=True):
+    """resolve=True 时，把关联的术语表文件读进来（每次都读最新的），用于识别、校对和 AI。"""
+    t = next((t for t in load_teachers() if t['id'] == tid), None) if tid else None
+    return resolve_teacher(t) if (t and resolve) else t
+
+
+def read_text_file(path) -> str:
+    raw = Path(path).read_bytes()
+    for enc in ('utf-8-sig', 'gb18030'):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    raise ValueError('读不出这个文件的文字，请用 UTF-8 编码保存后再试')
+
+
+def resolve_teacher(t: dict) -> dict:
+    """老师档案关联了 Obsidian 里的术语表文件时：
+    从文件里读出术语和识别错误对照，加在档案里手写的术语后面；整份文件作为「术语说明」给 AI 参考。"""
+    path = (t or {}).get('terms_file')
+    if not path:
+        return t
+    from .llm import terms_from_markdown
+    out = dict(t)
+    try:
+        text = read_text_file(path)
+    except (OSError, ValueError):
+        out['terms_file_error'] = '找不到或读不出关联的术语表文件：' + path
+        return out
+    extracted = terms_from_markdown(text)
+    out['terms'] = '\n'.join(x for x in (t.get('terms', ''), extracted) if x.strip())
+    out['notes'] = '\n\n'.join(x for x in (text.strip(), t.get('notes', '')) if x.strip())
+    out['terms_from_file'] = extracted
+    return out
 
 
 # ------------------------------------------------------------------ 媒体库 ----

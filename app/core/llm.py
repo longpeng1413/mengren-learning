@@ -271,11 +271,19 @@ def parse_terms(text):
         line = raw.strip().strip('|').strip()
         if not line or line.startswith('#') or line.startswith('//'):
             continue
+        note = ''
+        cm = re.search(r'\s#\s*', line)  # 行尾「 # 说明」：给 AI 看的补充说明
+        if cm:
+            line, note = line[:cm.start()].strip(), line[cm.end():].strip()
         m = re.match(r'^(.+?)\s*(?:=>|->|→|＝>)\s*(!|！)?\s*(.+)$', line)
         if m:
             wrongs = [w.strip() for w in re.split(r'[,，、/|]', m.group(1)) if w.strip()]
             right = m.group(3).strip()
-            (forced if m.group(2) else hints).extend((w, right) for w in wrongs if w != right)
+            if m.group(2):
+                forced.extend((w, right) for w in wrongs if w != right)
+            else:
+                shown = right + ((note if note.startswith(('（', '(')) else f'（{note}）') if note else '')
+                hints.extend((w, shown) for w in wrongs if w != right)
             words.append(right)
             continue
         words += [w.strip() for w in re.split(r'[,，、;；]', line) if w.strip()]
@@ -285,6 +293,64 @@ def parse_terms(text):
             seen.add(w)
             out.append(w)
     return out, hints, forced
+
+
+def terms_from_markdown(text):
+    """从 Obsidian 里的术语表文档（比如《课程术语表 V1.1》）读出软件能用的术语表写法：
+    - 小节里写了「正确写法 / 标准写法」的，小节标题或加粗的写法就是术语；
+    - 「--hotwords "a,b,c"」里的热词；
+    - 表头含「ASR / 误识 / 识别」的表格：左列是常见识别错误，右列是正确写法（只作 AI 参考，不直接替换）。
+    返回软件术语表格式的多行文字。"""
+    text = text or ''
+    words, hints = [], []
+    # 1. 小节
+    parts = re.split(r'(?m)^(#{1,4})\s+(.+?)\s*$', text)
+    for k in range(1, len(parts) - 2, 3):
+        title, body = parts[k + 1], parts[k + 2]
+        m = re.search(r'(?:正确|标准)写法\**\s*[：:]\s*(?:\n\s*)*(?:>\s*)?\**([^*\n（(]+)', body)
+        if not m:
+            continue
+        w = m.group(1).strip().strip('“”"')
+        if not w or len(w) > 20:
+            w = re.sub(r'^[一二三四五六七八九十百零〇\d]+[、.．]\s*', '', title).strip()
+        if w and len(w) <= 20:
+            words.append(w)
+    # 2. 热词
+    for m in re.finditer(r'--hotwords\s+["“]([^"”]+)["”]', text):
+        words += [w.strip() for w in re.split(r'[,，]', m.group(1)) if w.strip()]
+    # 3. 识别错误对照表
+    lines = text.split('\n')
+    i = 0
+    while i < len(lines):
+        head = lines[i].strip()
+        if head.startswith('|') and re.search(r'ASR|误识|识别|错误', head) and i + 1 < len(lines) and re.match(r'^\s*\|[\s:|-]+\|\s*$', lines[i + 1]):
+            i += 2
+            while i < len(lines) and lines[i].strip().startswith('|'):
+                cells = [c.strip() for c in lines[i].strip().strip('|').split('|')]
+                if len(cells) >= 2 and cells[0] and cells[1]:
+                    wrongs = [w.strip() for w in re.split(r'[、,，/]', cells[0]) if w.strip() and '部分' not in w and '等' != w]
+                    wrongs = [re.sub(r'等$', '', w) for w in wrongs]
+                    right = cells[1]
+                    clean = re.split(r'[（(，,]', right)[0].strip().strip('“”"')
+                    note = right[len(clean):].strip() if right.startswith(clean) else ''
+                    if '可能' in right or '结合上下文' in right:
+                        q = re.search(r'[“"]([^”"]+)[”"]', right)
+                        clean, note = (q.group(1) if q else ''), right
+                    if clean and len(clean) <= 20:
+                        hints.append((wrongs, clean, note))
+                i += 1
+            continue
+        i += 1
+    seen, out = set(), []
+    for w in words:
+        if w not in seen:
+            seen.add(w)
+            out.append(w)
+    rows = [', '.join(out[j:j + 12]) for j in range(0, len(out), 12)]
+    for wrongs, right, note in hints:
+        if wrongs:
+            rows.append(f'{", ".join(wrongs)} => {right}' + (f'　# {note}' if note else ''))
+    return '\n'.join(rows)
 
 
 def teacher_block(teacher, with_notes=True):
@@ -301,8 +367,11 @@ def teacher_block(teacher, with_notes=True):
                      + '；'.join(f'{a} → {b}' for a, b in hints + forced))
     if with_notes and teacher.get('notes'):
         parts.append('术语说明 / 参考资料（用来理解课程用语，不要把这里的内容当成老师在这节课里讲过的话）：\n'
-                     + teacher['notes'][:12000])
+                     + teacher['notes'][:NOTES_LIMIT])
     return '\n'.join(parts)
+
+
+NOTES_LIMIT = 20000
 
 
 def system_prompt(doc, teacher=None):
@@ -317,21 +386,149 @@ def system_prompt(doc, teacher=None):
     )
 
 
-DEFAULT_TEMPLATE = """请整理这节课的「课程重点」。它会放在 Markdown 笔记的上半部分（下半部分是完整字幕），以后用于主题知识库和老师 AI 分身的蒸馏，所以必须忠实、准确、可追溯。
+DEFAULT_TEMPLATE = """请整理这节课的「课程重点」。它会放在 Markdown 笔记的上半部分（下半部分是完整字幕），以后用于主题知识库和老师 AI 分身的蒸馏，所以必须忠实、准确、完整、可追溯。
 
 整理方式：
 - 按老师这节课实际讲解的知识体系和逻辑框架来组织，不要套用固定栏目。先看清老师是怎么搭这节课的（比如先讲概念、再讲规则、再举例，或者围绕几个问题层层推进），就用这个结构来写；标题和层级由内容决定。
-- 为了把逻辑关系讲清楚，可以调整讲解顺序、把分散在不同时间讲的同一件事合并到一起。
+- 为了把逻辑关系讲清楚，可以调整讲解顺序、把分散在不同时间讲的同一件事合并到一起；合并时每一处的原意分别保留、分别标时间，不能拼成老师没说过的新判断。
 - 只写老师讲过的内容。不补充老师没讲的知识，不替老师推理结论，不评价对错，不加自己的建议。
-- 老师给出的定义、口诀、规则、条件、数字和阈值要照录；能体现老师观点和表达习惯的关键原话，用引号原样保留。
+- 宁可多写，不要漏写。凡是有知识意义的内容都要有着落：概念、定义、规则、条件、方法、举例、类比、列举的具体事物、数字、对错误做法的纠正、反复强调的话。
+- 老师的自述也要保留，并写明是「老师自述」，不评价、不核实：个人经历、从业和研究年限、教过多少学生、出书和出版社、「原创」之类的说法、对自己水平的评价、对弟子或师门的称呼。
+- 课程安排也要保留：哪些内容老师说放到后面的课、线下课或专栏里讲，这节课为后面哪些内容做了铺垫。
+- 老师给出的定义、口诀、规则、条件、数字和阈值要照录；能体现老师观点和表达习惯的关键原话，用引号原样保留，引号里的断句按意思断清楚。
+- 不要写「这说明……」「核心是……」「本质上……」「换句话说……」「老师真正想表达的是……」这类你自己的归纳。确实需要说明来源情况时（比如原话前后不一致、话没说完），单独写成「整理者注：……」，整理者注里不能补充知识。
+- 只有字幕，没有画面。不要写「图示中」「画面显示」；老师指着图讲的地方，写成「老师结合走势举例」这类说法。
 - 每个要点后面标注出处时间，写成 [mm:ss] 或 [h:mm:ss]；合并了多处内容时，把几个时间都标上。
 - 术语一律用术语表里的写法。字幕可能有识别错字，按上下文理解；拿不准的地方标注「（存疑）」，老师没讲清楚的标注「（未讲明）」，不要自己补全。
-- 直接从第一个标题开始输出，不要开场白和结束语。最前面用一两句话说明这节课讲了什么。"""
+- 格式：不要写总标题，直接用一两句话说明这节课讲了什么，然后用「##」开始各部分，下面可以用「###」；不要开场白和结束语。"""
 
 
-def summary_messages(doc, teacher, template):
+def summary_messages(doc, teacher, template, boundary=''):
+    ask = (template or DEFAULT_TEMPLATE).strip()
+    if boundary:
+        ask += '\n\n来源情况（软件检查得到）：' + boundary + '\n请在最后用一行「整理者注：」如实说明，不要补写缺失或没说完的内容。'
     return [{'role': 'system', 'content': system_prompt(doc, teacher)},
-            {'role': 'user', 'content': (template or DEFAULT_TEMPLATE).strip()}]
+            {'role': 'user', 'content': ask}]
+
+
+# ------------------------------------------------------------------ 查漏补缺 ----
+_TS = re.compile(r'\[?(\d{1,2}):(\d{2})(?::(\d{2}))?\]?')
+
+
+def cited_times(text):
+    """课程重点里标注的所有出处时间（秒）。"""
+    out = []
+    for m in _TS.finditer(text or ''):
+        a, b, c = m.groups()
+        out.append(int(a) * 3600 + int(b) * 60 + int(c) if c is not None else int(a) * 60 + int(b))
+    return out
+
+
+def coverage(segments, summary, before=5.0, after=30.0):
+    """按课程重点里的出处时间，估算字幕有多少被引用到。
+    每个出处时间算覆盖它前 5 秒到后 30 秒；返回 (覆盖比例, 没有被引用的大段 [(开始, 结束, 文字)])。"""
+    times = sorted(cited_times(summary))
+    segs = [s for s in segments or [] if str(s.get('text') or '').strip()]
+    if not segs:
+        return 1.0, []
+    import bisect
+
+    def covered(s):
+        i = bisect.bisect_left(times, s['start'] - after)
+        return i < len(times) and times[i] <= s['end'] + before
+    total = sum(len(s['text']) for s in segs) or 1
+    hit = sum(len(s['text']) for s in segs if covered(s))
+    gaps, run = [], []
+    for s in segs + [None]:
+        if s is not None and not covered(s):
+            run.append(s)
+            continue
+        if run:
+            text = ''.join(x['text'] for x in run)
+            if run[-1]['end'] - run[0]['start'] >= 20 and len(text) >= 40:
+                gaps.append((run[0]['start'], run[-1]['end'], text))
+            run = []
+    return hit / total, gaps
+
+
+REVIEW_SYSTEM = (
+    '你是课程笔记的查漏员。对照完整字幕，检查「课程重点」有没有漏掉老师讲过的、有知识意义的内容。'
+    '要找的包括：概念、定义、规则、条件、方法、举例、类比、列举的具体事物、数字；老师自述（经历、年限、学生数量、出版、原创说法、对自己的评价、对弟子或师门的称呼）；'
+    '课程安排（放到后面的课、线下课或专栏讲的内容）和对后面内容的铺垫。'
+    '已经写到的（哪怕换了说法）不算漏。口头语、寒暄、重复、没说完又重说的话不算漏。'
+    '只写老师讲过的，不补充、不评价；老师自述要写明「老师自述」；每条标出处时间 [mm:ss]；术语用术语表的写法。'
+    '只输出 JSON 对象：{"补充": [{"放在": "课程重点里已有的小标题原文（找不到合适的就写空字符串）", "内容": "- 一条 Markdown 要点 [mm:ss]"}, ...]}；没有漏掉的就输出 {"补充": []}。'
+)
+
+
+def review_messages(doc, teacher, summary, gaps):
+    hint = ''
+    if gaps:
+        hint = ('\n\n软件发现下面这些时间段在课程重点里没有任何出处，请重点检查（不一定都有知识内容）：\n'
+                + '\n'.join(f'- [{fmt(a)}–{fmt(b)}] {t[:300]}' for a, b, t in gaps[:30]))
+    return [{'role': 'system', 'content': REVIEW_SYSTEM},
+            {'role': 'user', 'content': f'课程标题：{doc.get("title") or ""}\n' + teacher_block(teacher) +
+             '\n\n===== 完整字幕 =====\n' + transcript_text(doc) +
+             '\n\n===== 课程重点 =====\n' + (summary or '') + hint}]
+
+
+def _heading_title(line):
+    m = re.match(r'^(#{1,6})\s+(.*?)\s*$', line)
+    return (len(m.group(1)), m.group(2)) if m else (None, None)
+
+
+def _norm_title(t):
+    return re.sub(r'[\s*_`#：:，,。.、“”"\'（）()\[\]【】]', '', t or '')
+
+
+def insert_additions(summary, additions):
+    """把查漏补上的要点插到对应小标题那一节的末尾；找不到小标题的放到最后「其他补充」。"""
+    lines = (summary or '').rstrip().split('\n')
+    leftovers = []
+    for add in additions:
+        text = str(add.get('内容') or add.get('content') or '').strip()
+        if not text:
+            continue
+        if not text.lstrip().startswith(('-', '*', '+', '>', '|')) and not re.match(r'^\s*\d+[.)]', text):
+            text = '- ' + text
+        target = _norm_title(str(add.get('放在') or add.get('section') or ''))
+        idx = None
+        if target:
+            for i, line in enumerate(lines):
+                level, title = _heading_title(line)
+                if level and (_norm_title(title) == target or (len(target) >= 4 and target in _norm_title(title))):
+                    end = len(lines)
+                    for j in range(i + 1, len(lines)):
+                        lv, _ = _heading_title(lines[j])
+                        if lv and lv <= level:
+                            end = j
+                            break
+                    while end > i + 1 and not lines[end - 1].strip():
+                        end -= 1
+                    idx = end
+                    break
+        if idx is None:
+            leftovers.append(text)
+        else:
+            lines[idx:idx] = text.split('\n')
+    if leftovers:
+        lines += ['', '## 其他补充', ''] + [x for t in leftovers for x in t.split('\n')]
+    return '\n'.join(lines).strip()
+
+
+def review_summary(settings, name, doc, teacher, summary):
+    """查漏：返回 (补充后的课程重点, 补了几条, 补之前的覆盖率, 补之后的覆盖率)。"""
+    before, gaps = coverage(doc.get('segments'), summary)
+    raw = complete(settings, name, review_messages(doc, teacher, summary, gaps), json_mode=True)
+    try:
+        data = _json_from(raw)
+    except ValueError:
+        raise LlmError('查漏结果格式不对，请重试或换一个 AI 服务')
+    adds = data.get('补充', data.get('additions', [])) if isinstance(data, dict) else []
+    adds = [a for a in adds if isinstance(a, dict)]
+    out = insert_additions(summary, adds) if adds else summary
+    after, _ = coverage(doc.get('segments'), out)
+    return out, len(adds), before, after
 
 
 def _json_from(raw):
@@ -397,11 +594,13 @@ CORRECT_SYSTEM = (
     '术语表里的词一律用术语表的写法；「常见识别错误」是读音相近、容易识别错的对照，要结合上下文判断确实是识别错了才改，'
     '比如「部分」里的「分」不能因为对照表里有「分 → 峰」就改。'
     '不要改写句子、不要润色、不要删减口语、不要合并或拆分字幕。拿不准的不改。'
-    '只输出 JSON 对象：{"改动": {"编号": "改正后的整句", ...}}，只列出确实改了的句子；没有改动就输出 {"改动": {}}。'
+    '拿不准、但读起来明显不通或疑似识别错误的句子（比如不成句、像是听错了的词），不要改，列进「存疑」，写明原因和你猜的可能写法，方便人工回听。'
+    '只输出 JSON 对象：{"改动": {"编号": "改正后的整句", ...}, "存疑": {"编号": "原因", ...}}，只列出确实改了的句子和确实存疑的句子；都没有就输出 {"改动": {}, "存疑": {}}。'
 )
 
 
 def correct_batch(settings, name, items, title, teacher, before='', after=''):
+    """返回 (改动 {编号: 新句子}, 存疑 {编号: 原因})。"""
     payload = {str(i): t for i, t in items}
     user = (f'课程标题：{title}\n' + teacher_block(teacher) + '\n' +
             (f'前文（仅供参考，不要输出）：{before}\n' if before else '') +
@@ -411,10 +610,16 @@ def correct_batch(settings, name, items, title, teacher, before='', after=''):
     for _ in range(3):
         try:
             data = _json_from(complete(settings, name, msgs, json_mode=True))
-            data = data.get('改动', data) if isinstance(data, dict) else {}
+            if not isinstance(data, dict):
+                continue
+            changes = data.get('改动', {} if '存疑' in data else data)
+            doubts = data.get('存疑', {})
             src = dict(items)
-            return {int(k): str(v).strip() for k, v in data.items()
-                    if str(k).isdigit() and int(k) in src and str(v).strip() and str(v).strip() != src[int(k)]}
+            fixed = {int(k): str(v).strip() for k, v in (changes if isinstance(changes, dict) else {}).items()
+                     if str(k).isdigit() and int(k) in src and str(v).strip() and str(v).strip() != src[int(k)]}
+            flagged = {int(k): str(v).strip()[:200] for k, v in (doubts if isinstance(doubts, dict) else {}).items()
+                       if str(k).isdigit() and int(k) in src and str(v).strip()}
+            return fixed, flagged
         except (ValueError, AttributeError):
             pass
     raise LlmError('校对结果格式不对，请重试或换一个 AI 服务')
@@ -433,7 +638,7 @@ def correct_all(settings, name, segments, title, teacher, cancel, progress, on_p
 
     def work(b):
         if cancel.is_set():
-            return {}
+            return {}, {}
         first, last = b[0][0], b[-1][0]
         before = ' '.join(texts[i] for i in range(first - 3, first) if i in texts)
         after = ' '.join(texts[i] for i in range(last + 1, last + 3) if i in texts)

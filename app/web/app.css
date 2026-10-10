@@ -344,3 +344,13 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .toast.error { border-left-color: var(--danger); }
 .toast .btn { flex: none; }
 @keyframes rise { from { transform: translateY(8px); opacity: 0; } }
+
+/* 存疑句：AI 校对时标出、需要回听的句子 */
+.cue.doubt .src { box-shadow: inset 0 -2px 0 color-mix(in srgb, #f0a030 70%, transparent); }
+.doubt-tag { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 12px; line-height: 1.5; color: #e09a2a; background: color-mix(in srgb, #f0a030 12%, transparent); border: 1px solid color-mix(in srgb, #f0a030 35%, transparent); border-radius: 6px; padding: 1px 6px; max-width: 100%; }
+.doubt-tag .why { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.doubt-tag button { background: none; border: 0; padding: 0 2px; cursor: pointer; color: inherit; font-size: 12px; white-space: nowrap; }
+.doubt-tag button:hover { text-decoration: underline; }
+.btn.doubt-btn { color: #e09a2a; border-color: color-mix(in srgb, #f0a030 40%, transparent); }
+.file-link { display: flex; gap: 6px; align-items: center; }
+.file-link code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

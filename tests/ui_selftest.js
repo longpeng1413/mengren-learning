@@ -126,6 +126,23 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     document.querySelector('#optReviewed').click();
     ok('标记已校对', S.doc.reviewed === true);
 
+    // 存疑句（AI 校对时标出、需要回听的句子）
+    S.doc.doubts = [{ t: S.doc.segments[2].start, reason: '测试存疑原因' }];
+    renderCues();
+    ok('存疑句用橙色标出并写明原因', document.querySelectorAll('.cue.doubt').length === 1 && document.querySelector('.cue.doubt .doubt-tag').textContent.includes('测试存疑原因'));
+    ok('字幕栏上方显示存疑数量', !document.querySelector('#btnDoubts').hidden && document.querySelector('#btnDoubts').textContent === '存疑 1');
+    document.querySelector('#btnDoubts').click();
+    ok('点「存疑」跳到那一句并单句循环', S.loopIdx === 2 && document.querySelector('#optLoop').checked);
+    v.pause();
+    document.querySelector('.cue.doubt [data-doubt="ok"]').click();
+    ok('「已确认」去掉存疑标记', !S.doc.doubts.length && !document.querySelector('.cue.doubt') && document.querySelector('#btnDoubts').hidden);
+    document.querySelector('#optLoop').checked = false; S.loopIdx = null;
+
+    // 查漏补缺按钮和覆盖率
+    renderSummary();
+    ok('有课程重点时可以查漏补缺', !document.querySelector('#btnReview').disabled);
+    ok('显示字幕被引用的比例', await until(() => document.querySelector('#summaryHint').textContent.includes('字幕被引用约')), document.querySelector('#summaryHint').textContent);
+
     // 收起媒体库
     document.querySelector('#btnLibrary').click();
     ok('收起媒体库', document.querySelector('#library').hidden);
@@ -140,6 +157,9 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('设置：ChatGPT 账号登录', document.querySelector('#codexBox').textContent.includes('用 ChatGPT 账号登录'));
     showSection('teachers');
     ok('设置：老师列表', document.querySelectorAll('#teacherList button').length === 2);
+    ok('设置：可以关联术语表文件、填笔记里的称呼', document.querySelector('#tFile').textContent === '没有关联' && !!document.querySelector('#tFilePick') && !!document.querySelector('#tDisplay'));
+    showSection('obsidian');
+    ok('设置：笔记文件名格式', document.querySelector('[data-k="obsidian.name_pattern"]').value === '{title}');
     showSection('tasks');
     ok('设置：任务分配可选 7 个 AI 服务', document.querySelectorAll('select[data-k="chat"] option').length === 7);
     showSection('template');

@@ -198,7 +198,8 @@ class Api:
         messages = [{'role': 'system', 'content': llm.system_prompt(d, teacher)}]
         if b.get('mode') == 'summary':
             template = (teacher or {}).get('template') or s.get('summary_template') or llm.DEFAULT_TEMPLATE
-            messages = llm.summary_messages(d, teacher, template)
+            boundary = docs.source_boundary(d, media.tail_problem(d['media']) if d.get('media') and os.path.isfile(d['media']) else '')
+            messages = llm.summary_messages(d, teacher, template, boundary)
         else:
             for m in (b.get('messages') or [])[-20:]:
                 if m.get('role') in ('user', 'assistant') and m.get('content'):
@@ -209,6 +210,42 @@ class Api:
                 job.push([piece])
             return {}
         return {'job': jobs.start('chat', run).id}
+
+    def do_review(self, b):
+        """查漏补缺：对照完整字幕，把课程重点漏掉的内容补进对应小节。"""
+        s = config.load()
+        name = s['chat']
+        llm.check(s, name)
+        d = b.get('doc') or {}
+        summary = str(b.get('summary') or d.get('summary') or '')
+        if not summary.strip():
+            raise ValueError('还没有课程重点')
+        teacher = config.get_teacher(d.get('teacher'))
+
+        def run(job):
+            job.report(0.05, 'AI 正在对照字幕查漏…')
+            out, n, before, after = llm.review_summary(s, name, d, teacher, summary)
+            return {'summary': out, 'added': n, 'before': round(before, 3), 'after': round(after, 3)}
+        return {'job': jobs.start('review', run).id}
+
+    def do_coverage(self, b):
+        d = b.get('doc') or {}
+        ratio, gaps = llm.coverage(d.get('segments'), d.get('summary') or '')
+        return {'ratio': round(ratio, 3), 'gaps': [[a, e] for a, e, _ in gaps]}
+
+    def do_terms_preview(self, b):
+        """预览从术语表文件里读出来的术语和识别错误对照。"""
+        path = str(b.get('path') or '')
+        if not path:
+            import webview
+            r = self._window.create_file_dialog(webview.FileDialog.OPEN, file_types=('Markdown / 文本 (*.md;*.txt)', '所有文件 (*.*)'))
+            if not r:
+                return {'path': None}
+            path = r[0]
+        text = config.read_text_file(path)
+        terms = llm.terms_from_markdown(text)
+        words, hints, forced = llm.parse_terms(terms)
+        return {'path': path, 'terms': terms, 'words': len(words), 'hints': len(hints), 'chars': len(text)}
 
     def do_test(self, b):
         s = config.load()
@@ -244,7 +281,10 @@ class Api:
         for f in config.load_library()['folders']:
             if media_path.startswith(os.path.normcase(f['path']).rstrip('\\/') + os.sep):
                 series = f.get('name') or Path(f['path']).name
-        return docs.clip(d, ob.get('vault'), ob.get('folder'), teacher, series, ob.get('teacher_subfolder', True))
+        mp = d.get('media') or ''
+        boundary = docs.source_boundary(d, media.tail_problem(mp) if mp and os.path.isfile(mp) else '')
+        return docs.clip(d, ob.get('vault'), ob.get('folder'), teacher, series, ob.get('teacher_subfolder', True),
+                         ob.get('name_pattern') or '{title}', boundary)
 
     def do_reveal(self, b):
         """在资源管理器里显示文件，或用 Obsidian 打开笔记。"""
@@ -265,9 +305,13 @@ class Api:
             raise ValueError('没有需要校对的字幕')
         teacher = config.get_teacher(b.get('teacher'))
 
+        def push(part):
+            fixed, doubts = part
+            job.push([{'i': k, 'text': v} for k, v in sorted(fixed.items())] +
+                     [{'i': k, 'doubt': v} for k, v in sorted(doubts.items())])
+
         def run(job):
-            llm.correct_all(s, name, items, b.get('title') or '', teacher, job.cancel, job.report,
-                            lambda part: job.push([[k, v] for k, v in sorted(part.items())]))
+            llm.correct_all(s, name, items, b.get('title') or '', teacher, job.cancel, job.report, push)
             return {'provider': name}
         return {'job': jobs.start('correct', run).id}
 
