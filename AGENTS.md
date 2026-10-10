@@ -1,0 +1,113 @@
+# 维护说明（给 AI 编程助手和接手的开发者）
+
+先读 README.md 了解软件做什么。这份文件记的是**代码里看不出来、但改错了会出事**的约定。
+
+用户是这个软件唯一的使用者兼所有者，不是程序员：和他沟通用中文、讲结果和影响，不讲术语；动手前说清楚要改什么，改完说清楚测了什么。
+
+## 绝对不要做的事
+
+- **不要结束用户正在运行的「猛人字幕.exe」**（不要 taskkill / Stop-Process）。他可能正在看课、改字幕，强关会丢未保存的修改。打包遇到「拒绝访问」就是因为程序开着，见下面「打包和更新」。
+- **不要改回本机 HTTP 服务器**。界面必须用 `index.as_uri()`（`file://`）加载，通过 pywebview 的 `js_api` 和后台通信。用户电脑上的 360 主动防御和 Clash Verge 会干扰 127.0.0.1 回环连接（传输卡在约 64KB 或被重置），以前因此出过「图标只显示一半」「界面卡住」。注意：给 `create_window` 传普通路径时 pywebview 会**悄悄**起一个本地服务器，所以一定要传 `file://` URI。
+- **不要在关闭事件里同步调用 `window.evaluate_js`**。`closing` 事件在界面线程里执行，同步等界面会死锁（以前出过「猛人字幕.exe 未响应」）。现在的做法见 `app/main.py` 的 `on_closing`：先返回 False 取消关闭 → 后台线程通知界面 `window.prepareClose()` 保存 → 等 `api._quit`（最多 4 秒）→ `window.destroy()` → `os._exit` 兜底。
+- **不要把 API 密钥写进日志、报错信息或仓库**。密钥字段见 `config.SECRETS`，发给界面前用 `config.public()` 打码。用户的设置在 `%APPDATA%\猛人字幕\`，不在项目里。
+- **不要动 `E:\Claude-乔木剪藏`**，那是另一个项目。
+
+## 必须保持的行为
+
+### 字幕文件兼容
+
+字幕存在视频旁边的 `视频名.mp4.猛人字幕.json`（写不进去时放 `%APPDATA%\猛人字幕\library\`），见 `app/core/doc.py`。用户已经有大量做好的字幕：
+
+- 新增字段可以，但读取时要给旧文件缺的字段兜底；
+- 不要改名或删除已有字段（`segments`、`summary`、`chat`、`versions`、`teacher`、`reviewed`、`corrected`、`clip`、`pending_task` 等）；
+- 每段的格式是 `{start, end, text, tr}`，秒为单位。
+
+### 术语表语法（`app/core/llm.py` 的 `parse_terms`）
+
+```
+术语1, 术语2          → 专用术语：传给识别服务当热词
+错写 => 正确          → 只是提示 AI 结合上下文判断，不直接替换
+错写 =>! 正确         → 识别完直接替换（apply_fixes 只处理这一种）
+```
+
+不要把 `=>` 改成直接替换：用户的术语表里有「分 => 峰」这类单字对照，直接替换会把「部分」改成「部峰」。老师档案的「术语说明」（`notes`）只给 AI 参考，最多取 12000 字，不传给识别服务。
+
+### 课程重点（`llm.DEFAULT_TEMPLATE`）
+
+用户的明确要求：**不设固定模板**，按老师这节课实际的知识体系和逻辑框架组织，可以调整顺序、合并重复，但**只写老师讲过的**，不让 AI 猜测、补充或评价；定义、口诀、数字照录，每条标时间戳，拿不准的标「存疑」。改提示词时不要违背这条。
+
+### AI 校对
+
+只修正识别错误，不改写句子、不润色。
+
+### 重新识别
+
+重新识别、清空、恢复之前会把旧字幕存成历史版本（最多 5 份），不要直接覆盖。
+
+### 剪藏到 Obsidian（`doc.to_markdown` / `doc.clip`）
+
+笔记结构是：属性（frontmatter）→ `## 课程重点` → `## 完整字幕`（`[mm:ss] 原文`，下一行是译文）。用户用这份笔记做知识「蒸馏」，结构要稳定。同一节课再剪藏是更新原笔记，不是新建。
+
+## 架构速览
+
+- `app/main.py`：入口、版本号 `VERSION`、开窗口、关闭流程、卡死监视（界面 20 秒无响应时把各线程堆栈写进日志）、自测入口。
+- `app/bridge.py`：界面调用后台的唯一入口 `Api.call(name, body)` → 分派到 `do_<name>`。出错会写日志并返回 `{'ok': False, 'error': ...}`。新增功能就加一个 `do_xxx`，前端用 `api('xxx', {...})` 调。
+- 耗时任务（识别、翻译、校对、AI 回答）用 `app/core/jobs.py` 在后台线程跑，界面用 `api('job', {id, since})` 轮询进度；AI 的流式输出也作为 job 的条目推给界面。
+- `app/core/`：
+  - `asr.py`：识别。豆包有多种模型（`DOUBAO_MODELS`）：极速版 base64 直传；流式版走 WebSocket 二进制协议；标准版和闲时版要先上传到火山 TOS 拿预签名链接。
+  - `llm.py`：AI 调用，支持 OpenAI 兼容接口、ChatGPT 账号（codex）、Claude（官方 anthropic SDK）、Gemini（REST）。
+  - `codex_auth.py`：ChatGPT 账号登录，借用 Codex 命令行工具的 OAuth 方式。端口 1455 被占用时用「粘贴回调网址」兜底。
+  - `media.py`：ffmpeg 相关，包括探测、能否直接播放、转码、抽 16k 单声道音频、按静音切段。
+  - `config.py`：设置、老师、媒体库、播放进度和存放位置。缓存和日志默认放软件目录下的「缓存（可随时删除）」「日志（可随时删除）」，可以自定义（`storage_dir`，重启生效），软件目录不可写时退回 LOCALAPPDATA。
+  - `cache.py`：清理。音频保留 3 天，转换后的视频最多 5GB。
+  - `log.py`：日志最多 2MB × 4 个文件。打包后 stdout/stderr 是 None，已重定向到日志。
+  - `doc.py`、`library.py`、`jobs.py`。
+- `app/web/`：纯 HTML/CSS/JS，没有构建步骤，没有框架。
+
+## 开发、测试
+
+Windows 上：
+
+```bat
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python app\main.py                    rem 运行（加 --debug 打开开发者工具）
+.venv\Scripts\python tests\test_backend.py          rem 后台测试，不联网
+.venv\Scripts\python tests\run_ui_test.py           rem 界面测试：弹出真实窗口自动操作，最后连关闭流程一起测
+.venv\Scripts\python tests\run_ui_test.py --exe     rem 同上，测 dist-next 里打包好的 exe
+```
+
+- 改完至少跑后台测试和界面测试，全部通过才算完成；改了界面就在 `tests/ui_selftest.js` 里补检查，改了后台就在 `tests/test_backend.py` 里补。
+- 界面测试要弹出真实窗口，**在沙盒里通常跑不了**，需要无沙盒权限。测试数据放在项目里的 `.testdata/`（已忽略），不会碰用户的真实设置。
+- 测试视频由 `tests/make_test_media.py` 用 ffmpeg 自动生成，不进仓库。
+- 需要 ffmpeg / ffprobe 在 PATH 里（`winget install Gyan.FFmpeg`）。
+- 用 Python 脚本或编辑工具改文件。不要用 shell heredoc 写含中文、反斜杠的代码，以前出过转义和换行符损坏。`.bat` 文件必须是 CRLF 换行。
+
+## 打包和更新用户本机的程序
+
+用户从桌面快捷方式打开 `dist\猛人字幕\猛人字幕.exe`。
+
+1. `.venv\Scripts\python build.py` → 输出到 `dist-next\`（不碰正在用的 `dist\`）。
+2. `.venv\Scripts\python tests\run_ui_test.py --exe` 测打包版。
+3. 告诉用户：关掉猛人字幕后，双击项目里的「更新到新版.bat」。它会检查程序是否还开着，保留缓存和日志，把 `dist-next` 换成 `dist`。**这一步让用户自己做。**
+
+## 发新版本
+
+1. 改 `app/main.py` 里的 `VERSION`。
+2. 测试、打包（见上）。
+3. 提交并推送到 `main`（仓库：https://github.com/longpeng1413/mengren-subtitles）。
+4. 把 `dist-next\猛人字幕` 文件夹打成 zip，用 `gh release create v版本号` 发布。**附件文件名必须是英文**，例如 `mengren-subtitles-1.4.0-windows.zip`，否则 GitHub 会把中文吞掉。中文名写在附件的 label 里。发布说明里提醒：要先装 ffmpeg；程序没有数字签名，可能会被安全软件提示。
+5. README 的功能说明有变化时一起更新。
+
+推送、发布这类对外操作，先问用户。
+
+## 没有进仓库的东西（只在用户电脑的 `E:\Claude-猛人字幕` 里）
+
+- `design/`：图标设计稿、原图、字体、其他配色方案。正式图标是「帝王紫」，在 `app/assets/` 和 `app/web/icon.png`。
+- `.venv/`、`dist/`、`dist-next/`、`build/`、`release/`。
+
+## 还没在真实使用中验证的
+
+- Claude、Gemini、豆包大模型：用户还没有 API Key，代码按官方文档写的，没实测过。
+- ChatGPT 账号登录：已登录，但具体功能用户还在试。
+- 英文视频的完整流程（Whisper 识别 + 翻译）。
