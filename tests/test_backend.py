@@ -3,6 +3,7 @@
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -14,14 +15,13 @@ os.environ['APPDATA'] = str(TMP / 'appdata')
 os.environ['LOCALAPPDATA'] = str(TMP / 'local')
 ROOT = Path(__file__).resolve().parents[1]
 if not (ROOT / 'test-media' / '旧格式.avi').exists():  # 测试视频不放进仓库，用 ffmpeg 生成
-    import subprocess
     subprocess.run([sys.executable, str(ROOT / 'tests' / 'make_test_media.py')], check=True)
 (TMP / 'appdata' / '猛人字幕').mkdir(parents=True)  # 故意用改名前的位置，测试自动搬家
 (TMP / 'appdata' / '猛人字幕' / 'settings.json').write_text(json.dumps({'storage_dir': str(TMP / 'store')}), encoding='utf-8')
 sys.path.insert(0, str(ROOT / 'app'))
 
 from bridge import Api  # noqa: E402
-from core import asr, config, doc as docs, jobs, media  # noqa: E402
+from core import asr, config, doc as docs, media  # noqa: E402
 
 MEDIA = TMP / 'media'
 MEDIA.mkdir()
@@ -499,6 +499,76 @@ rb = portable.import_bundled(api, bundle)
 check('新电脑第一次启动：自动导入附带的设置', rb and rb['imported'] and config.load()['providers']['deepseek']['key'] == 'sk-export-test-123456'
       and config.load_teachers()[0]['name'] == '导出测试老师', rb)
 check('导入后设置文件改名，提醒删除', not (bundle / '猛人学习设置.json').exists() and (bundle / '猛人学习设置（已导入，可删除）.json').exists())
+
+# AI 校对：改动和存疑通过任务推给界面（1.6.1 曾因为变量写错，一校对就报错）
+orig_check, orig_complete2 = llm.check, llm.complete
+llm.check = lambda *a, **k: None
+llm.complete = lambda s_, n_, msgs, **k: json.dumps({'改动': {'0': '甲改好了'}, '存疑': {'1': '听不清'}})
+cj = wait(api.call('correct', {'items': [[0, '甲', 1.0], [1, '乙', 2.0]], 'title': 't'})['job'])
+check('AI 校对任务正常完成，推回改动和存疑', cj['status'] == 'done' and {'i': 0, 'text': '甲改好了'} in cj['items'] and {'i': 1, 'doubt': '听不清'} in cj['items'], cj)
+llm.check, llm.complete = orig_check, orig_complete2
+
+# 豆包流式识别：边发边收，并报告发送进度
+import gzip, queue, struct, wave  # noqa: E402,E401
+import websocket  # noqa: E402
+
+
+class FakeWS:
+    def __init__(self):
+        self.q, self.n = queue.Queue(), 0
+
+    def send_binary(self, b):
+        self.q.put(b[1] & 0x0F)
+
+    def recv(self):
+        last = bool(self.q.get(timeout=10) & 0x2)
+        self.n += 1
+        data = {'result': {'text': '你好世界。', 'utterances': [{'start_time': 0, 'end_time': 1000, 'text': '你好世界。'}]}} if last else {}
+        body = gzip.compress(json.dumps(data).encode())
+        return bytes([0x11, (0x9 << 4) | (0x3 if last else 0x1), 0x11, 0]) + struct.pack('>i', -self.n if last else self.n) + struct.pack('>I', len(body)) + body
+
+    def close(self):
+        pass
+
+
+wav12 = TMP / 'stream.wav'
+with wave.open(str(wav12), 'wb') as w:
+    w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000); w.writeframes(b'\0\0' * 16000 * 12)
+orig_conn = websocket.create_connection
+websocket.create_connection = lambda *a, **k: FakeWS()
+ss = config.load()
+ss['providers']['doubao'].update(model='stream2', key='test-key', stream_speed=20)
+seen_p = []
+t0 = time.time()
+st = asr.doubao_stream(ss, wav12, 0, 12, 'zh', threading.Event(), '', seen_p.append)
+websocket.create_connection = orig_conn
+check('流式识别拿到最终结果', st[0].startswith('你好世界') and st[1][0]['end'] == 1.0, st)
+check('流式识别报告发送进度，最后到 100%', seen_p and seen_p[-1] == 1.0 and len(seen_p) == 60, (len(seen_p), seen_p[-1:]))
+check('流式识别 20 倍速：12 秒音频不到 2 秒发完', time.time() - t0 < 2, time.time() - t0)
+
+# 对象存储常见填错
+tos_p = dict(ss['providers']['doubao'], model='std2', tos_ak='AKLTxxxx', tos_sk='s', tos_bucket='2.0标准版', tos_endpoint='tos-cn-beijing.volces.com')
+try:
+    asr.check_tos(tos_p); e_ = ''
+except asr.AsrError as e:
+    e_ = str(e)
+check('存储桶名称用了中文时说清楚怎么填', '只能用小写英文字母' in e_, e_)
+try:
+    asr.check_tos(dict(tos_p, tos_bucket='mengren-audio', tos_ak='5283000000')); e_ = ''
+except asr.AsrError as e:
+    e_ = str(e)
+check('AK 填成 APP ID 时提示', 'APP ID' in e_, e_)
+asr.check_tos(dict(tos_p, tos_bucket='mengren-audio'))
+check('正确的存储桶名称和 AK 通过检查', True)
+
+# 代码里没有写错的变量名（pyflakes）
+import importlib.util  # noqa: E402
+if importlib.util.find_spec('pyflakes'):
+    pf = subprocess.run([sys.executable, '-m', 'pyflakes', str(ROOT / 'app')], capture_output=True, text=True, encoding='utf-8', errors='replace')
+    bad = [x for x in pf.stdout.splitlines() if 'undefined name' in x or 'syntax' in x.lower()]
+    check('代码里没有未定义的变量名', not bad, bad)
+else:
+    print('（没装 pyflakes，跳过变量名检查：pip install pyflakes）')
 
 # 缓存和日志位置
 check('缓存和日志在指定位置，文件夹名写着可随时删除', config.CACHE_DIR == TMP / 'store' / '缓存（可随时删除）' and config.LOG_DIR.name == '日志（可随时删除）')

@@ -187,6 +187,8 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     showSection('teachers');
     ok('设置：老师列表', document.querySelectorAll('#teacherList button').length === 2);
     ok('设置：可以关联术语表文件、填笔记里的称呼', document.querySelector('#tFile').textContent === '没有关联' && !!document.querySelector('#tFilePick') && !!document.querySelector('#tDisplay'));
+    showSection('doubao');
+    ok('设置：对象存储写清楚存储桶名称和 AK 从哪里来', document.querySelector('section[data-sec="doubao"] .tos').textContent.includes('小写英文字母') && document.querySelector('[data-k="providers.doubao.tos_ak"]').placeholder === 'AKLT…');
     showSection('obsidian');
     ok('设置：笔记文件名格式', document.querySelector('[data-k="obsidian.name_pattern"]').value === '{title}');
     showSection('tasks');

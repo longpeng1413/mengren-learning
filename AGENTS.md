@@ -66,7 +66,7 @@
 - `app/bridge.py`：界面调用后台的唯一入口 `Api.call(name, body)` → 分派到 `do_<name>`。出错会写日志并返回 `{'ok': False, 'error': ...}`。新增功能就加一个 `do_xxx`，前端用 `api('xxx', {...})` 调。
 - 耗时任务（识别、翻译、校对、AI 回答）用 `app/core/jobs.py` 在后台线程跑，界面用 `api('job', {id, since})` 轮询进度；AI 的流式输出也作为 job 的条目推给界面。
 - `app/core/`：
-  - `asr.py`：识别。豆包有多种模型（`DOUBAO_MODELS`）：极速版 base64 直传；流式版走 WebSocket 二进制协议；标准版和闲时版要先上传到火山 TOS 拿预签名链接。
+  - `asr.py`：识别。豆包有多种模型（`DOUBAO_MODELS`）：极速版 base64 直传；流式版走 WebSocket 二进制协议（发送和接收分开两个线程，不要改回「发一包等一包」，那样只有一两倍速；长视频切成约 300 秒的段、两路同时发，界面按发送比例显示进度）；标准版和闲时版要先上传到火山 TOS 拿预签名链接。
   - `llm.py`：AI 调用，支持 OpenAI 兼容接口、ChatGPT 账号（codex）、Claude（官方 anthropic SDK）、Gemini（REST）。
   - `codex_auth.py`：ChatGPT 账号登录，借用 Codex 命令行工具的 OAuth 方式。端口 1455 被占用时用「粘贴回调网址」兜底。
   - `media.py`：ffmpeg 相关，包括探测、能否直接播放、转码、抽 16k 单声道音频、按静音切段、检查视频结尾是否损坏。
@@ -93,6 +93,7 @@ python -m venv .venv
 .venv\Scripts\python tests\run_ui_test.py --exe     rem 同上，测 dist-next 里打包好的 exe
 ```
 
+- 后台测试最后会用 pyflakes 查「用了没定义的变量」（1.6.1 出过 `bridge.do_correct` 里变量名写错、AI 校对一用就报错，界面测试没覆盖到）。
 - 改完至少跑后台测试和界面测试，全部通过才算完成；改了界面就在 `tests/ui_selftest.js` 里补检查，改了后台就在 `tests/test_backend.py` 里补。
 - 界面测试要弹出真实窗口，**在沙盒里通常跑不了**，需要无沙盒权限。测试数据放在项目里的 `.testdata/`（已忽略），不会碰用户的真实设置。
 - 测试视频由 `tests/make_test_media.py` 用 ffmpeg 自动生成，不进仓库。

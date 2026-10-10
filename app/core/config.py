@@ -103,7 +103,7 @@ DEFAULTS = {
                         'chat_model': '', 'use_proxy': False},
         'openai': {'key': '', 'base_url': 'https://api.openai.com/v1', 'asr_model': 'whisper-1', 'chat_model': 'gpt-5-mini', 'use_proxy': True},
         'doubao': {'key': '', 'app_id': '', 'access_token': '', 'base_url': 'https://openspeech.bytedance.com/api/v3',
-                   'model': 'flash', 'enable_ddc': False, 'stream_speed': 4, 'use_proxy': False,
+                   'model': 'flash', 'enable_ddc': False, 'stream_speed': 8, 'use_proxy': False,
                    'tos_ak': '', 'tos_sk': '', 'tos_bucket': '', 'tos_region': 'cn-beijing', 'tos_endpoint': 'tos-cn-beijing.volces.com'},
     },
     'proxy': '',

@@ -320,12 +320,11 @@ class Api:
         teacher = config.get_teacher(b.get('teacher'))
         shots = [f for f in (b.get('frames') or []) if isinstance(f, dict)]
 
-        def push(part):
-            fixed, doubts = part
-            job.push([{'i': k, 'text': v} for k, v in sorted(fixed.items())] +
-                     [{'i': k, 'doubt': v} for k, v in sorted(doubts.items())])
-
         def run(job):
+            def push(part):
+                fixed, doubts = part
+                job.push([{'i': k, 'text': v} for k, v in sorted(fixed.items())] +
+                         [{'i': k, 'doubt': v} for k, v in sorted(doubts.items())])
             llm.correct_all(s, name, items, b.get('title') or '', teacher, job.cancel, job.report, push, times, shots)
             return {'provider': name}
         return {'job': jobs.start('correct', run).id}

@@ -6,10 +6,8 @@
 - 原书图示非必要不用，每章最多 2 张，按 AI 给的位置裁剪、压缩后放进笔记旁边的 image 文件夹。
 整理结果存在原文件旁边的「文件名.猛人学习.json」里，剪藏时写成 Obsidian 笔记。"""
 import ctypes
-import json
 import os
 import re
-import shutil
 import threading
 import time
 import zipfile

@@ -74,9 +74,21 @@ def check_ready(settings, name):
             raise AsrError(f'还没有填写{label}的 API Key，请到「设置」里填写')
         if DOUBAO_MODELS.get(p.get('model'), {}).get('kind') == 'task' and not all(p.get(k) for k in ('tos_ak', 'tos_sk', 'tos_bucket', 'tos_endpoint')):
             raise AsrError('豆包标准版和闲时版需要先把音频传到火山引擎对象存储，请到「设置」里填写 TOS 的 AK/SK 和存储桶')
+        if DOUBAO_MODELS.get(p.get('model'), {}).get('kind') == 'task':
+            check_tos(p)
     elif not p.get('key'):
         raise AsrError(f'还没有填写{label}的 API Key，请到「设置」里填写')
 
+
+def check_tos(p):
+    """对象存储常见的填错：存储桶名称用了中文，AK 填成了豆包语音的 APP ID。"""
+    bucket = p.get('tos_bucket', '').strip()
+    if not re.fullmatch(r'[a-z0-9][a-z0-9-]{1,61}[a-z0-9]', bucket):
+        raise AsrError(f'存储桶名称「{bucket}」不对：要填你在「对象存储 TOS」里创建的存储桶的名字，'
+                       '只能用小写英文字母、数字和短横线，3～63 个字符，例如 mengren-audio')
+    if p.get('tos_ak', '').strip().isdigit():
+        raise AsrError('Access Key ID 填的像是豆包语音的 APP ID。这里要填火山引擎账号的访问密钥：'
+                       '控制台右上角头像 →「API 访问密钥」，ID 一般以 AKLT 开头')
 
 # ---------------------------------------------------------------- 文字整理 ----
 NOISE = re.compile(r'<\|[^|>]*\|>|[\U0001F300-\U0001FAFF☀-➿️]')
@@ -312,14 +324,15 @@ def _parse_frame(raw: bytes):
     return 'response', flags, json.loads(payload.decode('utf-8') or '{}')
 
 
-def doubao_stream(settings, wav: Path, start: float, end: float, language, cancel, context=''):
+def doubao_stream(settings, wav: Path, start: float, end: float, language, cancel, context='', on_progress=None):
+    """流式识别一段音频。on_progress(0~1)：这一段发送了多少。"""
     import websocket  # websocket-client
     p = settings['providers']['doubao']
     model = DOUBAO_MODELS[p['model']]
     url = p['base_url'].replace('https://', 'wss://').rstrip('/') + '/sauc/bigmodel_nostream'
     headers = doubao_headers(p, model['resource'], sequence=False)
     headers['X-Api-Connect-Id'] = headers.pop('X-Api-Request-Id')
-    speed = max(1.0, float(p.get('stream_speed') or 4))
+    speed = max(1.0, float(p.get('stream_speed') or 8))
     packet_seconds = 0.2
     with wave.open(str(wav), 'rb') as w:
         rate = w.getframerate()
@@ -350,28 +363,34 @@ def doubao_stream(settings, wav: Path, start: float, end: float, language, cance
             kind, _, data = _parse_frame(ws.recv())
             if kind == 'error':
                 doubao_check(data['code'], data['message'])
-            for i in range(0, max(len(pcm), 1), step):
+            total = max(len(pcm), 1)
+
+            # 发送和接收分开：以前每发一包都要等服务端回一包，实际只有一两倍速，长视频进度又不动，看起来像卡住了
+            def send():
+                try:
+                    for i in range(0, total, step):
+                        if cancel.is_set():
+                            return
+                        last = i + step >= len(pcm)
+                        ws.send_binary(_frame(0x2, 0x2 if last else 0x0, 0x0, pcm[i:i + step]))
+                        if on_progress:
+                            on_progress(min(1.0, (i + step) / total))
+                        if not last:
+                            time.sleep(packet_seconds / speed)
+                except (OSError, websocket.WebSocketException):
+                    pass  # 连接断了，接收那边会报错并重试
+            sender = threading.Thread(target=send, daemon=True, name='doubao-send')
+            sender.start()
+            while True:
                 if cancel.is_set():
                     raise Cancelled('已取消')
-                last = i + step >= len(pcm)
-                ws.send_binary(_frame(0x2, 0x2 if last else 0x0, 0x0, pcm[i:i + step]))
                 kind, flags, data = _parse_frame(ws.recv())
                 if kind == 'error':
                     doubao_check(data['code'], data['message'])
                 if data.get('result'):
                     latest = data
-                if not last:
-                    time.sleep(packet_seconds / speed)
-            # 发完最后一包后，等服务端返回最终结果
-            deadline = time.time() + 120
-            while time.time() < deadline:
-                if flags & 0x02:
+                if flags & 0x02:  # 最后一包的结果
                     break
-                kind, flags, data = _parse_frame(ws.recv())
-                if kind == 'error':
-                    doubao_check(data['code'], data['message'])
-                if data.get('result'):
-                    latest = data
             return doubao_utterances(latest)
         except (OSError, websocket.WebSocketException) as e:
             last_err = str(e)[:200]
@@ -462,7 +481,7 @@ def chunk_plan(name, settings):
         return 20, 40, 3
     kind = DOUBAO_MODELS[settings['providers']['doubao']['model']]['kind']
     if kind == 'stream':
-        return 600, 900, 2
+        return 300, 540, 2  # 长视频切成几段，两段同时发
     return 300, 540, 3  # 极速版
 
 
@@ -512,18 +531,29 @@ def recognise(media_path, duration, provider, language, settings, cancel, progre
         return cues
 
     target, maximum, workers = chunk_plan(provider, settings)
-    progress(0.09, '正在按停顿切分音频…')
+    progress(0.09, '正在按停顿切分音频…' if duration > maximum else '正在连接识别服务…')
     mids = media.silences(wav) if duration > maximum else []
     chunks = media.plan_chunks(mids, duration, target, maximum)
     scratch = Path(tempfile.mkdtemp(dir=CACHE_DIR, prefix='chunks-'))
     is_stream = provider == 'doubao' and DOUBAO_MODELS[settings['providers']['doubao']['model']]['kind'] == 'stream'
+    sent = {}  # 流式识别：每段发送了多少，用来显示进度
+    shown = {'t': 0.0}
+    progress(0.1, f'{label}识别中…')
+
+    def stream_progress(i, f):
+        sent[i] = f
+        if time.time() - shown['t'] < 0.5:
+            return
+        shown['t'] = time.time()
+        done = sum((b - a) * sent.get(k, 0) for k, (a, b) in enumerate(chunks)) / max(duration, 1)
+        progress(0.1 + 0.85 * min(done, 1.0), f'{label}识别中… 已发送 {done * 100:.0f}%')
 
     def work(i):
         if cancel.is_set():
             raise Cancelled('已取消')
         a, b = chunks[i]
         if is_stream:
-            return doubao_stream(settings, wav, a, b, language, cancel, ctx_doubao)
+            return doubao_stream(settings, wav, a, b, language, cancel, ctx_doubao, lambda f: stream_progress(i, f))
         piece = media.encode_chunk(wav, a, b, scratch / f'c{i}')
         try:
             if provider == 'doubao':
@@ -549,7 +579,8 @@ def recognise(media_path, duration, provider, language, settings, cancel, progre
                 made += cues
                 if cues:
                     on_cues(cues)
-                progress(0.1 + 0.9 * (i + 1) / len(chunks), f'{label}识别中… {i + 1}/{len(chunks)} 段')
+                if not is_stream:  # 流式识别按发送进度显示
+                    progress(0.1 + 0.9 * (i + 1) / len(chunks), f'{label}识别中… {i + 1}/{len(chunks)} 段')
     finally:
         for f in scratch.glob('*'):
             f.unlink(missing_ok=True)
