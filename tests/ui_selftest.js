@@ -136,7 +136,11 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     S.doc.doubts = [{ t: S.doc.segments[2].start, reason: '测试存疑原因' }];
     renderCues();
     ok('存疑句用橙色标出并写明原因', document.querySelectorAll('.cue.doubt').length === 1 && document.querySelector('.cue.doubt .doubt-tag').textContent.includes('测试存疑原因'));
-    ok('字幕栏上方显示存疑数量', !document.querySelector('#btnDoubts').hidden && document.querySelector('#btnDoubts').textContent === '存疑 1');
+    updateButtons();
+    ok('有存疑句时可以用画面复核', !document.querySelector('#btnRecheck').disabled);
+    const plOrder = [...document.querySelectorAll('#dlgPipeline input[type=checkbox]')].map(x => x.id);
+    ok('一键整理：先校对，再找关键帧、用画面复核存疑句', plOrder.indexOf('plCorrect') < plOrder.indexOf('plFrames') && plOrder.indexOf('plFrames') < plOrder.indexOf('plRecheck'), plOrder);
+    ok('字幕栏上方显示存疑数量',!document.querySelector('#btnDoubts').hidden && document.querySelector('#btnDoubts').textContent === '存疑 1');
     document.querySelector('#btnDoubts').click();
     ok('点「存疑」跳到那一句并单句循环', S.loopIdx === 2 && document.querySelector('#optLoop').checked);
     v.pause();

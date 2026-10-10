@@ -813,6 +813,7 @@ function updateButtons() {
   $('#btnFrames').disabled = !S.doc || busy || !vid;
   $('#btnCapture').disabled = !S.doc || busy || !vid;
   $('#btnDescribe').disabled = !S.doc || busy || !((S.doc && S.doc.frames) || []).some(f => !f.note);
+  $('#btnRecheck').disabled = !S.doc || busy || !vid || !doubtIndexes().length;
   $('#btnReview').disabled = !has || busy || !(S.doc && (S.doc.summary || '').trim()) || !!S.chatAbort;
   $('#btnSend').disabled = !has;
 }
@@ -1079,6 +1080,8 @@ function openPipeline() {
   const vid = !!(S.info && S.info.has_video), nShots = (S.doc.frames || []).length;
   $('#plFrames').disabled = !vid;
   $('#plFrames').checked = vid && !nShots && providerReady(S.settings.vision);
+  $('#plRecheck').disabled = !vid;
+  $('#plRecheck').checked = vid && providerReady(S.settings.vision);
   $('#plFramesLabel').textContent = !vid ? '找关键帧（这是音频文件，没有画面）'
     : nShots ? `重新找关键帧（现在有 ${nShots} 张画面记录，会替换自动找的那些）`
       : `找关键帧、写画面记录${providerReady(S.settings.vision) ? '' : '（还没设置画面识别用的 AI）'}`;
@@ -1092,8 +1095,9 @@ async function runPipeline() {
   const lang = $('input[name=plLang]:checked').value;
   const steps = [];
   if ($('#plAsr').checked) steps.push(['生成字幕', () => startTranscribe(lang, lang === 'en' ? S.settings.asr_en : S.settings.asr_zh)]);
-  if ($('#plFrames').checked && !$('#plFrames').disabled) steps.push(['找关键帧', () => findFrames(true)]);
   if ($('#plCorrect').checked) steps.push(['AI 校对', () => startCorrect(true)]);
+  if ($('#plFrames').checked && !$('#plFrames').disabled) steps.push(['找关键帧', () => findFrames(true)]);
+  if ($('#plRecheck').checked && !$('#plRecheck').disabled) steps.push(['用画面复核存疑句', () => recheckDoubts(true)]);
   if ($('#plTranslate').checked && !$('#plTranslate').disabled) steps.push(['翻译', () => startTranslate(false)]);
   if ($('#plSummary').checked) steps.push(['课程重点', () => doSummary()]);
   if ($('#plClip').checked) steps.push(['剪藏', () => doClip()]);
@@ -1236,6 +1240,47 @@ async function captureFrame() {
   renderFrames(); markDirty();
   if (providerReady(S.settings.vision)) await describeFrames([f]);
   else toast('已截取。还没设置「画面识别」用的 AI，可以自己在下面写画面记录', { ms: 6000 });
+}
+/* 用画面复核存疑句：AI 校对后还拿不准的句子，截下说话时的画面再核对一次 */
+async function recheckDoubts(auto) {
+  const doc = S.doc, segs = doc.segments;
+  const list = doubtIndexes();
+  if (!list.length) { if (!auto) toast('没有存疑句'); return true; }
+  try {
+    await flushSave();
+    const items = list.map(i => {
+      const d = doubtOf(segs[i]);
+      return { i, start: segs[i].start, end: segs[i].end, text: segs[i].text, reason: d ? d.reason : '',
+        before: segs.slice(Math.max(0, i - 2), i).map(s => s.text).join(' '), after: segs.slice(i + 1, i + 3).map(s => s.text).join(' ') };
+    });
+    const r = await api('doubts_recheck', { path: S.path, items, frames: (doc.frames || []).filter(f => f.note) });
+    snapshot();
+    let fixed = 0;
+    const ok = await runJob(r.job, 'AI 正在用画面复核存疑句…', {
+      onItems: res => {
+        for (const x of res) {
+          const seg = segs[x.i]; if (!seg) continue;
+          const d = doubtOf(seg);
+          if (x.text !== undefined) {
+            if (x.text !== seg.text) { seg.text = x.text; fixed++; }
+            if (d) doc.doubts = doc.doubts.filter(y => y !== d);
+            if (S.doc === doc) { const el = cueEl(x.i); if (el) { $('.src', el).textContent = seg.text; el.classList.add('fixed'); } }
+          } else if (d && x.doubt) d.reason = x.doubt;
+        }
+        markDirty();
+      },
+    });
+    if (S.doc === doc) {
+      const fixedNow = $$('.cue.fixed', $('#cues')).map(el => +el.dataset.i);
+      renderCues(); fixedNow.forEach(i => { const el = cueEl(i); if (el) el.classList.add('fixed'); });
+    }
+    save();
+    if (ok) {
+      const left = doubtIndexes().length;
+      toast(`用画面复核了 ${list.length} 句存疑句：确认 ${list.length - left} 句（改了 ${fixed} 句，绿色下划线标出）${left ? `，还有 ${left} 句看不清，留给你回听` : ''}`, { ms: 9000 });
+    }
+    return ok || auto;  // 一键整理里复核失败不影响后面的步骤
+  } catch (e) { fail(e); return !!auto; }
 }
 function shotOf(el) { const k = el.closest('.shot'); return k && S.doc.frames[+k.dataset.k]; }
 function showLightbox(url) {
@@ -1853,6 +1898,7 @@ function bind() {
   $('#btnFrames').onclick = () => { if (!S.job) findFrames(false); };
   $('#btnCapture').onclick = () => { if (!S.job) captureFrame(); };
   $('#btnDescribe').onclick = () => { if (!S.job) describeFrames((S.doc.frames || []).filter(f => !f.note)); };
+  $('#btnRecheck').onclick = () => { if (!S.job) recheckDoubts(false); };
   const fb = $('#framesBox');
   fb.addEventListener('input', e => { const f = e.target.matches('[data-note]') && shotOf(e.target); if (f) { f.note = e.target.value; markDirty(); } });
   fb.addEventListener('change', e => { const f = e.target.matches('[data-fig]') && shotOf(e.target); if (f) { f.figure = e.target.checked; markDirty(); } });

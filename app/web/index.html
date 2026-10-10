@@ -216,6 +216,7 @@
       <button class="btn primary small" id="btnFrames" disabled title="找出课件、板书、老师手绘这类有内容的画面，让能看图的 AI 写成画面记录">找关键帧</button>
       <button class="btn small" id="btnCapture" disabled title="把视频当前的画面加进来，并让 AI 写画面记录">截取当前画面</button>
       <button class="btn small" id="btnDescribe" disabled title="给还没有画面记录的画面补写记录">补写画面记录</button>
+      <button class="btn small" id="btnRecheck" disabled title="截下每句存疑句说话时的画面（常有烧录字幕），让 AI 核对：能确认的改正，看不清的继续存疑">用画面复核存疑句</button>
       <span class="muted small-text" id="framesHint"></span>
     </div>
   </div>
@@ -279,8 +280,9 @@
     <p class="muted">按顺序自动完成下面勾选的步骤。整理完建议你检查一遍字幕，打开「已校对」，再剪藏。</p>
     <div class="field">
       <label class="check"><input type="checkbox" id="plAsr"> <span id="plAsrLabel">生成字幕</span></label>
-      <label class="check"><input type="checkbox" id="plFrames"> <span id="plFramesLabel">找关键帧、写画面记录（需要能看图的 AI）</span></label>
       <label class="check"><input type="checkbox" id="plCorrect"> AI 按术语表校对</label>
+      <label class="check"><input type="checkbox" id="plFrames"> <span id="plFramesLabel">找关键帧、写画面记录（需要能看图的 AI）</span></label>
+      <label class="check" style="margin-left:24px"><input type="checkbox" id="plRecheck"> 用画面复核校对后还存疑的句子</label>
       <label class="check"><input type="checkbox" id="plTranslate"> 翻译成中文（英文课程）</label>
       <label class="check"><input type="checkbox" id="plSummary"> 生成课程重点</label>
       <label class="check"><input type="checkbox" id="plClip"> 最后剪藏到 Obsidian</label>
@@ -425,8 +427,9 @@
         <ul>
           <li><b>找关键帧</b>：软件每隔约 15 秒截一张候选画面（避开老师挡住屏幕的那几秒），老师说「大家请看」时也截一张；AI 挑出有内容的画面（新的一页课件、写得更满的板书、手绘曲线），同一页只留最完整的一张，再给每张写「画面记录」：照录课件文字和板书，分清哪些是课件原有的、哪些是老师现场写画的，抄下画面上的字幕。25 分钟的课大约 3 分钟。</li>
           <li><b>截取当前画面</b>：看到重要画面时手动加一张。</li>
+          <li><b>用画面复核存疑句</b>：AI 校对后还拿不准的句子，软件截下每句说话时的画面（课程画面底部常有烧录字幕，课件、板书上也可能有这个词），连同附近的画面记录交给 AI：能确认的直接改正（绿色下划线），看不清的继续存疑，留给你回听。一键整理里会自动做。</li>
           <li>画面记录可以自己改；「可插图」勾选的画面，课程重点里可以插这张图；点缩略图看大图。</li>
-          <li>AI 校对、课程重点、查漏和对话都会参考画面记录。课程重点里只来自画面的内容会写成「画面显示……」。</li>
+          <li>课程重点、查漏和对话都会参考画面记录（已经有画面记录时，AI 校对也会参考）。课程重点里只来自画面的内容会写成「画面显示……」。</li>
           <li><b>插图非必要不用</b>：只有文字确实说不清的（手绘曲线的形状、K 线标注的位置、复杂结构图）才插，整节课最多 3 张，剪藏时缩到 960 宽并压缩。</li>
         </ul>
       </section>
@@ -454,7 +457,7 @@
 
       <section data-h="pipeline" hidden>
         <h3>一键整理</h3>
-        <p>按顺序自动完成勾选的步骤：生成字幕 → 找关键帧、写画面记录 → AI 校对 → 翻译（英文课程）→ 课程重点（含查漏）→ 剪藏。某一步失败会停下来并告诉你原因。整理完建议检查一遍存疑句，打开「已校对」再剪藏。</p>
+        <p>按顺序自动完成勾选的步骤：生成字幕 → AI 按术语表校对 → 找关键帧、写画面记录 → 用画面复核校对后还存疑的句子 → 翻译（英文课程）→ 课程重点（含查漏）→ 剪藏。某一步失败会停下来并告诉你原因。整理完建议检查一遍存疑句，打开「已校对」再剪藏。</p>
       </section>
 
       <section data-h="export" hidden>

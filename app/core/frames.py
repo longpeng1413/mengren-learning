@@ -272,6 +272,64 @@ def extract(settings, name, path, duration, segments, cancel=None, progress=lamb
     return describe(settings, name, path, chosen, segments, cancel, progress, 0.6, 1.0, on_part)
 
 
+RECHECK_PROMPT = (
+    '下面几句字幕是 AI 校对时拿不准的「存疑句」（语音识别可能听错了）。每句附了：前后文、存疑原因、这句话说话时截的画面，'
+    '以及附近的画面记录（课件文字、板书、画面字幕）。\n'
+    '请看画面核对：画面底部常有烧录字幕，课件和板书上也可能有这个词。\n'
+    '- 画面能确认这句该怎么写的：给出改正后的整句（只改识别错的字词，不改写、不润色、不删口语）；\n'
+    '- 画面也确认原句没错的：「改为」写原句；\n'
+    '- 画面看不清、或者画面里没有相关内容的：不改，写明还存疑的原因。\n'
+    '只输出 JSON：{"结果": [{"编号": 编号, "改为": "整句（确定时才写）", "仍存疑": "原因（不确定时才写）"}]}'
+)
+
+
+def recheck_doubts(settings, name, path, items, frames_list, cancel=None, progress=lambda f, m=None: None, on_part=None):
+    """用画面复核存疑句。items: [{i, start, end, text, reason, before, after}]。
+    返回 [{i, text}（画面确认后的句子）或 {i, doubt}（仍存疑）]。"""
+    from . import llm
+    batches = [items[k:k + 3] for k in range(0, len(items), 3)]
+
+    def moments(it):
+        """这句话说话时截几张：画面字幕每几秒换一次，长句子每隔约 3 秒截一张，最多 4 张。"""
+        a = float(it['start'])
+        b = float(it.get('end') or a + 2)
+        n = max(1, min(4, int((b - a) / 3) + 1))
+        return [round(a + (b - a) * (k + 0.5) / n, 2) for k in range(n)]
+
+    def work(batch):
+        parts = [{'type': 'text', 'text': RECHECK_PROMPT}]
+        for k, it in enumerate(batch, 1):
+            near = notes_text(frames_list, float(it['start']) - 30, float(it['start']) + 30, 3000)
+            ts = moments(it)
+            parts.append({'type': 'text', 'text': f'\n【编号 {k}｜{_fmt(it["start"])}】\n前文：{it.get("before", "")}\n'
+                          f'存疑句：{it["text"]}\n后文：{it.get("after", "")}\n存疑原因：{it.get("reason", "")}\n'
+                          + (f'附近的画面记录：\n{near}\n' if near else '') + f'这句话说话时的画面（按时间顺序 {len(ts)} 张）：'})
+            for t in ts:
+                parts.append({'type': 'image', 'path': str(grab(path, t))})
+        for _ in range(2):
+            try:
+                data = _json(llm.complete(settings, name, [{'role': 'user', 'content': parts}], json_mode=True))
+                out = []
+                for x in (data.get('结果', []) if isinstance(data, dict) else []):
+                    k = int(x.get('编号', 0)) if isinstance(x, dict) else 0
+                    if not 1 <= k <= len(batch):
+                        continue
+                    it = batch[k - 1]
+                    new = str(x.get('改为') or '').strip()
+                    if new and not str(x.get('仍存疑') or '').strip():
+                        out.append({'i': it['i'], 'text': new})
+                    else:
+                        out.append({'i': it['i'], 'doubt': str(x.get('仍存疑') or it.get('reason') or '').strip()[:200]})
+                if on_part:
+                    on_part(out)
+                return out
+            except (ValueError, TypeError, AttributeError):
+                continue
+        raise llm.LlmError('画面复核结果格式不对，请重试或换一个 AI 服务')
+    results = _run_batches(batches, work, cancel, progress, 'AI 正在用画面复核存疑句', 0.0, 1.0)
+    return [x for r in results for x in (r or [])]
+
+
 def nearest(frames, t, within=3.0):
     best = min(frames or [], key=lambda f: abs(float(f.get('t', 0)) - t), default=None)
     return best if best is not None and abs(float(best.get('t', 0)) - t) <= within else None

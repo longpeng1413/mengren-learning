@@ -488,6 +488,26 @@ class Api:
             return {'frames': out}
         return {'job': jobs.start('frames', run).id}
 
+    def do_doubts_recheck(self, b):
+        """用画面复核存疑句：截下每句说话时的画面（常有烧录字幕），能确认的改正，看不清的继续存疑。"""
+        path = b.get('path')
+        if not path or not os.path.isfile(path):
+            raise ValueError('视频文件不见了')
+        s = config.load()
+        name = self._vision(s)
+        items = [x for x in (b.get('items') or []) if isinstance(x, dict) and 'i' in x and x.get('text')]
+        if not items:
+            raise ValueError('没有存疑句')
+        shots = [f for f in (b.get('frames') or []) if isinstance(f, dict)]
+
+        def run(job):
+            try:
+                out = frames.recheck_doubts(s, name, path, items[:60], shots, job.cancel, job.report, on_part=lambda part: job.push(part))
+            except frames.Cancelled:
+                return {'n': 0}
+            return {'n': len(out)}
+        return {'job': jobs.start('recheck', run).id}
+
     def do_frame_url(self, b):
         path = b.get('path')
         if not path or not os.path.isfile(path):

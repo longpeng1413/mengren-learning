@@ -298,6 +298,22 @@ check('剪藏：插图压缩得比原截图小', img.stat().st_size < frames.gra
 api.call('settings', {'settings': {'obsidian': dict(config.load()['obsidian'], include_frames=False)}})
 check('可以不附画面记录', '## 画面记录' not in Path(api.call('clip', {'doc': dict(d15, clip={'path': c6['path']})})['path']).read_text(encoding='utf-8'))
 check('插图非必要不用：最多 3 张', '最多 3 张' in llm.DEFAULT_TEMPLATE and '默认 false' in frames.DESCRIBE_PROMPT)
+seen2 = {}
+
+
+def fake_recheck(s_, n_, msgs, **k):
+    seen2['parts'] = msgs[-1]['content']
+    return json.dumps({'结果': [{'编号': 1, '改为': '峰级的入门'}, {'编号': 2, '仍存疑': '画面里没有字幕'}]}, ensure_ascii=False)
+
+
+llm.complete = fake_recheck
+rc = frames.recheck_doubts({}, 'codex', mp4, [{'i': 3, 'start': 4.0, 'end': 6.0, 'text': '风级的入门', 'reason': '疑似识别错误'},
+                                            {'i': 7, 'start': 20.0, 'end': 22.0, 'text': '讲论文', 'reason': '不通'}], shots)
+llm.complete = orig_complete
+check('用画面复核存疑句：能确认的改正、看不清的继续存疑', rc == [{'i': 3, 'text': '峰级的入门'}, {'i': 7, 'doubt': '画面里没有字幕'}], rc)
+check('复核时附上说话时的画面和附近的画面记录', sum(1 for p in seen2['parts'] if p['type'] == 'image') == 2 and any('课件标题：交易心理学' in p.get('text', '') for p in seen2['parts']))
+api.call('settings', {'settings': {'vision': 'deepseek'}})
+check('复核存疑句也要能看图的 AI', '不能看图' in api.call('doubts_recheck', {'path': mp4, 'items': [{'i': 0, 'text': 'x', 'start': 1}]})['error'])
 (config.CACHE_DIR / 'frames' / 'old').mkdir(parents=True, exist_ok=True)
 oldf = config.CACHE_DIR / 'frames' / 'old' / 'x.jpg'
 oldf.write_bytes(b'0')
