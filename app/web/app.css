@@ -252,7 +252,7 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .cues { flex: 1; overflow-y: auto; min-height: 0; padding: 4px 6px 40vh 0; scroll-behavior: smooth; }
 .cues-inner { max-width: var(--cue-width); }
 .cues-empty { text-align: center; color: var(--muted); margin-top: 18vh; line-height: 2; }
-.cue { position: relative; display: grid; grid-template-columns: 74px 1fr; gap: 4px 12px; padding: var(--cue-gap) 44px var(--cue-gap) 8px; border-radius: 10px; border: 1px solid transparent; transition: background .15s, border-color .15s; }
+.cue { position: relative; display: grid; grid-template-columns: 74px 1fr; gap: 4px 12px; padding: var(--cue-gap) 62px var(--cue-gap) 8px; border-radius: 10px; border: 1px solid transparent; transition: background .15s, border-color .15s; }
 .cue:hover { background: var(--panel); }
 .cue.active { background: var(--accent-weak); border-color: var(--accent-line); }
 .cue.hit .src, .cue.hit .tr { box-shadow: inset 0 -2px 0 var(--accent-line); }
@@ -269,11 +269,15 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .hide-tr .tr { display: none; }
 .src:focus, .tr:focus { background: var(--panel2); box-shadow: 0 0 0 1px var(--accent-line); color: var(--text); }
 .tr:empty::before { content: attr(data-ph); color: var(--line); }
-.cue-tools { position: absolute; right: 6px; top: 6px; display: none; flex-direction: column; gap: 2px; }
-.cue:hover .cue-tools, .cue:focus-within .cue-tools { display: flex; }
-.cue-tools button { width: 28px; height: 26px; display: grid; place-items: center; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; color: var(--muted); padding: 0; }
+/* 工具按钮排成 2×2，尽量不超出一行的高度；超出的部分也要盖在下一句上面，否则鼠标移过去会变成下一句的按钮 */
+.cue-tools { position: absolute; right: 6px; top: 4px; display: none; grid-template-columns: 24px 24px; gap: 2px; }
+.cue:focus-within { z-index: 2; }
+.cue:hover { z-index: 3; }
+.cue:hover .cue-tools, .cue:focus-within .cue-tools { display: grid; }
+.cues-inner:hover .cue:focus-within:not(:hover) .cue-tools { display: none; } /* 正在编辑的句子，鼠标移到别的句子时先收起它的按钮 */
+.cue-tools button { width: 24px; height: 24px; display: grid; place-items: center; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; color: var(--muted); padding: 0; }
 .cue-tools button:hover { color: var(--accent); border-color: var(--accent-line); }
-.cue-tools svg { width: 14px; height: 14px; }
+.cue-tools svg { width: 13px; height: 13px; }
 
 /* ---------- 空状态 ---------- */
 .empty-card { width: min(580px, 100%); text-align: center; padding: 42px 36px; border: 1.5px dashed var(--line); border-radius: 18px; background: var(--panel); }

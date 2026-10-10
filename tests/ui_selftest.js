@@ -49,6 +49,16 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('修改和老师都保存到磁盘', reread.doc.segments[0].text === '改过的第一句' && reread.doc.teacher === tr.teacher.id);
     ok('媒体库里的状态跟着更新', await until(() => [...document.querySelectorAll('.lib-item.active .tag')].length >= 1));
 
+    // 工具按钮：正在编辑的一行，下排的「合并」按钮超出这一行时，也要点得到它自己（不能被下一句盖住）
+    const cue1 = document.querySelectorAll('.cue')[1];
+    cue1.scrollIntoView({ block: 'center' });
+    cue1.querySelector('.src').focus();
+    const mb = cue1.querySelector('[data-act="merge"]').getBoundingClientRect();
+    const hitEl = document.elementFromPoint(mb.left + mb.width / 2, mb.top + mb.height / 2);
+    ok('工具按钮排成两列，「合并」点得到、属于这一句', mb.width > 0 && hitEl && hitEl.closest('[data-act="merge"]') && hitEl.closest('.cue') === cue1,
+       [mb.top, mb.height, cue1.getBoundingClientRect().bottom, hitEl && hitEl.outerHTML.slice(0, 80)]);
+    cue1.querySelector('.src').blur();
+
     // 拆分、合并、撤销
     const n0 = S.doc.segments.length;
     cueAction('split', 1); cueAction('merge', 1); cueAction('del', 7);
