@@ -189,14 +189,14 @@ gloss.write_text('''# 课程术语表 V1.1
 | 止行、部分“止盈” | 可能为“指形”，必须结合上下文 |
 | 冲门 | 葱门（仅限上下文明确指向师门群体） |
 
---hotwords "大葱老师,峰级线"
+--hotwords "王老师,峰级线"
 ''', encoding='utf-8')
 extracted = llm.terms_from_markdown(gloss.read_text(encoding='utf-8'))
 w2, h2, f2 = llm.parse_terms(extracted)
-check('从术语表文档读出术语', w2[:4] == ['峰', '破级', '大葱老师', '峰级线'] and not f2, (w2, extracted))
+check('从术语表文档读出术语', w2[:4] == ['峰', '破级', '王老师', '峰级线'] and not f2, (w2, extracted))
 check('读出识别错误对照（只作参考）', ('冲门', '葱门（仅限上下文明确指向师门群体）') in h2 and ('分', '峰') in h2 and ('止行', '指形（可能为“指形”，必须结合上下文）') in h2, h2)
 check('识别错误的说明不进热词', '葱门' in w2 and all('仅限' not in x for x in w2), w2)
-t2 = api.call('teacher_save', {'teacher': {'name': '咖米大葱老师', 'display': '大葱老师', 'terms': '底层逻辑', 'terms_file': str(gloss)}})['teacher']
+t2 = api.call('teacher_save', {'teacher': {'name': '王老师（交易课）', 'display': '王老师', 'terms': '底层逻辑', 'terms_file': str(gloss)}})['teacher']
 rt = config.get_teacher(t2['id'])
 check('关联文件：术语合并、整份文件当术语说明', '底层逻辑' in rt['terms'] and '冲门 => 葱门' in rt['terms'] and '已知ASR常见错误映射' in rt['notes'])
 check('原始档案不被改动', config.get_teacher(t2['id'], resolve=False)['terms'] == '底层逻辑')
@@ -233,7 +233,7 @@ check('AI 校对：兼容没有存疑的回答', llm.correct_batch({}, 'codex', 
 llm.complete = orig_complete
 
 # 来源情况、标题层级、剪藏
-bd = docs.source_boundary({'duration': 1478.0, 'segments': [{'start': 1460.68, 'end': 1464.0, 'text': '特别是在大葱老师线下课啊，你也可以'}]})
+bd = docs.source_boundary({'duration': 1478.0, 'segments': [{'start': 1460.68, 'end': 1464.0, 'text': '特别是在王老师线下课啊，你也可以'}]})
 check('来源情况：字幕提前结束、最后一句没说完', '最后约 14 秒' in bd and '没有说完' in bd, bd)
 check('来源情况：完整的不报', docs.source_boundary({'duration': 10, 'segments': [{'start': 0, 'end': 9.5, 'text': '好。'}]}) == '')
 sh = docs._shift_headings('# 课程重点：交易底层逻辑\n\n概述\n\n## 一、人事钱\n\n### 1. 钱\n')
@@ -245,7 +245,7 @@ api.call('settings', {'settings': {'obsidian': {'vault': str(vault), 'folder': '
 c4 = api.call('clip', {'doc': d14})
 n4 = Path(c4['path'])
 b4_ = n4.read_text(encoding='utf-8')
-check('笔记文件名格式、老师称呼', n4.name == '演示视频（猛人字幕）.md' and n4.parent.name == '大葱老师' and 'teacher: "大葱老师"' in b4_, c4)
+check('笔记文件名格式、老师称呼', n4.name == '演示视频（猛人字幕）.md' and n4.parent.name == '王老师' and 'teacher: "王老师"' in b4_, c4)
 check('笔记：标题层级、状态、存疑句', '\n### 一、开头' in b4_ and '# 课程重点：演示' not in b4_ and 'status: "待审计"' in b4_ and '〔存疑：疑似识别错误〕' in b4_, b4_[:600])
 moved = vault / '别处' / '改了名.md'
 moved.parent.mkdir()
