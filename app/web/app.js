@@ -1250,7 +1250,7 @@ let summaryEditing = false;
 function renderSummary() {
   const box = $('#summaryBox');
   const s = S.doc && S.doc.summary;
-  box.innerHTML = s ? md(s) : `<div class="ai-empty">生成字幕后，点「生成课程重点」：<br>AI 会按模板整理核心观点、概念、方法、案例和老师原话，<br>剪藏时放在笔记的上半部分。</div>`;
+  box.innerHTML = s ? md(s) : `<div class="ai-empty">生成字幕后，点「生成课程重点」：<br>AI 按老师这节课的知识体系整理重点，每条标出处时间，<br>再自动对照字幕查漏补缺；剪藏时放在笔记的上半部分。</div>`;
   $('#btnSummary').textContent = s ? '重新生成' : '生成课程重点';
   $('#btnCopySummary').disabled = !s;
   $('#btnEditSummary').disabled = !S.doc;
@@ -1433,6 +1433,11 @@ function openSettings(section) {
     $('#btnStorageReset').disabled = !a.storage_custom;
   }).catch(() => {});
   dlg.showModal();
+}
+function showHelp(sec) {
+  $$('#helpNav [data-h]').forEach(b => b.classList.toggle('active', b.dataset.h === sec));
+  $$('#helpBody section').forEach(el => el.hidden = el.dataset.h !== sec);
+  $('#helpBody').scrollTop = 0;
 }
 function showSection(sec) {
   $$('#settingsNav button').forEach(b => b.classList.toggle('active', b.dataset.sec === sec));
@@ -1675,7 +1680,12 @@ function bind() {
     savePrefs({ theme: next }); toast('主题：' + THEMES.find(t => t.id === next).name, { ms: 1200 });
   };
   $('#btnUndo').onclick = undo;
-  $('#btnHelp').onclick = () => $('#dlgHelp').showModal();
+  const openHelp = sec => { showHelp(sec || 'start'); $('#dlgHelp').showModal(); };
+  $('#btnHelp').onclick = () => openHelp('edit');
+  $('#btnHelpTop').onclick = () => openHelp(S.mode === 'book' ? 'book' : 'start');
+  $('#btnHelp2').onclick = () => openHelp('start');
+  $('#helpNav').onclick = e => { const b = e.target.closest('[data-h]'); if (b) showHelp(b.dataset.h); };
+  $('#helpClose').onclick = () => $('#dlgHelp').close();
 
   // 文字设置
   $('#txTheme').innerHTML = THEMES.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
@@ -1808,7 +1818,7 @@ function bind() {
   $('#setSave').onclick = () => saveSettings(true);
   $('#resetTemplate').onclick = () => { $('#summaryTemplate').value = S.defaultTemplate; };
   $$('[data-dir]').forEach(b => b.onclick = () => api('open_dir', { which: b.dataset.dir }).catch(fail));
-  $('#aboutHome').onclick = e => { e.preventDefault(); api('reveal', { target: 'https://github.com/longpeng1413/mengren-subtitles' }).catch(fail); };
+  $('#aboutHome').onclick = e => { e.preventDefault(); api('reveal', { target: 'https://github.com/longpeng1413/mengren-learning' }).catch(fail); };
   $$('[data-test]').forEach(b => b.onclick = async () => {
     const out = b.parentElement.querySelector('.test-result');
     out.className = 'test-result'; out.textContent = '先保存设置，再测试…';

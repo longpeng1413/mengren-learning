@@ -110,8 +110,8 @@ python -m venv .venv
 
 1. 改 `app/main.py` 里的 `VERSION`。
 2. 测试、打包（见上）。
-3. 提交并推送到 `main`（仓库：https://github.com/longpeng1413/mengren-subtitles）。
-4. 把 `dist-next\猛人学习` 文件夹打成 zip，用 `gh release create v版本号` 发布。**附件文件名必须是英文**，例如 `mengren-subtitles-1.4.0-windows.zip`，否则 GitHub 会把中文吞掉。中文名写在附件的 label 里。发布说明里提醒：要先装 ffmpeg；程序没有数字签名，可能会被安全软件提示。
+3. 提交并推送到 `main`（仓库：https://github.com/longpeng1413/mengren-learning）。
+4. 把 `dist-next\猛人学习` 文件夹打成 zip，用 `gh release create v版本号` 发布。**附件文件名必须是英文**，例如 `mengren-learning-1.6.0-windows.zip`，否则 GitHub 会把中文吞掉。中文名写在附件的 label 里。发布说明里提醒：要先装 ffmpeg；程序没有数字签名，可能会被安全软件提示。
 5. README 的功能说明有变化时一起更新。
 
 推送、发布这类对外操作，先问用户。

@@ -43,6 +43,7 @@
     </div>
     <button class="btn" id="btnClip" disabled title="剪藏到 Obsidian：上半部分课程重点，下半部分完整字幕"><svg viewBox="0 0 24 24"><path d="M12 2l7 5-2 10-5 5-5-5-2-10z"/><path d="M12 2v20"/></svg>剪藏</button>
     <span class="sep"></span>
+    <button class="btn icon-only" id="btnHelpTop" title="使用说明：各种功能和设置方法"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14m0 3v.01"/></svg></button>
     <button class="btn icon-only" id="btnTheme" title="切换主题"><svg viewBox="0 0 24 24"><path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z"/></svg></button>
     <button class="btn icon-only" id="btnSettings" title="设置"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
   </nav>
@@ -79,6 +80,7 @@
         <div class="empty-btns">
           <button class="btn primary big" id="btnAddFolder2">添加文件夹</button>
           <button class="btn big" id="btnOpen2">打开文件</button>
+          <button class="btn big" id="btnHelp2">使用说明</button>
         </div>
         <div class="recent-list" id="recentList"></div>
       </div>
@@ -306,25 +308,253 @@
   </form>
 </dialog>
 
-<!-- 说明 -->
-<dialog id="dlgHelp" class="dialog">
-  <form method="dialog">
-    <h2>使用说明</h2>
-    <ul class="help">
-      <li><b>点字幕</b>：跳到这一句，同时可以直接修改；改完自动保存。<b>点时间</b>：只跳转。</li>
-      <li><b>空格</b>：播放 / 暂停（不在编辑时）　<b>Ctrl + K</b>：任何时候播放 / 暂停</li>
-      <li><b>Ctrl + ← / →</b>：后退 / 前进 3 秒　<b>Ctrl + ↑ / ↓</b>：上一句 / 下一句</li>
-      <li><b>Enter / Esc</b>：结束编辑　<b>Ctrl + S</b>：立即保存　<b>Ctrl + Z</b>：撤销拆分、合并、删除和 AI 校对</li>
-      <li>鼠标移到字幕上，右侧有工具：对齐到当前时间、在光标处拆分、与下一句合并、删除。</li>
-      <li><b>术语表</b>：在「设置 → 老师与术语表」里给每位老师建一份；在顶栏选择这个视频是哪位老师的课。也可以在媒体库的文件夹上绑定老师，里面的视频会自动用这位老师。</li>
-      <li><b>存疑句</b>：AI 校对时拿不准、读起来不通的句子会用橙色标出，不会乱改。点字幕栏上方的「存疑」按钮逐句跳过去，会单句循环播放方便回听；改好后点「已确认」。</li>
-      <li><b>画面</b>：AI 区的「画面」页点「找关键帧」，软件会挑出课件、板书、老师手绘这类画面，让 AI 写成画面记录（照录课件文字和板书、分清哪些是老师现场画的、抄下画面上的字幕）。AI 校对、课程重点和对话都会参考画面记录；课程重点里可以插图，剪藏时图片会复制到笔记旁边的 image 文件夹。看到重要画面也可以点「截取当前画面」。</li>
-      <li><b>书籍和文档</b>：在媒体库里点 PDF 或 Word（也可以「打开」TXT / Markdown）。左边看原文，右边是章节：先核对书名、作者、「书上第 1 页是 PDF 第几页」和章节分得对不对，再整理。每章按固定栏目整理，标书上的页码（P42），点页码左边就跳过去；有图表的页会截图给 AI 看；整理完自动查漏没引用到的页。最后点「全书总览」，再点「剪藏」。</li>
-      <li><b>查漏补缺</b>：对照完整字幕，把课程重点漏掉的内容补进对应小节，并显示字幕被引用到的比例。</li>
-      <li><b>剪藏</b>：笔记上半部分是课程重点，下半部分是完整带时间戳的字幕，可以直接用来蒸馏。</li>
-    </ul>
-    <div class="dialog-btns"><button value="ok" class="btn primary">知道了</button></div>
-  </form>
+<!-- 使用说明 -->
+<dialog id="dlgHelp" class="dialog settings help-dlg">
+  <div class="settings-wrap">
+    <aside class="settings-nav" id="helpNav">
+      <div class="nav-label">开始</div>
+      <button data-h="start" class="active">快速开始</button>
+      <button data-h="library">媒体库</button>
+      <div class="nav-label">视频和音频</div>
+      <button data-h="asr">生成字幕</button>
+      <button data-h="teacher">老师与术语表</button>
+      <button data-h="edit">看字幕、改字幕</button>
+      <button data-h="correct">AI 校对和存疑句</button>
+      <button data-h="frames">画面（课件和板书）</button>
+      <button data-h="summary">课程重点和查漏</button>
+      <button data-h="chat">AI 对话</button>
+      <button data-h="pipeline">一键整理</button>
+      <button data-h="export">下载字幕</button>
+      <button data-h="clip">剪藏到 Obsidian</button>
+      <div class="nav-label">书籍和文档</div>
+      <button data-h="book">书籍和文档整理</button>
+      <div class="nav-label">其他</div>
+      <button data-h="settings">设置说明</button>
+      <button data-h="keys">快捷键</button>
+      <button data-h="data">数据和隐私</button>
+      <button data-h="faq">常见问题</button>
+    </aside>
+    <div class="settings-body help-body" id="helpBody">
+
+      <section data-h="start">
+        <h3>快速开始</h3>
+        <p>猛人学习把本地的课程视频、音频和书籍、文档整理成可以放进 Obsidian 知识库的笔记。第一次使用按下面四步来：</p>
+        <ol>
+          <li><b>设置 AI 服务</b>：点右上角的齿轮打开「设置」。
+            <ul>
+              <li>中文课程的字幕识别：填「豆包语音」的 API Key（或「硅基流动」）。</li>
+              <li>英文课程的字幕识别：填「OpenAI」的 API Key。</li>
+              <li>校对、课程重点、画面识别、书籍整理：用 ChatGPT 账号登录最省事（不另花 API 费用）；也可以填 Claude、Gemini、DeepSeek 等的 Key。</li>
+              <li>每个服务都有「测试连接」按钮，填好点一下确认能用。</li>
+            </ul></li>
+          <li><b>选 Obsidian 库</b>：「设置 → Obsidian」里选库的位置和存放的文件夹。</li>
+          <li><b>建老师档案</b>：「设置 → 老师与术语表」给常听的老师建一份术语表，推荐直接关联 Obsidian 里的术语表文件。</li>
+          <li><b>加课程</b>：左边媒体库点「＋文件夹」，把课程文件夹加进来，点哪个看哪个；再点顶栏的「一键整理」。</li>
+        </ol>
+        <p class="hint">看不懂某个按钮时，把鼠标停在上面一会儿，会出现说明。</p>
+      </section>
+
+      <section data-h="library" hidden>
+        <h3>媒体库</h3>
+        <ul>
+          <li><b>＋文件夹</b>：一次加入整个文件夹（含子文件夹）里的视频、音频、PDF 和 Word。名字以「_」或「.」开头的文件夹（比如「_关键帧缓存」）不列出。</li>
+          <li><b>＋文件</b>：加入单个文件，放在最下面的「单个文件」一组。TXT 和 Markdown 用顶栏的「打开」。</li>
+          <li><b>状态标记</b>：「字幕 270」是字幕句数，「重点」是已生成课程重点，「已校对」「已剪藏」，「看到 01:20」是播放进度，书籍显示「整理 2/5」章。</li>
+          <li><b>文件夹的「⋯」菜单</b>：可以给整个文件夹绑定一位老师，里面没单独指定老师的视频会自动用这位老师的术语表；还可以重新扫描、在资源管理器中打开、从媒体库移除（不会删除电脑上的文件）。</li>
+          <li>顶栏最左边的按钮可以收起 / 展开媒体库，拖动媒体库右边的分隔条可以调宽度。</li>
+          <li><b>续播</b>：每个视频都记住看到哪里，再打开时从上次的位置接着播。</li>
+        </ul>
+      </section>
+
+      <section data-h="asr" hidden>
+        <h3>生成字幕</h3>
+        <ol>
+          <li>打开视频，点顶栏的「生成字幕」。</li>
+          <li>选视频里说的是中文还是英文、是哪位老师的课（决定用哪份术语表）、用哪个识别服务。</li>
+          <li>勾选「识别完后让 AI 按术语表校对一遍」可以自动接着校对。</li>
+        </ol>
+        <ul>
+          <li><b>豆包语音</b>（中文最准）：带逐句时间；术语会作为热词传给豆包。默认用「录音文件识别极速版」，在「设置 → 豆包语音」里可以换模型。</li>
+          <li><b>OpenAI Whisper</b>（英文）：带逐句时间；术语写进提示词。国内要在「设置 → 网络代理」里填代理。</li>
+          <li><b>硅基流动</b>：便宜，但只返回文字不返回时间，软件按停顿切段，时间可能差几秒；读不了术语表，靠后面的 AI 校对。</li>
+          <li>软件先用 ffmpeg 从视频里抽出声音（只上传声音，不上传画面），长视频在停顿处切段、几段同时识别，再拼回去。</li>
+          <li>已经有字幕时重新识别，原来的字幕会自动存成历史版本，可以换回来。</li>
+        </ul>
+      </section>
+
+      <section data-h="teacher" hidden>
+        <h3>老师与术语表</h3>
+        <p>在「设置 → 老师与术语表」里给每位老师建一份档案；在顶栏的老师下拉框里选这节课是哪位老师的。</p>
+        <ul>
+          <li><b>关联 Obsidian 里的术语表文件（推荐）</b>：选中知识库里那份术语表 MD，软件每次都读最新内容——小节里「正确写法 / 标准写法」的词和 <code>--hotwords "…"</code> 里的词当术语，表头含「ASR / 误识 / 识别」的表格当识别错误参考，整份文件给 AI 当术语说明。以后只在 Obsidian 里改。</li>
+          <li><b>手写术语表</b>（可选，和关联的文件合在一起用），每行一条：
+            <ul>
+              <li><code>峰级, 峰级线, 破级</code>：专用术语，传给识别服务当热词；</li>
+              <li><code>风级, 风机 => 峰级</code>：常见识别错误，交给 AI 结合上下文判断，不直接替换；</li>
+              <li><code>托破旋 =>! 拓扑学</code>：确定不会误伤的，识别完直接替换。单字或常用词不要加感叹号，否则「部分」会被改成「部峰」。</li>
+            </ul></li>
+          <li><b>术语说明</b>：放整份术语说明文档，只给 AI 参考，不传给识别服务。关联了文件时一般留空。</li>
+          <li><b>笔记里的称呼</b>：剪藏笔记里写的老师名字，比如档案叫「咖米大葱老师」，笔记里想写「大葱老师」。</li>
+          <li><b>剪藏子文件夹</b>、<b>单独的课程重点模板</b>：可选。</li>
+        </ul>
+      </section>
+
+      <section data-h="edit" hidden>
+        <h3>看字幕、改字幕</h3>
+        <ul>
+          <li><b>点字幕文字</b>：跳到这一句，同时可以直接修改，改完自动保存。<b>点时间</b>：只跳转。</li>
+          <li><b>鼠标移到某一句</b>，右侧有工具：把开始时间对齐到当前播放位置、在光标处拆成两句、与下一句合并、删除。都可以撤销（Ctrl + Z 或字幕栏上方的撤销按钮）。</li>
+          <li><b>字幕栏上方</b>：搜索（Enter 跳到下一个）、「已校对」开关（人工检查完打开，剪藏的笔记会标明）、「Aa」文字设置（字号、行距、句间距、宽度、字体、主题）、历史版本（重新识别、清空、恢复前自动存的，最多 5 份）。</li>
+          <li><b>视频下方</b>：字幕跟随、显示译文、画面上叠加字幕、单句循环、播放速度。</li>
+          <li><b>布局</b>：视频和字幕之间、视频和 AI 区之间的分隔条都能拖动；AI 区可以移到最右边当侧边栏、放大或隐藏。</li>
+        </ul>
+      </section>
+
+      <section data-h="correct" hidden>
+        <h3>AI 校对和存疑句</h3>
+        <ul>
+          <li>点顶栏的「AI 校对」：AI 参考术语表、识别错误对照、术语说明和同一时间段的画面记录，只改识别错误（错别字、同音词、术语、人名、数字），不改写句子。</li>
+          <li>改过的句子用绿色下划线标出，不满意可以撤销。</li>
+          <li><b>存疑句</b>：读起来不通、像是听错了、但 AI 拿不准的句子，不会乱改，而是用橙色标出并写明原因。点字幕栏上方的「存疑 N」逐句跳过去，会单句循环播放方便回听；改好或确认没问题后点「已确认」。剪藏的笔记里，没确认的存疑句会标「〔存疑：…〕」。</li>
+        </ul>
+      </section>
+
+      <section data-h="frames" hidden>
+        <h3>画面（课件和板书）</h3>
+        <p>AI 区的「画面」页，用来把课件、板书、老师手绘这些字幕里没有的信息记下来。需要能看图的 AI（「设置 → 任务用哪个 AI → 画面识别」）。</p>
+        <ul>
+          <li><b>找关键帧</b>：软件每隔约 15 秒截一张候选画面（避开老师挡住屏幕的那几秒），老师说「大家请看」时也截一张；AI 挑出有内容的画面（新的一页课件、写得更满的板书、手绘曲线），同一页只留最完整的一张，再给每张写「画面记录」：照录课件文字和板书，分清哪些是课件原有的、哪些是老师现场写画的，抄下画面上的字幕。25 分钟的课大约 3 分钟。</li>
+          <li><b>截取当前画面</b>：看到重要画面时手动加一张。</li>
+          <li>画面记录可以自己改；「可插图」勾选的画面，课程重点里可以插这张图；点缩略图看大图。</li>
+          <li>AI 校对、课程重点、查漏和对话都会参考画面记录。课程重点里只来自画面的内容会写成「画面显示……」。</li>
+          <li><b>插图非必要不用</b>：只有文字确实说不清的（手绘曲线的形状、K 线标注的位置、复杂结构图）才插，整节课最多 3 张，剪藏时缩到 960 宽并压缩。</li>
+        </ul>
+      </section>
+
+      <section data-h="summary" hidden>
+        <h3>课程重点和查漏补缺</h3>
+        <ul>
+          <li>AI 区「课程重点」页点「生成课程重点」。不套固定栏目，按老师这节课实际的知识体系组织；只写老师讲过的，不补充、不评价；定义、口诀、规则、数字照录，每条标出处时间（点时间跳过去）。</li>
+          <li>老师的自述（经历、学员数量、出版、原创说法）和课程安排（哪些放到后面的课、线下课讲）也会保留并注明。</li>
+          <li>拿不准的标「（存疑）」，老师没讲清楚的标「（未讲明）」；字幕提前结束、最后一句没说完、视频结尾损坏，会写一行「整理者注」。</li>
+          <li><b>查漏补缺</b>：生成后默认自动进行（可在「设置 → 课程重点模板」里关掉），AI 对照完整字幕和画面记录，把漏掉的内容补进对应小节。下方会显示「字幕被引用约 xx%」和没有出处的时间段。也可以随时点「查漏补缺」。</li>
+          <li>可以点「编辑」直接改；剪藏时放在笔记上半部分。</li>
+          <li>要求（模板）可以在「设置 → 课程重点模板」里改，每位老师也可以单独设一份。</li>
+        </ul>
+      </section>
+
+      <section data-h="chat" hidden>
+        <h3>AI 对话</h3>
+        <ul>
+          <li>AI 读过这节课的全部字幕、术语表和画面记录，可以问任何内容；回答里的时间点可以点击跳转。</li>
+          <li>下面的快捷问题：概括要点、解释难点、出复习题、整理方法、找识别错误。</li>
+          <li>对话记录跟着这节课保存。</li>
+        </ul>
+      </section>
+
+      <section data-h="pipeline" hidden>
+        <h3>一键整理</h3>
+        <p>按顺序自动完成勾选的步骤：生成字幕 → 找关键帧、写画面记录 → AI 校对 → 翻译（英文课程）→ 课程重点（含查漏）→ 剪藏。某一步失败会停下来并告诉你原因。整理完建议检查一遍存疑句，打开「已校对」再剪藏。</p>
+      </section>
+
+      <section data-h="export" hidden>
+        <h3>下载字幕</h3>
+        <p>顶栏「下载」：TXT 或 SRT；可以选中英对照、只要原文或只要中文；TXT 可以选带不带时间戳。</p>
+      </section>
+
+      <section data-h="clip" hidden>
+        <h3>剪藏到 Obsidian</h3>
+        <ul>
+          <li>点顶栏「剪藏」。笔记结构：属性（老师、系列、时长、是否校对、状态 status）→ 课程重点（含必要的插图）→ 来源情况 → 完整带时间戳的字幕（存疑句会标出）→ 画面记录。</li>
+          <li>存放位置：「设置 → Obsidian」里的文件夹，按老师分子文件夹；文件名格式可以设置（比如 <code>{title}（猛人学习）</code>）。插图放在笔记旁边的 <code>image</code> 文件夹。</li>
+          <li>同一节课再剪藏会更新原来那篇笔记——你在 Obsidian 里移动或改名了也能找到；笔记里的 status（比如你改成的「已确认-资料」）会保留。新笔记的 status 是「待审计」。</li>
+        </ul>
+      </section>
+
+      <section data-h="book" hidden>
+        <h3>书籍和文档整理</h3>
+        <ol>
+          <li>在媒体库里点 PDF 或 Word（TXT / Markdown 用「打开」）。扫描或拍照的 PDF 请先用 WPS 做 OCR。</li>
+          <li>左边看原文，右边先核对：
+            <ul>
+              <li>书名、作者；</li>
+              <li>「书上第 1 页是 PDF 第几页」：软件会自动认书上的页码，认不出时手动填，否则锚点写成「PDF 第 X 页」；</li>
+              <li>章节分得对不对：可以直接改章名和起止页、加一章、删一章；扫描书的章名常被 OCR 拆坏，点「AI 读目录分章」。前言、目录不编号。</li>
+            </ul></li>
+          <li>勾选章节点「整理选中的章节」，或「整理全部未整理的」。每章：
+            <ul>
+              <li>按固定栏目整理（本章主题、核心内容、概念、观点、方法、案例 / 图表、知识框架、关键结论、原书图示、页码索引、需要人工确认、OCR 修正、一句话概括）；</li>
+              <li>每条标书上的页码（P42），点页码左边就跳到那一页；</li>
+              <li>有图表的页截成图片给 AI 看；PDF 旁边有同名 Word（WPS OCR 导出的）时自动拿它当正文参考；</li>
+              <li>整理完自动查漏（没被引用的页再看一遍），再「回页面核对」（需要人工确认的地方截图给 AI 看，能确认的改正并记进「已确认的 OCR 修正」）；</li>
+              <li>原书图示非必要不用，每章最多 2 张，按位置裁剪、压缩。</li>
+            </ul></li>
+          <li>点「全书总览」生成「00、全书总览」，再点顶栏「剪藏」：写进 Obsidian 的 <code>《书名》作者/</code> 文件夹。</li>
+          <li>可以在「设置 → Obsidian」里关联知识库里的《外部书籍与文档整理规范》，整理时以它为准。</li>
+        </ol>
+      </section>
+
+      <section data-h="settings" hidden>
+        <h3>设置说明</h3>
+        <dl class="help-dl">
+          <dt>外观</dt><dd>主题（墨黑、帝王紫、深灰、浅色）和强调色。顶栏的月亮按钮也能切换主题。</dd>
+          <dt>老师与术语表</dt><dd>见左边「老师与术语表」。</dd>
+          <dt>任务用哪个 AI</dt><dd>课程重点和对话、AI 校对、翻译、画面识别可以分别选不同的服务。书籍整理用「课程重点和对话」选的那个。画面识别要能看图：ChatGPT 账号、Claude、Gemini、OpenAI 都可以；DeepSeek 不能看图。</dd>
+          <dt>课程重点模板</dt><dd>生成课程重点时发给 AI 的要求，可以改，可以恢复默认；「生成后自动查漏补缺」的开关也在这里。</dd>
+          <dt>Obsidian</dt><dd>库的位置；视频笔记存到哪个文件夹、是否按老师分子文件夹、笔记文件名格式、是否附画面记录；书籍和文档存到哪个文件夹、书的文件夹名格式、关联的书籍整理规范文件。</dd>
+          <dt>识别设置</dt><dd>英文、中文视频分别默认用哪个识别服务；选了老师时识别完是否默认校对。</dd>
+          <dt>豆包语音</dt><dd>模型（极速版、流式、标准版、闲时版）、鉴权方式（新版控制台的 API Key，或旧版的 App ID + Access Token）、去掉口头语；标准版和闲时版需要火山引擎对象存储 TOS。</dd>
+          <dt>硅基流动 / OpenAI</dt><dd>API Key、识别模型、对话模型；OpenAI 可以改接口地址（用中转服务时）和是否走代理。</dd>
+          <dt>ChatGPT 账号</dt><dd>用 ChatGPT Plus / Pro / Business 账号登录，用套餐里的额度，不另花 API 费用。浏览器登录完会自动回来；浏览器显示「无法访问此网站」时，把地址栏里的网址复制粘贴回来。</dd>
+          <dt>Claude / Gemini / DeepSeek / 豆包大模型</dt><dd>填 API Key、选模型，「获取模型列表」可以列出能用的模型。豆包大模型（火山方舟）和豆包语音是两个不同的服务。</dd>
+          <dt>网络代理</dt><dd>填代理地址（比如 Clash Verge 默认 http://127.0.0.1:7897），只给勾选了「通过网络代理连接」的服务用。</dd>
+          <dt>关于与数据</dt><dd>版本、开源地址；导出 / 导入设置（换电脑用，可以带密钥和 ChatGPT 登录）；缓存和日志放在哪里；打开日志、设置文件夹；清空缓存。</dd>
+        </dl>
+      </section>
+
+      <section data-h="keys" hidden>
+        <h3>快捷键</h3>
+        <table class="help-keys">
+          <tr><td>空格</td><td>播放 / 暂停（不在编辑字幕时）</td></tr>
+          <tr><td>Ctrl + K</td><td>任何时候播放 / 暂停</td></tr>
+          <tr><td>Ctrl + ← / →</td><td>后退 / 前进 3 秒</td></tr>
+          <tr><td>Ctrl + ↑ / ↓</td><td>上一句 / 下一句</td></tr>
+          <tr><td>Enter / Esc</td><td>结束编辑当前这句</td></tr>
+          <tr><td>Ctrl + S</td><td>立即保存</td></tr>
+          <tr><td>Ctrl + Z</td><td>撤销拆分、合并、删除和 AI 校对</td></tr>
+          <tr><td>Ctrl + F</td><td>搜索字幕</td></tr>
+          <tr><td>Ctrl + O</td><td>打开文件</td></tr>
+        </table>
+      </section>
+
+      <section data-h="data" hidden>
+        <h3>数据和隐私</h3>
+        <ul>
+          <li><b>字幕、课程重点、画面记录、对话、历史版本</b>：存在视频旁边的 <code>视频名.mp4.猛人学习.json</code>；书籍的整理结果存在文档旁边的 <code>书名.pdf.猛人学习.json</code>。删了就没了。改名前的 <code>.猛人字幕.json</code> 照样能读，下次保存时自动改名。</li>
+          <li><b>设置、API 密钥、ChatGPT 登录、老师档案、媒体库、播放进度</b>：在 <code>%APPDATA%\猛人学习\</code>，都很小。不要删；换电脑用「导出设置」。</li>
+          <li><b>缓存</b>（转换后的视频、抽出的音频、关键帧截图、书籍页面图）和<b>日志</b>：在软件文件夹里的「缓存（可随时删除）」「日志（可随时删除）」，可以随时删，会自动清理。</li>
+          <li>软件没有服务器，不收集任何数据。音频只发给你选的识别服务，字幕、截图、书页只发给你选的 AI 服务。密钥只存在这台电脑上，日志里不记录密钥。</li>
+        </ul>
+      </section>
+
+      <section data-h="faq" hidden>
+        <h3>常见问题</h3>
+        <dl class="help-dl">
+          <dt>视频打不开、没有画面？</dt><dd>不常见的格式（avi、mkv 等）第一次打开会自动转换，等进度条走完。需要先安装 ffmpeg：在终端运行 <code>winget install Gyan.FFmpeg</code>。</dd>
+          <dt>提示「还没有填写 API Key」「鉴权失败」？</dt><dd>到「设置」对应的服务里填好，点「测试连接」。ChatGPT 账号登录过期时重新登录。</dd>
+          <dt>国外的服务连不上？</dt><dd>「设置 → 网络代理」里填代理地址，并勾选那个服务的「通过网络代理连接」。</dd>
+          <dt>术语还是识别错？</dt><dd>把常错的词加进术语表（或在 Obsidian 的术语表里补上），再「AI 校对」；剩下的看「存疑」逐句回听修改。</dd>
+          <dt>书籍的页码不对？</dt><dd>改右边的「书上第 1 页是 PDF 第几页」。章节不对就改起止页，或点「AI 读目录分章」。</dd>
+          <dt>软件卡住、报错、关不掉？</dt><dd>「设置 → 关于与数据 → 打开日志文件夹」，把 app.log 发给 Claude 或维护的人看。</dd>
+        </dl>
+      </section>
+    </div>
+  </div>
+  <div class="dialog-btns settings-btns">
+    <span class="muted small-text">猛人学习（原名猛人字幕）　开源：github.com/longpeng1413/mengren-learning</span>
+    <span class="grow"></span>
+    <button class="btn primary" id="helpClose">知道了</button>
+  </div>
 </dialog>
 
 <!-- 设置 -->
@@ -554,7 +784,7 @@
 
       <section data-sec="about" hidden>
         <h3>关于与数据</h3>
-        <p>猛人学习（原名猛人字幕）　版本 <b id="aboutVersion"></b>　·　开源项目：<a href="#" id="aboutHome">github.com/longpeng1413/mengren-subtitles</a></p>
+        <p>猛人学习（原名猛人字幕）　版本 <b id="aboutVersion"></b>　·　开源项目：<a href="#" id="aboutHome">github.com/longpeng1413/mengren-learning</a></p>
 
         <div class="label strong">换电脑：导出 / 导入设置</div>
         <p class="hint">导出成一个文件，在新电脑的猛人学习里导入，就能直接用原来的设置、各家 API 密钥、ChatGPT 登录、老师和术语表。</p>

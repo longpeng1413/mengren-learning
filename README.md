@@ -10,7 +10,7 @@
 
 ## 下载和安装
 
-1. 到 [Releases](https://github.com/longpeng1413/mengren-subtitles/releases) 下载最新的 `mengren-subtitles-版本号-windows.zip`，解压到任意文件夹（不要放在 C:\Program Files 这类需要管理员权限的地方）。
+1. 到 [Releases](https://github.com/longpeng1413/mengren-learning/releases) 下载最新的 `mengren-learning-版本号-windows.zip`，解压到任意文件夹（不要放在 C:\Program Files 这类需要管理员权限的地方）。
 2. 安装 ffmpeg（用来读取和转换音视频）。在「终端」里运行：
    ```
    winget install Gyan.FFmpeg

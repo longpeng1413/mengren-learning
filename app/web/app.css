@@ -310,6 +310,15 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .key-row code.path { flex: 1; min-width: 0; padding: 7px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
 .help { padding-left: 18px; line-height: 2; margin: 0; max-width: 640px; }
+.help-body { line-height: 1.8; font-size: 14px; }
+.help-body ul, .help-body ol { padding-left: 1.4em; margin: .4em 0 .8em; }
+.help-body li { margin: .25em 0; }
+.help-body li ul { margin: .2em 0; }
+.help-body p { margin: .4em 0 .8em; }
+.help-dl dt { font-weight: 600; margin-top: 10px; }
+.help-dl dd { margin: 2px 0 0 0; color: var(--muted); }
+.help-keys td { padding: 4px 14px 4px 0; border-bottom: 1px solid var(--line); }
+.help-keys td:first-child { font-family: var(--mono); white-space: nowrap; color: var(--accent); }
 .test-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 .test-result { font-size: 13px; }
 .test-result.ok { color: var(--ok); } .test-result.bad { color: var(--danger); }

@@ -191,7 +191,17 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     showSection('about');
     ok('设置：导入导出和存放位置', !!document.querySelector('#btnExportSettings') && await until(() => document.querySelector('#aboutRoot').textContent.length > 3));
     ok('设置：课程重点模板', document.querySelector('#summaryTemplate').value.includes('不要套用固定栏目'));
+    ok('关于：开源地址已改名', document.querySelector('#aboutHome').textContent.includes('mengren-learning'));
     document.querySelector('#dlgSettings').close();
+
+    // 使用说明
+    document.querySelector('#btnHelpTop').click();
+    ok('顶栏的帮助按钮打开使用说明', document.querySelector('#dlgHelp').open && !document.querySelector('#helpBody section[data-h="start"]').hidden);
+    document.querySelector('#helpNav [data-h="book"]').click();
+    ok('使用说明可以切换章节', !document.querySelector('#helpBody section[data-h="book"]').hidden && document.querySelector('#helpBody section[data-h="start"]').hidden
+      && document.querySelectorAll('#helpNav [data-h]').length >= 17);
+    document.querySelector('#helpClose').click();
+    ok('关闭使用说明', !document.querySelector('#dlgHelp').open);
 
     // 书籍和文档
     await flushSave();
