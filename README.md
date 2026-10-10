@@ -11,12 +11,14 @@
 ## 下载和安装
 
 1. 到 [Releases](https://github.com/longpeng1413/mengren-learning/releases) 下载最新的 `mengren-learning-版本号-windows.zip`，解压到任意文件夹（不要放在 C:\Program Files 这类需要管理员权限的地方）。
-2. 安装 ffmpeg（用来读取和转换音视频）。在「终端」里运行：
+2. 下载页里带 `with-ffmpeg` 的压缩包已经附带 ffmpeg，可以跳过这一步。否则需要安装 ffmpeg（用来读取和转换音视频）。在「终端」里运行：
    ```
    winget install Gyan.FFmpeg
    ```
    也可以把 `ffmpeg.exe` 和 `ffprobe.exe` 直接放进软件文件夹。
 3. 双击 `猛人学习.exe`。整个文件夹要放在一起，不能只拷 exe。
+
+**换电脑 / 解压即用**：在旧电脑「设置 → 关于与数据」里「导出设置」，把得到的 `猛人学习设置.json` 放进新电脑的软件文件夹（和 `猛人学习.exe` 放在一起），第一次启动时会自动导入，导入后文件会改名为「…（已导入，可删除）」。
 
 从「猛人字幕」升级：设置、老师档案、媒体库会自动搬到新名字下；视频旁边旧的 `.猛人字幕.json` 照样能读，下次保存时自动改成 `.猛人学习.json`。
 

@@ -19,7 +19,7 @@ from webview.dom import DOMEventHandler  # noqa: E402
 
 from bridge import Api  # noqa: E402
 
-VERSION = '1.6.1'
+VERSION = '1.6.2'
 
 
 def main():
@@ -27,6 +27,8 @@ def main():
     from core import cache
     threading.Thread(target=cache.cleanup, daemon=True, name='cache-cleanup').start()
     api = Api()
+    from core import portable
+    api._bundled = portable.import_bundled(api)  # 解压即用：软件文件夹里附带的设置，第一次启动时自动导入
     s = config.load()
     bg = '#f3f0ea' if s.get('theme') == 'light' else '#0e0e10'
     index = config.resource_dir() / 'web' / 'index.html'

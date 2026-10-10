@@ -2005,6 +2005,9 @@ function bind() {
   try { await loadSettings(); } catch (e) { fail(e); }
   showRecent($('#recentList'));
   loadLibrary();
+  api('about').then(a => {
+    if (a.bundled) toast('已自动导入软件文件夹里附带的设置（AI 密钥、ChatGPT 登录、老师和术语表等）。那个设置文件已改名为「…（已导入，可删除）」，建议删掉它。', { ms: 12000 });
+  }).catch(() => {});
   $('#stageMain').hidden = true; $('#empty').hidden = false;
   updateButtons();
 })();

@@ -112,10 +112,16 @@ python -m venv .venv
 1. 改 `app/main.py` 里的 `VERSION`。
 2. 测试、打包（见上）。
 3. 提交并推送到 `main`（仓库：https://github.com/longpeng1413/mengren-learning）。
-4. 把 `dist-next\猛人学习` 文件夹打成 zip，用 `gh release create v版本号` 发布。**附件文件名必须是英文**，例如 `mengren-learning-1.6.0-windows.zip`，否则 GitHub 会把中文吞掉。中文名写在附件的 label 里。发布说明里提醒：要先装 ffmpeg；程序没有数字签名，可能会被安全软件提示。
+4. 打包发布用 `release.py`（见下面「发布压缩包」）。把 `dist-next\猛人学习` 文件夹打成 zip，用 `gh release create v版本号` 发布。**附件文件名必须是英文**，例如 `mengren-learning-1.6.0-windows.zip`，否则 GitHub 会把中文吞掉。中文名写在附件的 label 里。发布说明里提醒：要先装 ffmpeg；程序没有数字签名，可能会被安全软件提示。
 5. README 的功能说明有变化时一起更新。
 
 推送、发布这类对外操作，先问用户。
+
+### 发布压缩包
+
+`.venv\Scripts\python release.py --src dist-next` 在 `release\` 里打两个包：`mengren-learning-版本-windows.zip`（只有软件）和 `…-with-ffmpeg.zip`（附带本机 winget 装的 ffmpeg.exe、ffprobe.exe 和它的 LICENSE / README，GPL 要求一起分发；软件会先找自己文件夹里 `ffmpeg\` 下的 ffmpeg）。两个都上传到 GitHub Release，with-ffmpeg 的是推荐下载。打包时不要带软件文件夹里的缓存和日志（会有好几 GB），也**不要带任何个人设置**：用户会直接把包发给朋友。
+
+`app/core/portable.py`：软件文件夹里有 `猛人学习设置.json`、而这台电脑还没有设置时，第一次启动自动导入，导入后改名「…（已导入，可删除）」。
 
 ## 书籍和文档（1.6）
 

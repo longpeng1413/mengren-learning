@@ -486,6 +486,20 @@ check('导入不带密钥的文件时保留已有密钥', config.load()['provide
 (TMP / 'bad.json').write_text('{"a": 1}', encoding='utf-8')
 check('拒绝不是猛人学习的文件', '不是猛人学习（猛人字幕）导出的设置文件' in api.call('import_settings', {'path': str(TMP / 'bad.json')})['error'])
 
+# 解压即用：软件文件夹里附带的设置，第一次启动时自动导入
+from core import portable  # noqa: E402
+bundle = TMP / '软件文件夹'
+bundle.mkdir()
+shutil.copy(TMP / 'exp.json', bundle / '猛人学习设置.json')
+check('这台电脑已有设置时不自动导入', portable.import_bundled(api, bundle) is None and (bundle / '猛人学习设置.json').exists())
+config.SETTINGS_FILE.unlink()
+for t_ in config.load_teachers():
+    config.delete_teacher(t_['id'])
+rb = portable.import_bundled(api, bundle)
+check('新电脑第一次启动：自动导入附带的设置', rb and rb['imported'] and config.load()['providers']['deepseek']['key'] == 'sk-export-test-123456'
+      and config.load_teachers()[0]['name'] == '导出测试老师', rb)
+check('导入后设置文件改名，提醒删除', not (bundle / '猛人学习设置.json').exists() and (bundle / '猛人学习设置（已导入，可删除）.json').exists())
+
 # 缓存和日志位置
 check('缓存和日志在指定位置，文件夹名写着可随时删除', config.CACHE_DIR == TMP / 'store' / '缓存（可随时删除）' and config.LOG_DIR.name == '日志（可随时删除）')
 r_ = api.call('set_storage', {'path': str(TMP / 'store2')})

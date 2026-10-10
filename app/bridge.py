@@ -23,6 +23,7 @@ class Api:
         self._window = None
         self._quit = threading.Event()
         self._version = ''
+        self._bundled = None
 
     # pywebview 会把 Api 的公开方法暴露给界面；统一从 call 进来，出错时返回 {'ok': False, 'error': …}
     def call(self, name, body=None):
@@ -582,7 +583,8 @@ class Api:
 
     def do_about(self, b):
         s = config.load()
-        return {'version': self._version, 'log_dir': str(LOG_DIR), 'data_dir': str(config.DATA_DIR),
+        bundled, self._bundled = self._bundled, None  # 只提示一次
+        return {'version': self._version, 'bundled': bool(bundled), 'log_dir': str(LOG_DIR), 'data_dir': str(config.DATA_DIR),
                 'cache_dir': str(config.CACHE_DIR), 'storage_root': str(config.STORAGE_ROOT),
                 'storage_custom': s.get('storage_dir') or '', 'storage_default': str(config.default_storage_root()), **cache.info()}
 
