@@ -14,6 +14,7 @@ from .log import log
 
 AUDIO_DAYS = 3
 PLAY_LIMIT = 5 * 1024 ** 3
+FRAME_DAYS = 30
 
 
 def _size(path: Path) -> int:
@@ -83,6 +84,14 @@ def cleanup(clear_all=False) -> int:
             f.unlink()
             total -= size
             freed += size
+        except OSError:
+            pass
+    for d in (CACHE_DIR / 'frames').glob('*'):  # 关键帧截图：30 天没用过的删掉，需要时会按时间重新截
+        try:
+            newest = max((f.stat().st_mtime for f in d.iterdir()), default=d.stat().st_mtime)
+            if clear_all or now - newest > FRAME_DAYS * 86400:
+                freed += _size(d)
+                shutil.rmtree(d, ignore_errors=True)
         except OSError:
             pass
     crash = LOG_DIR / 'crash.log'

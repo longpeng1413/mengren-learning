@@ -9,7 +9,7 @@ const S = {
   path: null, doc: null, info: null,
   dirty: false, saving: null, saveTimer: null, lastSaved: null,
   active: -1, editing: null, userScrollAt: 0, undo: [], job: null,
-  hits: [], hitPos: -1, chatAbort: null, lib: [], resumeAt: 0, resumePending: false, loopIdx: null,
+  hits: [], hitPos: -1, chatAbort: null, lib: [], resumeAt: 0, resumePending: false, loopIdx: null, frameUrls: {},
 };
 const LAYOUT_KEYS = ['font_size', 'line_height', 'cue_gap', 'cue_width', 'font_family', 'split', 'sidebar', 'lib_w', 'ai_dock', 'ai_hidden', 'ai_w', 'video_h'];
 
@@ -80,6 +80,7 @@ function md(src) {
     const line = raw.trimEnd();
     let m;
     if (/^\u0000\d+\u0000$/.test(line.trim())) { flushPara(); flushList(); out.push(`<pre><code>${esc(blocks[+line.trim().slice(1, -1)])}</code></pre>`); }
+    else if ((m = line.trim().match(/^!\[\[\s*画面\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*\]\]$/))) { flushPara(); flushList(); const t = parseTs(m[1]); out.push(`<figure class="shot-fig" data-ft="${t}"><img alt=""><figcaption><a class="tslink" data-t="${t}">[${m[1]}]</a> 画面</figcaption></figure>`); }
     else if ((m = line.match(/^(#{1,6})\s+(.*)/))) { flushPara(); flushList(); const n = Math.min(4, m[1].length); out.push(`<h${n}>${inline(m[2])}</h${n}>`); }
     else if ((m = line.match(/^\s*[-*+]\s+(.*)/))) { flushPara(); if (!list || list.tag !== 'ul') { flushList(); list = { tag: 'ul', items: [] }; } list.items.push(m[1]); }
     else if ((m = line.match(/^\s*\d+[.)]\s+(.*)/))) { flushPara(); if (!list || list.tag !== 'ol') { flushList(); list = { tag: 'ol', items: [] }; } list.items.push(m[1]); }
@@ -315,7 +316,7 @@ window.openPath = async function (path) {
     $('#fileTitle').textContent = d.doc.title; $('#fileTitle').title = d.path; document.title = `${d.doc.title} - 猛人字幕`;
     if (summaryEditing) toggleSummaryEdit(false);
     setupPlayer(d);
-    renderTeacherSelect(); renderCues(); renderSummary(); renderChat(); updateButtons(); updateSaveLabel();
+    renderTeacherSelect(); renderCues(); renderSummary(); renderChat(); renderFrames(); updateButtons(); updateSaveLabel();
     $('#optReviewed').checked = !!S.doc.reviewed;
     showPendingBanner(); renderLibrary();
     if (d.convert_job) runJob(d.convert_job, '正在准备播放…', { onDone: job => setSource(job.result.src) });
@@ -578,6 +579,10 @@ function updateButtons() {
   $('#btnExport').disabled = !has;
   $('#btnClip').disabled = !has;
   $('#btnSummary').disabled = !has;
+  const vid = !!(S.info && S.info.has_video);
+  $('#btnFrames').disabled = !S.doc || busy || !vid;
+  $('#btnCapture').disabled = !S.doc || busy || !vid;
+  $('#btnDescribe').disabled = !S.doc || busy || !((S.doc && S.doc.frames) || []).some(f => !f.note);
   $('#btnReview').disabled = !has || busy || !(S.doc && (S.doc.summary || '').trim()) || !!S.chatAbort;
   $('#btnSend').disabled = !has;
 }
@@ -748,8 +753,8 @@ async function startCorrect(auto) {
   try {
     await flushSave();
     const refs = S.doc.segments.slice();
-    const items = refs.map((s, i) => [i, s.text]).filter(([, txt]) => txt.trim());
-    const r = await api('correct', { items, title: S.doc.title, teacher: S.doc.teacher });
+    const items = refs.map((s, i) => [i, s.text, s.start]).filter(([, txt]) => txt.trim());
+    const r = await api('correct', { items, title: S.doc.title, teacher: S.doc.teacher, frames: (S.doc.frames || []).filter(f => f.note) });
     snapshot();
     const oldDoubts = S.doc.doubts || [];
     const doubts = [];
@@ -841,6 +846,12 @@ function openPipeline() {
   sync();
   $('#plSummary').checked = true;
   $('#plClip').checked = false;
+  const vid = !!(S.info && S.info.has_video), nShots = (S.doc.frames || []).length;
+  $('#plFrames').disabled = !vid;
+  $('#plFrames').checked = vid && !nShots && providerReady(S.settings.vision);
+  $('#plFramesLabel').textContent = !vid ? '找关键帧（这是音频文件，没有画面）'
+    : nShots ? `重新找关键帧（现在有 ${nShots} 张画面记录，会替换自动找的那些）`
+      : `找关键帧、写画面记录${providerReady(S.settings.vision) ? '' : '（还没设置画面识别用的 AI）'}`;
   dlg.returnValue = '';
   dlg.showModal();
   dlg.onclose = () => { if (dlg.returnValue === 'ok') runPipeline(); };
@@ -851,6 +862,7 @@ async function runPipeline() {
   const lang = $('input[name=plLang]:checked').value;
   const steps = [];
   if ($('#plAsr').checked) steps.push(['生成字幕', () => startTranscribe(lang, lang === 'en' ? S.settings.asr_en : S.settings.asr_zh)]);
+  if ($('#plFrames').checked && !$('#plFrames').disabled) steps.push(['找关键帧', () => findFrames(true)]);
   if ($('#plCorrect').checked) steps.push(['AI 校对', () => startCorrect(true)]);
   if ($('#plTranslate').checked && !$('#plTranslate').disabled) steps.push(['翻译', () => startTranslate(false)]);
   if ($('#plSummary').checked) steps.push(['课程重点', () => doSummary()]);
@@ -891,6 +903,118 @@ async function doClip() {
   } catch (e) { fail(e); return false; }
 }
 
+/* -------------------------------------------------------------- 画面 ---- */
+/* 关键帧和画面记录：AI 校对、课程重点、对话都会参考；课程重点里的 ![[画面 mm:ss]] 剪藏时换成图片 */
+function frameUrl(t, small) {
+  const key = `${S.path}|${t}|${small ? 's' : ''}`;
+  if (!S.frameUrls[key]) S.frameUrls[key] = api('frame_url', { path: S.path, t, small }).then(r => r.url).catch(() => { delete S.frameUrls[key]; return ''; });
+  return S.frameUrls[key];
+}
+function hydrateFigures(root) {
+  if (!S.path) return;
+  $$('[data-ft] img', root).forEach(img => {
+    const t = +img.closest('[data-ft]').dataset.ft;
+    const shot = (S.doc.frames || []).find(f => Math.abs(f.t - t) <= 3);
+    frameUrl(shot ? shot.t : t, false).then(u => { if (u) img.src = u; });
+  });
+}
+function shotHTML(f, i) {
+  return `<div class="shot" data-k="${i}">
+    <div><img alt="" data-st="${f.t}" title="点击看大图"></div>
+    <div class="shot-body">
+      <div class="shot-head"><a class="tslink" data-t="${f.t}">[${fmt(f.t)}]</a>
+        <label class="check" title="课程重点里可以插这张图"><input type="checkbox" data-fig ${f.figure ? 'checked' : ''}> 可插图</label>
+        ${f.why ? `<span class="why" title="${esc(f.why)}">${esc(f.manual ? '手动截取' : f.why).slice(0, 24)}</span>` : (f.manual ? '<span class="why">手动截取</span>' : '')}
+        <span class="grow"></span>
+        <button data-redo title="让 AI 重新写这张的画面记录">重新识别</button><button data-del title="删除这张画面">删除</button></div>
+      <textarea data-note spellcheck="false" placeholder="${f.note === undefined ? '还没有画面记录，点「补写画面记录」让 AI 写，或者自己写' : ''}">${esc(f.note || '')}</textarea>
+      ${f.caption ? `<div class="cap">画面字幕：「${esc(f.caption)}」</div>` : ''}
+    </div></div>`;
+}
+function renderFrames() {
+  const box = $('#framesBox');
+  const list = (S.doc && S.doc.frames) || [];
+  $('#framesCount').textContent = list.length ? list.length : '';
+  if (!S.doc || !list.length) {
+    box.innerHTML = `<div class="ai-empty">${S.info && !S.info.has_video ? '这是音频文件，没有画面。' : '点「找关键帧」：软件会挑出课件、板书、老师手绘这类有内容的画面，<br>让能看图的 AI 写成画面记录（照录课件文字和板书、分清哪些是老师现场画的）。<br>AI 校对、课程重点和对话都会参考；课程重点里还可以插图。'}</div>`;
+  } else {
+    box.innerHTML = list.map(shotHTML).join('');
+    $$('img[data-st]', box).forEach(img => frameUrl(+img.dataset.st, true).then(u => { if (u) img.src = u; }));
+  }
+  const missing = list.filter(f => !f.note).length;
+  $('#framesHint').textContent = list.length ? `${list.length} 张${missing ? `，${missing} 张还没有记录` : ''}` : '';
+  updateButtons();
+}
+function sortFrames() { S.doc.frames = (S.doc.frames || []).sort((a, b) => a.t - b.t); }
+async function findFrames(auto) {
+  if (!S.doc || !S.path) return false;
+  const old = S.doc.frames || [];
+  const manual = old.filter(f => f.manual);
+  if (!auto && old.length > manual.length && !confirm(`重新找关键帧？\n现在自动找到的 ${old.length - manual.length} 张画面和它们的记录会被替换（你手动截取的 ${manual.length} 张保留）。`)) return false;
+  if (S.settings.ai_hidden) savePrefs({ ai_hidden: false });
+  $$('.ai-tabs .tab')[2].click();
+  try {
+    await flushSave();
+    const doc = S.doc;
+    const r = await api('frames_extract', { path: S.path, segments: doc.segments, duration: doc.duration || (S.info && S.info.duration) || 0 });
+    const got = [];
+    return await runJob(r.job, '正在找关键帧…', {
+      onItems: items => { if (S.doc !== doc) return; got.push(...items); doc.frames = manual.concat(got); sortFrames(); renderFrames(); },
+      onDone: job => {
+        if (S.doc !== doc) return;
+        doc.frames = manual.concat(job.result.frames || []); sortFrames();
+        renderFrames(); markDirty(); save();
+        const n = (job.result.frames || []).length;
+        toast(n ? `找到 ${n} 张有内容的画面，已写好画面记录。AI 校对、课程重点和对话会参考它们` : '没有找到有内容的画面（只有老师讲话的视频很正常）', { ms: 7000 });
+      },
+      onError: job => { if (S.doc === doc) { doc.frames = old; renderFrames(); } if (job.status === 'error') fail(new Error(job.error)); },
+    });
+  } catch (e) { fail(e); return false; }
+}
+async function describeFrames(list) {
+  const doc = S.doc;
+  if (!list.length) return false;
+  list.forEach(f => { const el = $(`.shot[data-k="${doc.frames.indexOf(f)}"]`); if (el) el.classList.add('busy'); });
+  try {
+    await flushSave();
+    const r = await api('frames_describe', { path: S.path, frames: list.map(f => ({ t: f.t })), segments: doc.segments });
+    const apply = items => {
+      for (const x of items) {
+        const f = (doc.frames || []).find(y => Math.abs(y.t - x.t) < 0.01);
+        if (f) Object.assign(f, { note: x.note || '', caption: x.caption || '', figure: !!x.figure });
+      }
+      if (S.doc === doc) renderFrames();
+    };
+    return await runJob(r.job, 'AI 正在写画面记录…', {
+      onItems: apply,
+      onDone: job => { apply(job.result.frames || []); markDirty(); save(); toast('画面记录写好了'); },
+      onError: job => { renderFrames(); if (job.status === 'error') fail(new Error(job.error)); },
+    });
+  } catch (e) { renderFrames(); fail(e); return false; }
+}
+async function captureFrame() {
+  const v = $('#video');
+  if (!S.doc || !v.getAttribute('src')) return;
+  v.pause();
+  const t = +v.currentTime.toFixed(2);
+  S.doc.frames = S.doc.frames || [];
+  if (S.doc.frames.some(f => Math.abs(f.t - t) < 0.5)) return toast('这个时间已经有一张了');
+  const f = { t, manual: true, why: '手动截取' };
+  S.doc.frames.push(f); sortFrames();
+  if (S.settings.ai_hidden) savePrefs({ ai_hidden: false });
+  $$('.ai-tabs .tab')[2].click();
+  renderFrames(); markDirty();
+  if (providerReady(S.settings.vision)) await describeFrames([f]);
+  else toast('已截取。还没设置「画面识别」用的 AI，可以自己在下面写画面记录', { ms: 6000 });
+}
+function shotOf(el) { const k = el.closest('.shot'); return k && S.doc.frames[+k.dataset.k]; }
+function showLightbox(url) {
+  if (!url) return;
+  const lb = document.createElement('div'); lb.className = 'lightbox';
+  lb.innerHTML = `<img src="${esc(url)}" alt="">`; lb.onclick = () => lb.remove();
+  document.body.appendChild(lb);
+}
+
 /* ------------------------------------------------------------ AI 面板 ---- */
 let summaryEditing = false;
 function renderSummary() {
@@ -903,6 +1027,7 @@ function renderSummary() {
   $('#summaryHint').textContent = s ? '可以编辑；剪藏时放在笔记上半部分' : '';
   updateButtons();
   if (s) refreshCoverage();
+  hydrateFigures(box);
 }
 /* 字幕有多少被课程重点的出处时间引用到（粗略估计，用来判断有没有大段漏掉） */
 function refreshCoverage() {
@@ -1484,6 +1609,21 @@ function bind() {
   $('#tFilePick').onclick = pickTermsFile;
   $('#tFileClear').onclick = () => setTermsFile('');
   $('#btnDoubts').onclick = nextDoubt;
+  $('#btnFrames').onclick = () => { if (!S.job) findFrames(false); };
+  $('#btnCapture').onclick = () => { if (!S.job) captureFrame(); };
+  $('#btnDescribe').onclick = () => { if (!S.job) describeFrames((S.doc.frames || []).filter(f => !f.note)); };
+  const fb = $('#framesBox');
+  fb.addEventListener('input', e => { const f = e.target.matches('[data-note]') && shotOf(e.target); if (f) { f.note = e.target.value; markDirty(); } });
+  fb.addEventListener('change', e => { const f = e.target.matches('[data-fig]') && shotOf(e.target); if (f) { f.figure = e.target.checked; markDirty(); } });
+  fb.addEventListener('click', async e => {
+    const f = shotOf(e.target); if (!f) return;
+    if (e.target.matches('img')) { showLightbox(await frameUrl(f.t, false)); return; }
+    if (e.target.matches('[data-del]')) { S.doc.frames = S.doc.frames.filter(x => x !== f); renderFrames(); markDirty(); return; }
+    if (e.target.matches('[data-redo]') && !S.job) describeFrames([f]);
+  });
+  $('#summaryBox').addEventListener('click', async e => {
+    const img = e.target.closest('.shot-fig img'); if (img && img.src) showLightbox(img.src);
+  });
   $('#btnReview').onclick = () => { if (!S.job) runReview(); };
   $('#tDelete').onclick = deleteTeacher;
   $('#tTerms').oninput = countTerms;

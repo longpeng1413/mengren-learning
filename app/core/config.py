@@ -92,6 +92,7 @@ DEFAULTS = {
     'translate': 'deepseek',
     'correct': 'deepseek',
     'chat': 'deepseek',
+    'vision': 'codex',
     'summary_template': '',
     'auto_correct': True,
     'theme': 'dark',
@@ -114,7 +115,7 @@ DEFAULTS = {
     'last_lang': 'zh',
     'last_teacher': '',
     'storage_dir': '',
-    'obsidian': {'vault': '', 'folder': '猛人字幕', 'teacher_subfolder': True, 'name_pattern': '{title}'},
+    'obsidian': {'vault': '', 'folder': '猛人字幕', 'teacher_subfolder': True, 'name_pattern': '{title}', 'include_frames': True},
     'auto_review': True,
     'recent': [],
 }

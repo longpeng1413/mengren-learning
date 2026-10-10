@@ -155,6 +155,7 @@
   <div class="ai-tabs">
     <button class="tab active" data-tab="summary">课程重点</button>
     <button class="tab" data-tab="chat">AI 对话</button>
+    <button class="tab" data-tab="frames">画面<span class="tab-count" id="framesCount"></span></button>
     <span class="grow"></span>
     <span class="ai-model" id="aiModel"></span>
     <button class="btn icon-only small" id="btnAiMax" title="放大 AI 区（视频缩到最小）"><svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg></button>
@@ -170,6 +171,15 @@
       <button class="btn small" id="btnEditSummary" disabled>编辑</button>
       <button class="btn small" id="btnCopySummary" disabled>复制</button>
       <span class="muted small-text" id="summaryHint"></span>
+    </div>
+  </div>
+  <div class="ai-body" data-pane="frames" hidden>
+    <div class="ai-scroll" id="framesBox"></div>
+    <div class="ai-foot">
+      <button class="btn primary small" id="btnFrames" disabled title="找出课件、板书、老师手绘这类有内容的画面，让能看图的 AI 写成画面记录">找关键帧</button>
+      <button class="btn small" id="btnCapture" disabled title="把视频当前的画面加进来，并让 AI 写画面记录">截取当前画面</button>
+      <button class="btn small" id="btnDescribe" disabled title="给还没有画面记录的画面补写记录">补写画面记录</button>
+      <span class="muted small-text" id="framesHint"></span>
     </div>
   </div>
   <div class="ai-body" data-pane="chat" hidden>
@@ -232,6 +242,7 @@
     <p class="muted">按顺序自动完成下面勾选的步骤。整理完建议你检查一遍字幕，打开「已校对」，再剪藏。</p>
     <div class="field">
       <label class="check"><input type="checkbox" id="plAsr"> <span id="plAsrLabel">生成字幕</span></label>
+      <label class="check"><input type="checkbox" id="plFrames"> <span id="plFramesLabel">找关键帧、写画面记录（需要能看图的 AI）</span></label>
       <label class="check"><input type="checkbox" id="plCorrect"> AI 按术语表校对</label>
       <label class="check"><input type="checkbox" id="plTranslate"> 翻译成中文（英文课程）</label>
       <label class="check"><input type="checkbox" id="plSummary"> 生成课程重点</label>
@@ -272,6 +283,7 @@
       <li>鼠标移到字幕上，右侧有工具：对齐到当前时间、在光标处拆分、与下一句合并、删除。</li>
       <li><b>术语表</b>：在「设置 → 老师与术语表」里给每位老师建一份；在顶栏选择这个视频是哪位老师的课。也可以在媒体库的文件夹上绑定老师，里面的视频会自动用这位老师。</li>
       <li><b>存疑句</b>：AI 校对时拿不准、读起来不通的句子会用橙色标出，不会乱改。点字幕栏上方的「存疑」按钮逐句跳过去，会单句循环播放方便回听；改好后点「已确认」。</li>
+      <li><b>画面</b>：AI 区的「画面」页点「找关键帧」，软件会挑出课件、板书、老师手绘这类画面，让 AI 写成画面记录（照录课件文字和板书、分清哪些是老师现场画的、抄下画面上的字幕）。AI 校对、课程重点和对话都会参考画面记录；课程重点里可以插图，剪藏时图片会复制到笔记旁边的 image 文件夹。看到重要画面也可以点「截取当前画面」。</li>
       <li><b>查漏补缺</b>：对照完整字幕，把课程重点漏掉的内容补进对应小节，并显示字幕被引用到的比例。</li>
       <li><b>剪藏</b>：笔记上半部分是课程重点，下半部分是完整带时间戳的字幕，可以直接用来蒸馏。</li>
     </ul>
@@ -349,6 +361,8 @@
         <div class="field"><div class="label">课程重点和 AI 对话</div><select data-k="chat" class="provider-select"></select></div>
         <div class="field"><div class="label">AI 按术语表校对</div><select data-k="correct" class="provider-select"></select></div>
         <div class="field"><div class="label">翻译</div><select data-k="translate" class="provider-select"></select></div>
+        <div class="field"><div class="label">画面识别（找关键帧、写画面记录）</div><select data-k="vision" class="provider-select"></select>
+          <div class="hint">需要能看图的 AI：ChatGPT 账号、Claude、Gemini、OpenAI 都可以；豆包大模型、硅基流动要选带视觉的模型（名字里通常有 vision 或 VL）；DeepSeek 不能看图。</div></div>
         <p class="hint">标着「未设置」的服务需要先在左边「AI 服务」里填写 API Key 或登录。课程重点建议用能力强的模型（如 Claude、ChatGPT）；校对和翻译量大，用便宜快速的（如 DeepSeek）就够了。</p>
       </section>
 
@@ -365,6 +379,7 @@
         <div class="field"><div class="label">库的位置</div><div class="key-row"><input data-k="obsidian.vault"><button class="btn small" id="pickVault">选择…</button></div></div>
         <div class="field"><div class="label">存到库里的哪个文件夹</div><div class="key-row"><input data-k="obsidian.folder" placeholder="例如：猛人字幕 或 学习/视频笔记"><button class="btn small" id="pickFolder">选择…</button></div></div>
         <div class="field"><label class="check"><input type="checkbox" data-k="obsidian.teacher_subfolder"> 按老师分子文件夹（例如 猛人字幕/大聪老师/）</label></div>
+        <div class="field"><label class="check"><input type="checkbox" data-k="obsidian.include_frames"> 笔记最后附上「画面记录」（纯文字，很小；是课程重点里「画面显示……」的证据）</label></div>
         <div class="field"><div class="label">笔记文件名</div><input data-k="obsidian.name_pattern" placeholder="{title}">
           <div class="hint">{title} 是视频名，{teacher} 是老师，{series} 是媒体库文件夹名。例如 <code>{title}（猛人字幕）</code>。</div></div>
         <p class="hint">文件夹不存在会自动创建。同一个视频再次剪藏，会更新原来那篇笔记；你在 Obsidian 里移动或改名了也能找到（按笔记属性里的视频路径找），笔记里的 status 也会保留。笔记结构：属性（老师、系列、时长、是否校对、状态）→ 课程重点 → 来源情况 → 完整带时间戳的字幕（存疑句会标出来）。</p>

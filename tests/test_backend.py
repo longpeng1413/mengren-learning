@@ -253,6 +253,54 @@ check('笔记被移动改名后，再剪藏仍更新原笔记', Path(c5['path'])
 check('再剪藏保留笔记里的 status', 'status: "已确认-资料"' in moved.read_text(encoding='utf-8'))
 api.call('teacher_delete', {'id': t2['id']})
 
+# ---------------------------------------------------------------- 1.5 画面 ----
+from core import cache, frames  # noqa: E402
+blank, page2 = bytes(frames.W * frames.H), bytes([200]) * (frames.W * frames.H)
+samples = [(i * 2.0, blank if i < 10 else page2) for i in range(20)]
+ct = frames.candidate_times(samples, [{'start': 30.0, 'end': 31.0, 'text': '来，大家请看这里'}])
+check('候选画面：每段一张、去掉重复、老师说请看时补一张', [w for _, w in ct] == ['定时', '老师说请看'] and ct[1][0] >= 32, ct)
+mp4 = str(MEDIA / '演示视频.mp4')
+g = frames.grab(mp4, 3.0)
+check('截图', g.exists() and g.stat().st_size > 1000 and frames.grab(mp4, 3.0) == g)
+check('截小图', frames.grab(mp4, 3.0, small=True).name.endswith('_s.jpg'))
+fu = api.call('frame_url', {'path': mp4, 't': 3.0})
+check('画面图片地址', fu['ok'] and fu['url'].startswith('file:///'), fu)
+api.call('settings', {'settings': {'vision': 'deepseek'}})
+check('画面识别选了 DeepSeek 时提示它不能看图', '不能看图' in api.call('frames_extract', {'path': mp4, 'segments': [], 'duration': 40})['error'])
+fj = api.call('frames_extract', {'path': mp4, 'segments': [], 'duration': 40, 'no_ai': True})
+jj = wait(fj['job'])
+check('没有能看图的 AI 时只截候选画面', jj['status'] == 'done' and jj['result']['frames'] and not jj['result']['ai'], jj)
+shots = [{'t': 5.0, 'note': '课件标题：交易心理学', 'caption': '欢迎来到', 'figure': True}, {'t': 20.0, 'note': '老师手画曲线'}]
+nt = frames.notes_text(shots)
+check('画面记录写成文字', '[00:05]（可插图） 课件标题：交易心理学　画面字幕：「欢迎来到」' in nt and '[00:20] 老师手画曲线' in nt, nt)
+check('画面记录按时间段取', '老师手画曲线' not in frames.notes_text(shots, 0, 10))
+sp = llm.system_prompt({'title': 'x', 'segments': [], 'frames': shots}, None)
+check('画面记录写进 AI 提示', '===== 画面记录 =====' in sp and '课件标题：交易心理学' in sp)
+check('没有画面记录时不写', '画面记录' not in llm.system_prompt({'title': 'x', 'segments': []}, None))
+check('课程重点要求：有画面时怎么写、怎么插图', '![[画面 mm:ss]]' in llm.DEFAULT_TEMPLATE and '画面显示' in llm.DEFAULT_TEMPLATE)
+seen = {}
+llm.complete = lambda s_, n_, msgs, **k: seen.setdefault('u', msgs[-1]['content']) and json.dumps({'改动': {}, '存疑': {}})
+llm.correct_all({}, 'codex', [(0, '甲'), (1, '乙')], 't', None, threading.Event(), lambda *a: None, lambda p: None, {0: 4.0, 1: 6.0}, shots + [{'t': 300.0, 'note': '很远的画面'}])
+check('AI 校对参考同一时间段的画面记录', '课件标题：交易心理学' in seen['u'] and '很远的画面' not in seen['u'], seen.get('u', '')[:300])
+llm.complete = orig_complete
+shutil.rmtree(vault / '学习', ignore_errors=True)
+d15 = dict(again, clip=None, teacher='', frames=shots, summary='## 一、开头\n- 要点 [00:05]\n![[画面 00:05]]\n- 再一个 [00:20]')
+c6 = api.call('clip', {'doc': d15})
+b6 = Path(c6['path']).read_text(encoding='utf-8')
+img = Path(c6['path']).parent / 'image' / '演示视频__00-05.jpg'
+check('剪藏：插图复制到笔记旁边的 image 文件夹', '![[image/演示视频__00-05.jpg]]' in b6 and img.exists() and img.stat().st_size > 1000, b6[:800])
+check('剪藏：笔记最后附画面记录', b6.index('## 完整字幕') < b6.index('## 画面记录') and '**[00:05]** 课件标题：交易心理学' in b6)
+check('剪藏：插图压缩得比原截图小', img.stat().st_size < frames.grab(mp4, 5.0).stat().st_size, (img.stat().st_size, frames.grab(mp4, 5.0).stat().st_size))
+api.call('settings', {'settings': {'obsidian': dict(config.load()['obsidian'], include_frames=False)}})
+check('可以不附画面记录', '## 画面记录' not in Path(api.call('clip', {'doc': dict(d15, clip={'path': c6['path']})})['path']).read_text(encoding='utf-8'))
+check('插图非必要不用：最多 3 张', '最多 3 张' in llm.DEFAULT_TEMPLATE and '默认 false' in frames.DESCRIBE_PROMPT)
+(config.CACHE_DIR / 'frames' / 'old').mkdir(parents=True, exist_ok=True)
+oldf = config.CACHE_DIR / 'frames' / 'old' / 'x.jpg'
+oldf.write_bytes(b'0')
+os.utime(oldf, (time.time() - 40 * 86400, time.time() - 40 * 86400))
+cache.cleanup()
+check('30 天没用的截图自动清掉', not oldf.exists() and g.exists())
+
 # 媒体库
 lib = api.call('library_add_folder', {'path': str(MEDIA)})
 check('添加文件夹', lib['added'] == 2 and len(lib['groups'][0]['items']) == 2, lib)

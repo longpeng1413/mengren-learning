@@ -66,6 +66,69 @@ def _split_system(messages):
     return system, rest
 
 
+# 消息内容可以是文字，也可以是 [{'type': 'text', 'text': …}, {'type': 'image', 'path': 图片文件}] 这样的图文混排
+VISION_NOTE = {'deepseek': 'DeepSeek 不能看图'}
+
+
+def _parts(content):
+    return [{'type': 'text', 'text': content}] if isinstance(content, str) else list(content or [])
+
+
+def _image_b64(part):
+    import base64
+    from pathlib import Path
+    data = Path(part['path']).read_bytes()
+    return base64.b64encode(data).decode('ascii'), part.get('mime') or ('image/png' if str(part['path']).lower().endswith('.png') else 'image/jpeg')
+
+
+def _to_openai(content):
+    if isinstance(content, str):
+        return content
+    out = []
+    for p in _parts(content):
+        if p['type'] == 'image':
+            b64, mime = _image_b64(p)
+            out.append({'type': 'image_url', 'image_url': {'url': f'data:{mime};base64,{b64}'}})
+        else:
+            out.append({'type': 'text', 'text': p['text']})
+    return out
+
+
+def _to_codex(role, content):
+    out = []
+    for p in _parts(content):
+        if p['type'] == 'image':
+            b64, mime = _image_b64(p)
+            out.append({'type': 'input_image', 'image_url': f'data:{mime};base64,{b64}'})
+        else:
+            out.append({'type': 'output_text' if role == 'assistant' else 'input_text', 'text': p['text']})
+    return out
+
+
+def _to_claude(content):
+    if isinstance(content, str):
+        return content
+    out = []
+    for p in _parts(content):
+        if p['type'] == 'image':
+            b64, mime = _image_b64(p)
+            out.append({'type': 'image', 'source': {'type': 'base64', 'media_type': mime, 'data': b64}})
+        else:
+            out.append({'type': 'text', 'text': p['text']})
+    return out
+
+
+def _to_gemini(content):
+    out = []
+    for p in _parts(content):
+        if p['type'] == 'image':
+            b64, mime = _image_b64(p)
+            out.append({'inline_data': {'mime_type': mime, 'data': b64}})
+        else:
+            out.append({'text': p['text']})
+    return out
+
+
 def _sse_lines(r):
     r.encoding = 'utf-8'
     for line in r.iter_lines(decode_unicode=True):
@@ -105,7 +168,7 @@ def stream(settings, name, messages, cancel=None, json_mode=False):
     model = p['chat_model']
 
     if name in OPENAI_COMPAT:
-        body = {'model': model, 'messages': messages, 'stream': True}
+        body = {'model': model, 'messages': [dict(m, content=_to_openai(m['content'])) for m in messages], 'stream': True}
         if json_mode:
             body['response_format'] = {'type': 'json_object'}
         with _post_stream(p['base_url'].rstrip('/') + '/chat/completions', name, settings, json=body,
@@ -128,9 +191,7 @@ def stream(settings, name, messages, cancel=None, json_mode=False):
             raise LlmError(str(e))
         system, rest = _split_system(messages)
         body = {'model': model, 'instructions': system or 'You are a helpful assistant.', 'store': False, 'stream': True,
-                'input': [{'type': 'message', 'role': m['role'],
-                           'content': [{'type': 'output_text' if m['role'] == 'assistant' else 'input_text', 'text': m['content']}]}
-                          for m in rest]}
+                'input': [{'type': 'message', 'role': m['role'], 'content': _to_codex(m['role'], m['content'])} for m in rest]}
         headers = dict(codex_auth.headers(o), **{'Content-Type': 'application/json', 'Accept': 'text/event-stream'})
         with _post_stream(codex_auth.BASE + '/responses', name, settings, json=body, headers=headers) as r:
             for d in _sse_lines(r):
@@ -151,7 +212,7 @@ def stream(settings, name, messages, cancel=None, json_mode=False):
         px = _proxies(settings, name)
         client = anthropic.Anthropic(api_key=p['key'], max_retries=2,
                                      http_client=DefaultHttpxClient(proxy=px['https']) if px else None)
-        kwargs = dict(model=model, max_tokens=32000, messages=rest)
+        kwargs = dict(model=model, max_tokens=32000, messages=[dict(m, content=_to_claude(m['content'])) for m in rest])
         if system:
             kwargs['system'] = system
         try:
@@ -183,7 +244,7 @@ def stream(settings, name, messages, cancel=None, json_mode=False):
 
     if name == 'gemini':
         system, rest = _split_system(messages)
-        body = {'contents': [{'role': 'model' if m['role'] == 'assistant' else 'user', 'parts': [{'text': m['content']}]} for m in rest]}
+        body = {'contents': [{'role': 'model' if m['role'] == 'assistant' else 'user', 'parts': _to_gemini(m['content'])} for m in rest]}
         if system:
             body['systemInstruction'] = {'parts': [{'text': system}]}
         if json_mode:
@@ -374,14 +435,26 @@ def teacher_block(teacher, with_notes=True):
 NOTES_LIMIT = 20000
 
 
+def frames_block(doc, a=None, b=None, limit=30000):
+    from .frames import notes_text
+    text = notes_text(doc.get('frames'), a, b, limit)
+    if not text:
+        return ''
+    return ('===== 画面记录 =====\n'
+            '（AI 看关键帧写的：课件文字、板书、老师手写手画的内容和画面上的字幕，只是画面上看得到的东西。'
+            '画面字幕和看图也可能有错，要和字幕互相核对。标了「可插图」的画面可以插进笔记。）\n' + text + '\n===== 画面记录结束 =====')
+
+
 def system_prompt(doc, teacher=None):
     title = doc.get('title') or '视频'
     tb = teacher_block(teacher)
+    fb = frames_block(doc)
     return (
         '你是用户的学习助手，帮助用户学习一节视频课程。请用中文回答。\n'
         f'课程标题：{title}\n' + (tb + '\n' if tb else '') +
-        '下面是带时间戳的完整字幕。回答时尽量引用相关时间点，写成 [mm:ss] 或 [h:mm:ss] 的格式，方便用户点击跳转。\n'
-        '只根据字幕内容回答；字幕可能有个别识别错字，请结合上下文和术语表理解；字幕里没有的信息要说明是你自己的补充。\n\n'
+        '下面是带时间戳的完整字幕' + ('和画面记录' if fb else '') + '。回答时尽量引用相关时间点，写成 [mm:ss] 或 [h:mm:ss] 的格式，方便用户点击跳转。\n'
+        '只根据字幕' + ('和画面记录' if fb else '') + '回答；字幕可能有个别识别错字，请结合上下文和术语表理解；字幕里没有的信息要说明是你自己的补充。\n\n'
+        + (fb + '\n\n' if fb else '') +
         '===== 字幕开始 =====\n' + transcript_text(doc) + '\n===== 字幕结束 ====='
     )
 
@@ -397,7 +470,8 @@ DEFAULT_TEMPLATE = """请整理这节课的「课程重点」。它会放在 Mar
 - 课程安排也要保留：哪些内容老师说放到后面的课、线下课或专栏里讲，这节课为后面哪些内容做了铺垫。
 - 老师给出的定义、口诀、规则、条件、数字和阈值要照录；能体现老师观点和表达习惯的关键原话，用引号原样保留，引号里的断句按意思断清楚。
 - 不要写「这说明……」「核心是……」「本质上……」「换句话说……」「老师真正想表达的是……」这类你自己的归纳。确实需要说明来源情况时（比如原话前后不一致、话没说完），单独写成「整理者注：……」，整理者注里不能补充知识。
-- 只有字幕，没有画面。不要写「图示中」「画面显示」；老师指着图讲的地方，写成「老师结合走势举例」这类说法。
+- 画面：没有「画面记录」时，不要写「图示中」「画面显示」，老师指着图讲的地方写成「老师结合走势举例」这类说法。有画面记录时，只来自画面的信息（课件文字、板书、手绘图形）写成「画面显示……」，不能写成老师说的；画面和字幕对不上时以老师说的为准，必要时写整理者注。
+- 插图：非必要不插图，笔记要尽量小。只有文字确实说不清的（手绘曲线的形状、K 线上标注的具体位置、复杂的结构关系图）才插——在对应要点后面另起一行写 `![[画面 mm:ss]]`，时间必须是画面记录里标了「可插图」的；整节课最多 3 张。课件文字、板书文字、列表、简单流程，一律用文字写清楚，不插图。
 - 每个要点后面标注出处时间，写成 [mm:ss] 或 [h:mm:ss]；合并了多处内容时，把几个时间都标上。
 - 术语一律用术语表里的写法。字幕可能有识别错字，按上下文理解；拿不准的地方标注「（存疑）」，老师没讲清楚的标注「（未讲明）」，不要自己补全。
 - 格式：不要写总标题，直接用一两句话说明这节课讲了什么，然后用「##」开始各部分，下面可以用「###」；不要开场白和结束语。"""
@@ -468,6 +542,7 @@ def review_messages(doc, teacher, summary, gaps):
                 + '\n'.join(f'- [{fmt(a)}–{fmt(b)}] {t[:300]}' for a, b, t in gaps[:30]))
     return [{'role': 'system', 'content': REVIEW_SYSTEM},
             {'role': 'user', 'content': f'课程标题：{doc.get("title") or ""}\n' + teacher_block(teacher) +
+             ('\n\n' + frames_block(doc) if doc.get('frames') else '') +
              '\n\n===== 完整字幕 =====\n' + transcript_text(doc) +
              '\n\n===== 课程重点 =====\n' + (summary or '') + hint}]
 
@@ -599,10 +674,11 @@ CORRECT_SYSTEM = (
 )
 
 
-def correct_batch(settings, name, items, title, teacher, before='', after=''):
-    """返回 (改动 {编号: 新句子}, 存疑 {编号: 原因})。"""
+def correct_batch(settings, name, items, title, teacher, before='', after='', visual=''):
+    """返回 (改动 {编号: 新句子}, 存疑 {编号: 原因})。visual：同一时间段的画面记录。"""
     payload = {str(i): t for i, t in items}
     user = (f'课程标题：{title}\n' + teacher_block(teacher) + '\n' +
+            (f'同一时间段的画面记录（课件文字、板书和画面上的字幕，可以用来核对术语、人名和数字；画面字幕也可能有错，要结合判断）：\n{visual}\n' if visual else '') +
             (f'前文（仅供参考，不要输出）：{before}\n' if before else '') +
             (f'后文（仅供参考，不要输出）：{after}\n' if after else '') +
             '请校对下面的字幕（JSON，键是编号）：\n' + json.dumps(payload, ensure_ascii=False))
@@ -633,8 +709,10 @@ def apply_fixes(text, fixes):
     return text
 
 
-def correct_all(settings, name, segments, title, teacher, cancel, progress, on_part):
+def correct_all(settings, name, segments, title, teacher, cancel, progress, on_part, times=None, frames=None):
     texts = dict(segments)
+    times = times or {}
+    from .frames import notes_text
 
     def work(b):
         if cancel.is_set():
@@ -642,5 +720,8 @@ def correct_all(settings, name, segments, title, teacher, cancel, progress, on_p
         first, last = b[0][0], b[-1][0]
         before = ' '.join(texts[i] for i in range(first - 3, first) if i in texts)
         after = ' '.join(texts[i] for i in range(last + 1, last + 3) if i in texts)
-        return correct_batch(settings, name, b, title, teacher, before, after)
+        visual = ''
+        if frames and first in times and last in times:
+            visual = notes_text(frames, times[first] - 20, times[last] + 20, 6000)
+        return correct_batch(settings, name, b, title, teacher, before, after, visual)
     _batches(segments, 40, 3, work, cancel, progress, on_part, 'AI 校对中')

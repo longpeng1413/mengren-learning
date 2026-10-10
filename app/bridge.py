@@ -6,7 +6,7 @@ import threading
 import time
 from pathlib import Path
 
-from core import asr, cache, codex_auth, config, doc as docs, jobs, library, llm, media
+from core import asr, cache, codex_auth, config, doc as docs, frames, jobs, library, llm, media
 from core.log import LOG_DIR, log
 
 MEDIA_FILTER = ('音视频文件 (*.mp4;*.m4v;*.mov;*.mkv;*.webm;*.avi;*.flv;*.ts;*.wmv;*.3gp;*.mpg;*.mpeg;'
@@ -283,8 +283,9 @@ class Api:
                 series = f.get('name') or Path(f['path']).name
         mp = d.get('media') or ''
         boundary = docs.source_boundary(d, media.tail_problem(mp) if mp and os.path.isfile(mp) else '')
+        shot = (lambda t: frames.grab(mp, t)) if mp and os.path.isfile(mp) else None
         return docs.clip(d, ob.get('vault'), ob.get('folder'), teacher, series, ob.get('teacher_subfolder', True),
-                         ob.get('name_pattern') or '{title}', boundary)
+                         ob.get('name_pattern') or '{title}', boundary, shot, ob.get('include_frames', True))
 
     def do_reveal(self, b):
         """在资源管理器里显示文件，或用 Obsidian 打开笔记。"""
@@ -300,10 +301,13 @@ class Api:
         s = config.load()
         name = s['correct']
         llm.check(s, name)
-        items = [(int(i), str(t)) for i, t in (b.get('items') or []) if str(t).strip()]
+        raw = [x for x in (b.get('items') or []) if len(x) >= 2 and str(x[1]).strip()]
+        items = [(int(x[0]), str(x[1])) for x in raw]
+        times = {int(x[0]): float(x[2]) for x in raw if len(x) >= 3}
         if not items:
             raise ValueError('没有需要校对的字幕')
         teacher = config.get_teacher(b.get('teacher'))
+        shots = [f for f in (b.get('frames') or []) if isinstance(f, dict)]
 
         def push(part):
             fixed, doubts = part
@@ -311,9 +315,70 @@ class Api:
                      [{'i': k, 'doubt': v} for k, v in sorted(doubts.items())])
 
         def run(job):
-            llm.correct_all(s, name, items, b.get('title') or '', teacher, job.cancel, job.report, push)
+            llm.correct_all(s, name, items, b.get('title') or '', teacher, job.cancel, job.report, push, times, shots)
             return {'provider': name}
         return {'job': jobs.start('correct', run).id}
+
+    # ------------------------------------------------------------ 画面 ----
+    def _vision(self, s, need=True):
+        name = s.get('vision') or ''
+        if name and name in config.CHAT_PROVIDERS:
+            try:
+                if name in llm.VISION_NOTE:
+                    raise llm.LlmError(llm.VISION_NOTE[name] + '，请到「设置 → 任务用哪个 AI」给「画面识别」换一个能看图的服务')
+                llm.check(s, name)
+                return name
+            except llm.LlmError:
+                if need:
+                    raise
+        if need:
+            raise llm.LlmError('还没有设置「画面识别」用哪个 AI，请到「设置 → 任务用哪个 AI」选择')
+        return ''
+
+    def do_frames_extract(self, b):
+        """找关键帧并写画面记录。没有能看图的 AI 时，只截候选画面。"""
+        path = b.get('path')
+        if not path or not os.path.isfile(path):
+            raise ValueError('视频文件不见了')
+        s = config.load()
+        name = self._vision(s, need=not b.get('no_ai'))
+        segs = b.get('segments') or []
+        duration = float(b.get('duration') or 0)
+
+        def run(job):
+            try:
+                out = frames.extract(s, name, path, duration, segs, job.cancel, job.report,
+                                     lambda part: job.push(part))
+            except frames.Cancelled:
+                return {'frames': []}
+            return {'frames': out, 'ai': bool(name)}
+        return {'job': jobs.start('frames', run).id}
+
+    def do_frames_describe(self, b):
+        """给指定的画面写（或重写）画面记录。"""
+        path = b.get('path')
+        if not path or not os.path.isfile(path):
+            raise ValueError('视频文件不见了')
+        s = config.load()
+        name = self._vision(s)
+        todo = [{'t': float(f['t']), **{k: v for k, v in f.items() if k != 't'}} for f in (b.get('frames') or []) if isinstance(f, dict) and 't' in f]
+        if not todo:
+            raise ValueError('没有要识别的画面')
+
+        def run(job):
+            try:
+                out = frames.describe(s, name, path, todo, b.get('segments') or [], job.cancel, job.report,
+                                      on_part=lambda part: job.push(part))
+            except frames.Cancelled:
+                return {'frames': []}
+            return {'frames': out}
+        return {'job': jobs.start('frames', run).id}
+
+    def do_frame_url(self, b):
+        path = b.get('path')
+        if not path or not os.path.isfile(path):
+            raise ValueError('视频文件不见了')
+        return {'url': file_url(frames.grab(path, float(b.get('t') or 0), small=bool(b.get('small'))))}
 
     def do_models(self, b):
         name = b.get('provider')

@@ -138,6 +138,25 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('「已确认」去掉存疑标记', !S.doc.doubts.length && !document.querySelector('.cue.doubt') && document.querySelector('#btnDoubts').hidden);
     document.querySelector('#optLoop').checked = false; S.loopIdx = null;
 
+    // 画面：关键帧和画面记录、课程重点里的插图
+    S.doc.frames = [{ t: 5, note: '课件标题：交易心理学', caption: '欢迎来到', figure: true }, { t: 20, note: '' }];
+    renderFrames();
+    document.querySelectorAll('.ai-tabs .tab')[2].click();
+    ok('画面页列出画面和记录', document.querySelectorAll('.shot').length === 2 && document.querySelector('.shot textarea').value.includes('交易心理学') && document.querySelector('#framesCount').textContent === '2');
+    ok('画面缩略图能显示', await until(() => { const im = document.querySelector('.shot img'); return im && im.src.startsWith('file:') && im.complete && im.naturalWidth > 0; }, 15000));
+    ok('有没写记录的画面时可以补写', !document.querySelector('#btnDescribe').disabled && document.querySelector('#framesHint').textContent.includes('1 张还没有记录'));
+    const ta2 = document.querySelectorAll('.shot textarea')[1]; ta2.value = '我自己写的画面记录'; ta2.dispatchEvent(new Event('input', { bubbles: true }));
+    ok('可以自己写画面记录', S.doc.frames[1].note === '我自己写的画面记录' && S.dirty);
+    document.querySelectorAll('.shot [data-del]')[1].click();
+    ok('删除画面', S.doc.frames.length === 1);
+    v.currentTime = 12; await wait(300);
+    await captureFrame();
+    ok('截取当前画面（没设置画面识别 AI 时先留空）', S.doc.frames.length === 2 && S.doc.frames.some(f => f.manual && Math.abs(f.t - 12) < 0.5));
+    S.doc.summary = '## 一、开头\n- 要点 [00:05]\n![[画面 00:05]]';
+    renderSummary();
+    ok('课程重点里的插图能显示', await until(() => { const im = document.querySelector('#summaryBox .shot-fig img'); return im && im.complete && im.naturalWidth > 0; }, 15000));
+    document.querySelectorAll('.ai-tabs .tab')[0].click();
+
     // 查漏补缺按钮和覆盖率
     renderSummary();
     ok('有课程重点时可以查漏补缺', !document.querySelector('#btnReview').disabled);

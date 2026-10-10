@@ -192,7 +192,7 @@ def doubt_map(doc):
     return out
 
 
-def to_markdown(doc, teacher=None, series='', status='待审计', boundary=''):
+def to_markdown(doc, teacher=None, series='', status='待审计', boundary='', include_frames=True):
     """蒸馏用的笔记：上半部分课程重点，下半部分完整带时间戳的字幕（审核校验用的原始数据）。"""
     media = doc.get('media', '')
     uri = Path(media).as_uri() if media else ''
@@ -243,6 +243,13 @@ def to_markdown(doc, teacher=None, series='', status='待审计', boundary=''):
         lines.append((f'[{fmt(s["start"])}] {s.get("text", "")}' + (f' 〔存疑：{why}〕' if why else '')).rstrip())
         if s.get('tr'):
             lines.append(f'　　{s["tr"]}')
+    shots = [f for f in sorted(doc.get('frames') or [], key=lambda f: float(f.get('t', 0))) if f.get('note')] if include_frames else []
+    if shots:
+        lines += ['', '## 画面记录', '', '> AI 看关键帧写的画面内容（课件文字、板书、老师手写手画的内容、画面上的字幕），作为字幕之外的证据。']
+        for f in shots:
+            lines += ['', f'**[{fmt(float(f["t"]))}]** ' + str(f['note']).strip()]
+            if f.get('caption'):
+                lines.append(f'画面字幕：「{f["caption"]}」')
     return '\n'.join(lines).rstrip() + '\n'
 
 
@@ -290,7 +297,57 @@ def note_name(pattern, doc, teacher=None, series=''):
     return safe_name(name)
 
 
-def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolder=True, name_pattern='{title}', boundary=''):
+_FIG = re.compile(r'!\[\[\s*画面\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*\]\]')
+
+
+def _parse_ts(s):
+    parts = [int(x) for x in s.split(':')]
+    return parts[0] * 3600 + parts[1] * 60 + parts[2] if len(parts) == 3 else parts[0] * 60 + parts[1]
+
+
+def _small_copy(src: Path, dest: Path):
+    """插进笔记的图缩到 960 宽、压缩一些，让知识库尽量小；压缩失败就原样复制。"""
+    try:
+        from .media import run, tool
+        tmp = dest.with_name(dest.stem + '.part.jpg')
+        r = run([tool('ffmpeg'), '-y', '-v', 'error', '-i', str(src), '-vf', "scale='min(960,iw)':-2", '-q:v', '6', str(tmp)], timeout=60)
+        if r.returncode == 0 and tmp.is_file() and tmp.stat().st_size > 0:
+            os.replace(tmp, dest)
+            return
+        tmp.unlink(missing_ok=True)
+    except Exception:
+        pass
+    shutil.copy2(src, dest)
+
+
+def place_figures(summary, frames_list, note_dir: Path, title, shot):
+    """把课程重点里的 ![[画面 mm:ss]] 换成真正的图片：截图复制到笔记旁边的 image 文件夹。"""
+    if not summary or not _FIG.search(summary):
+        return summary
+
+    def repl(m):
+        t = _parse_ts(m.group(1))
+        f = None
+        for x in frames_list or []:
+            if abs(float(x.get('t', 0)) - t) <= 3 and (f is None or abs(float(x['t']) - t) < abs(float(f['t']) - t)):
+                f = x
+        real_t = float(f['t']) if f else float(t)
+        if shot is None:
+            return f'（画面 {m.group(1)}）'
+        try:
+            src = Path(shot(real_t))
+        except Exception:
+            return f'（画面 {m.group(1)}，截图失败）'
+        name = f'{safe_name(title)}__{fmt(real_t).replace(":", "-")}.jpg'
+        dest = note_dir / 'image' / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _small_copy(src, dest)
+        return f'![[image/{name}]]'
+    return _FIG.sub(repl, summary)
+
+
+def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolder=True, name_pattern='{title}', boundary='', shot=None,
+         include_frames=True):
     if not vault or not Path(vault).is_dir():
         raise OSError('找不到 Obsidian 库文件夹，请到「设置 → Obsidian」检查库的位置')
     target_dir = Path(vault) / (folder or '')
@@ -311,7 +368,9 @@ def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolde
             path = target_dir / f'{base} ({n}).md'
             n += 1
     status = (_old_status(path) if path.exists() else None) or '待审计'
-    path.write_text(to_markdown(doc, teacher, series, status, boundary), encoding='utf-8')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    out = dict(doc, summary=place_figures(doc.get('summary') or '', doc.get('frames'), path.parent, doc.get('title') or '字幕', shot))
+    path.write_text(to_markdown(out, teacher, series, status, boundary, include_frames), encoding='utf-8')
     vault_name = Path(vault).name
     rel = path.relative_to(Path(vault)).as_posix()
     from urllib.parse import quote

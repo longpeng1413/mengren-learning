@@ -6,7 +6,7 @@
 
 ## 绝对不要做的事
 
-- **不要结束用户正在运行的「猛人字幕.exe」**（不要 taskkill / Stop-Process）。他可能正在看课、改字幕，强关会丢未保存的修改。打包遇到「拒绝访问」就是因为程序开着，见下面「打包和更新」。
+- **不要强行结束用户正在运行的「猛人字幕.exe」**（不要一上来就 taskkill / Stop-Process）。他可能正在看课、改字幕，强关会丢未保存的修改。用户已允许升级时关闭它，但要**正常关闭**（等同点右上角 ×，程序会先保存），见下面「打包和更新」。
 - **不要改回本机 HTTP 服务器**。界面必须用 `index.as_uri()`（`file://`）加载，通过 pywebview 的 `js_api` 和后台通信。用户电脑上的 360 主动防御和 Clash Verge 会干扰 127.0.0.1 回环连接（传输卡在约 64KB 或被重置），以前因此出过「图标只显示一半」「界面卡住」。注意：给 `create_window` 传普通路径时 pywebview 会**悄悄**起一个本地服务器，所以一定要传 `file://` URI。
 - **不要在关闭事件里同步调用 `window.evaluate_js`**。`closing` 事件在界面线程里执行，同步等界面会死锁（以前出过「猛人字幕.exe 未响应」）。现在的做法见 `app/main.py` 的 `on_closing`：先返回 False 取消关闭 → 后台线程通知界面 `window.prepareClose()` 保存 → 等 `api._quit`（最多 4 秒）→ `window.destroy()` → `os._exit` 兜底。
 - **不要把 API 密钥写进日志、报错信息或仓库**。密钥字段见 `config.SECRETS`，发给界面前用 `config.public()` 打码。用户的设置在 `%APPDATA%\猛人字幕\`，不在项目里。
@@ -20,6 +20,7 @@
 
 - 新增字段可以，但读取时要给旧文件缺的字段兜底；
 - 不要改名或删除已有字段（`segments`、`summary`、`chat`、`versions`、`teacher`、`reviewed`、`corrected`、`clip`、`pending_task`、`doubts` 等）；
+- `frames` 是关键帧和画面记录：`[{t: 秒, why: 为什么挑这张, note: 画面记录, caption: 画面上的字幕, figure: 可插图, manual: 手动截取}]`。截图本身不存，放在缓存 `frames/` 里，需要时按时间重新截（`frames.grab`）；
 - `doubts` 是 AI 校对标出的存疑句：`[{t: 句子开始时间, reason: 原因, text: 原句}]`，按开始时间对应到字幕（`segments` 每段只存 4 个字段，`clean_segments` 会去掉别的字段，所以不能把标记放进段里）；
 - 每段的格式是 `{start, end, text, tr}`，秒为单位。
 
@@ -64,7 +65,10 @@
   - `asr.py`：识别。豆包有多种模型（`DOUBAO_MODELS`）：极速版 base64 直传；流式版走 WebSocket 二进制协议；标准版和闲时版要先上传到火山 TOS 拿预签名链接。
   - `llm.py`：AI 调用，支持 OpenAI 兼容接口、ChatGPT 账号（codex）、Claude（官方 anthropic SDK）、Gemini（REST）。
   - `codex_auth.py`：ChatGPT 账号登录，借用 Codex 命令行工具的 OAuth 方式。端口 1455 被占用时用「粘贴回调网址」兜底。
-  - `media.py`：ffmpeg 相关，包括探测、能否直接播放、转码、抽 16k 单声道音频、按静音切段。
+  - `media.py`：ffmpeg 相关，包括探测、能否直接播放、转码、抽 16k 单声道音频、按静音切段、检查视频结尾是否损坏。
+  - 插图原则（用户明确要求）：**非必要不插图**，知识库要小、便于以后 AI 蒸馏。课程重点最多 3 张，只插文字确实说不清的；剪藏时图片缩到 960 宽、压缩（`doc._small_copy`）。
+  - `frames.py`：关键帧。候选按 15 秒一段挑「最像背景」的小图（避开老师走动挡屏），加上老师说「请看」的时间；能看图的 AI 先筛选、再写画面记录。课程重点里写 `![[画面 mm:ss]]`，剪藏时 `doc.place_figures` 换成截图并复制到笔记旁边的 `image/`。只用豆包识别的字幕（`.猛人字幕.json`），不读用户以前本地模型生成的 `.srt`。
+  - AI 消息内容可以是图文混排 `[{'type': 'text'|'image', …}]`，`llm.stream` 按各家格式转换（`_to_openai` / `_to_codex` / `_to_claude` / `_to_gemini`）。
   - `config.py`：设置、老师、媒体库、播放进度和存放位置。缓存和日志默认放软件目录下的「缓存（可随时删除）」「日志（可随时删除）」，可以自定义（`storage_dir`，重启生效），软件目录不可写时退回 LOCALAPPDATA。
   - `cache.py`：清理。音频保留 3 天，转换后的视频最多 5GB。
   - `log.py`：日志最多 2MB × 4 个文件。打包后 stdout/stderr 是 None，已重定向到日志。
@@ -96,7 +100,7 @@ python -m venv .venv
 
 1. `.venv\Scripts\python build.py` → 输出到 `dist-next\`（不碰正在用的 `dist\`）。
 2. `.venv\Scripts\python tests\run_ui_test.py --exe` 测打包版。
-3. 告诉用户：关掉猛人字幕后，双击项目里的「更新到新版.bat」。它会检查程序是否还开着，保留缓存和日志，把 `dist-next` 换成 `dist`。**这一步让用户自己做。**
+3. 换进 `dist`：用户已允许升级时关闭正在运行的程序。先正常关闭（PowerShell：`Get-Process 猛人字幕 | ForEach-Object { $_.CloseMainWindow() }`，等它自己保存退出，最多等 15 秒左右，还不退出才 `Stop-Process`），然后执行「更新到新版.bat」里同样的步骤（把 `dist\猛人字幕` 里的「缓存（可随时删除）」「日志（可随时删除）」移进 `dist-next\猛人字幕`，删掉 `dist`，把 `dist-next` 改名为 `dist`），最后启动 `dist\猛人字幕\猛人字幕.exe` 并告诉用户。用户也可以自己双击「更新到新版.bat」。
 
 ## 发新版本
 
