@@ -389,6 +389,24 @@ with Image.open(figp) as im:
 ch1.write_text(cb.replace('status: "待审计"', 'status: "已确认-资料"'), encoding='utf-8')
 api.call('book_clip', {'doc': bdoc})
 check('再次剪藏书籍保留 status', 'status: "已确认-资料"' in ch1.read_text(encoding='utf-8'))
+check('笔记文件名：前言、目录不编号，正文从 01 开始', book.chapter_files([{'title': '前言与目录'}, {'title': '第一章 甲'}, {'title': '第二章 乙'}]) == ['前言与目录', '01、第一章 甲', '02、第二章 乙'])
+check('只认出一章时按页数分段', [c['title'] for c in book.detect_chapters(dict(info, toc=[], pages=[dict(p, text=p['text'].replace('第二章', '仓位一节')) for p in info['pages']]))] == ['全文'])
+# 同名 Word（WPS 做 OCR 后导出的）当正文参考
+shutil.copy(docx, BOOKS / '《测试书籍》测试作者.docx')
+with zipfile.ZipFile(BOOKS / '《测试书籍》测试作者.docx', 'w') as z:
+    body = ''.join(f'<w:p><w:r><w:t>{t}</w:t></w:r></w:p>' for t in ['目录', '第一章 趋势的起点 (1)', '第二章 仓位的分配 (4)', '第 一 章  趋 势 的 起 点', 'Word 里第一章的正文', '第二章 仓位的分配', 'Word 里第二章的正文'])
+    z.writestr('word/document.xml', f'<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="{W}"><w:body>{body}</w:body></w:document>')
+book._cache.clear()
+info2 = book.read(str(pdfp))
+sl = book.companion_slice(info2, chs, 0)
+check('找到同名 Word，按章名取出这一章的正文（跳过目录）', info2['companion'] and 'Word 里第一章的正文' in sl and 'Word 里第二章的正文' not in sl and '(1)' not in sl, sl)
+# 回页面核对
+md_v = '## 一、本章主题\n\n回调幅度为 30%。（P1）\n\n## 十一、需要人工确认的位置\n\n- P2：文字层写 30%，Word 写 50%。\n\n## 十三、一句话概括\n\n三段。'
+llm.complete = lambda *a, **k: json.dumps({'替换': [{'原文': '回调幅度为 30%', '改为': '回调幅度为 50%'}], '已确认': ['| P2 | 文字层 30%、Word 50% | 页面图确认为 50% |'], '仍需确认': ''}, ensure_ascii=False)
+mv, nv = book.verify_doubts({}, 'codex', str(pdfp), info, chs[0], md_v, {'title': 't'})
+llm.complete = orig_complete
+check('回页面核对：改正正文、记进 OCR 修正、清掉已确认的', nv == 1 and '回调幅度为 50%' in mv and '十一、需要人工确认' not in mv and '## 十二、已确认的 OCR 修正' in mv
+      and mv.index('## 十二') < mv.index('## 十三') and '| P2 | 文字层 30%、Word 50% | 页面图确认为 50% |' in mv, mv)
 (BOOKS / '_关键帧缓存').mkdir()
 shutil.copy(pdfp, BOOKS / '_关键帧缓存' / '视觉资料.pdf')
 lb = api.call('library_add_folder', {'path': str(BOOKS)})

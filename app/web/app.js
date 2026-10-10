@@ -392,7 +392,9 @@ function openBook(d) {
   const kinds = { pdf: d.book.scan ? '扫描 PDF（OCR 文字层）' : 'PDF', docx: 'Word 文档', text: '文本文档' };
   $('#bkInfo').textContent = `${kinds[d.book.kind]}，${d.book.pages} ${d.book.kind === 'pdf' ? '页' : '段'}，约 ${Math.round(d.book.chars / 1000)} 千字，${d.book.figures} 页有图表` +
     (d.book.kind === 'pdf' && d.book.detected_shift === null ? '。没认出书上的页码，请填上面的「书上第 1 页是 PDF 第几页」，否则锚点写成「PDF 第 X 页」' : '') +
-    (d.book.scan && d.book.chars < d.book.pages * 50 ? '。⚠ 这个 PDF 几乎没有文字层，请先用 WPS 做 OCR' : '');
+    (d.book.scan && d.book.chars < d.book.pages * 50 ? '。⚠ 这个 PDF 几乎没有文字层，请先用 WPS 做 OCR' : '') +
+    (d.book.companion ? `。同时参考同名 Word「${d.book.companion}」的正文` : '') +
+    (!d.book.toc && (d.doc.chapters || []).every(c => /^第 \d+–\d+ 页$|^全文$/.test(c.title)) ? '。⚠ 没认出章节，现在是按页数分段；建议点「AI 读目录分章」' : '');
   updateShiftHint();
   if (d.viewer) { $('#bookPdf').hidden = false; $('#bookText').hidden = true; $('#bookPdf').src = d.viewer; }
   else {
@@ -466,7 +468,7 @@ async function bookOrganize(indexes) {
         for (const x of items) {
           const c = doc.chapters[x.i]; if (!c) continue;
           c.md = x.md; c.updated = new Date().toLocaleString(); n++; adds += x.added;
-          c.note = x.missing ? `查漏：${x.missing} 页没被引用，补了 ${x.added} 条` : '每一页都有引用';
+          c.note = (x.missing ? `查漏：${x.missing} 页没被引用，补了 ${x.added} 条` : '每一页都有引用') + (x.verified ? `；回页面核对确认了 ${x.verified} 处` : '');
           if (S.doc === doc) { S.bookSel.i = x.i; renderBook(); }
         }
         markDirty(); save();

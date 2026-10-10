@@ -121,6 +121,9 @@ python -m venv .venv
 - `app/core/book.py`：PDF 用 pypdfium2 读文字层、认图片 / 矢量图、渲染页面（需要 Pillow）；Word 直接解析 docx 的 XML；TXT / MD 按标题切。书上页码 = PDF 页序 − `shift`，自动从页面上下单独的数字认，用户可以改。
 - 书籍的整理结果也存在旁边的 `.猛人学习.json`，`kind: 'book'`，字段：`title, author, shift, chapters[{title, start, end, md}], overview, clip`，`segments` 留空列表（兼容）。
 - 整理一章时一次最多 18 页 / 36000 字 / 10 张页面图，超了先分段写笔记再合成；整理完按「没被引用的页」查漏（`review_chapter`）。用户在设置里关联了知识库的整理规范（`book_rules_file`）时，整份规范交给 AI，以它为准。
+- PDF 旁边同名的 .docx（WPS OCR 导出）自动当正文参考（`companion_docx` / `companion_slice`：按章名在 Word 全文里找这一章，跳过目录）；媒体库不单独列这份 Word。
+- 每章整理后三步：`review_chapter`（没被引用的页查漏）→ `verify_doubts`（把「需要人工确认」里提到的页截图给 AI 核对，能确认的改正并记进「已确认的 OCR 修正」）。
+- 笔记文件名用 `chapter_files`：前言、目录不编号，正文章节从 01 开始。
 - 原书图示：AI 写 `![[原书图示 第N页 图号 名称 @左,上,右,下]]`，剪藏时 `book.place_figures` 按比例裁剪、缩到 960 宽压缩。非必要不用，每章最多 2 张。
 - 书籍界面在 `#bookMain`，`S.mode === 'book'`；视频相关按钮加了 `video-only` 类，在书籍界面隐藏。
 

@@ -48,7 +48,10 @@ def scan(folder):
     out = []
     for root, dirs, files in os.walk(folder):
         dirs[:] = sorted((d for d in dirs if not d.startswith(('.', '_'))), key=_natural)  # 「_关键帧缓存」这类辅助文件夹不列
+        pdf_stems = {Path(f).stem.lower() for f in files if f.lower().endswith('.pdf')}
         for f in sorted(files, key=_natural):
+            if f.lower().endswith('.docx') and Path(f).stem.lower() in pdf_stems:
+                continue  # 和 PDF 同名的 Word 是它的正文参考，不单独列
             if Path(f).suffix.lower() in MEDIA_EXT or Path(f).suffix.lower() in LIB_EXT:
                 out.append(os.path.join(root, f))
                 if len(out) >= MAX_FILES:

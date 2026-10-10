@@ -245,12 +245,84 @@ def read(path):
     except Exception as e:
         raise BookError(f'读不出这个文档：{e}')
     info['shift'] = detect_shift(info['pages'])
+    info['companion'] = companion_docx(path) if ext == '.pdf' else None
     info['scan'] = sum(1 for p in info['pages'] if p['scan']) > len(info['pages']) / 2
     info['chars'] = sum(len(p['text']) for p in info['pages'])
     with _lock:
         _cache.clear()
         _cache[key] = info
     return info
+
+
+def companion_docx(pdf_path):
+    """PDF 旁边同名的 Word（WPS 做 OCR 后导出的），文字一般比 PDF 文字层准。"""
+    p = Path(pdf_path)
+    for cand in (p.with_suffix('.docx'), p.with_name(re.sub(r'[（(]\s*OCR\s*[)）]', '', p.stem).strip() + '.docx')):
+        if cand.is_file():
+            return str(cand)
+    return None
+
+
+_CJK_SPACE = re.compile(r'(?<=[一-鿿，。、；：“”（）《》？！])[ \t　]+(?=[一-鿿，。、；：“”（）《》？！])')
+
+
+def companion_text(info):
+    """同名 Word 的全文（去掉 OCR 在汉字之间加的空格）。"""
+    path = info.get('companion')
+    if not path:
+        return ''
+    try:
+        d = read(path)
+    except BookError:
+        return ''
+    text = '\n'.join(p['text'] for p in d['pages'])
+    text = re.sub(r'HYPERLINK\s+\\l\s+"[^"]*"\s*', '', text.replace('&quot;', '"'))
+    return _CJK_SPACE.sub('', text)
+
+
+def _norm(s):
+    return re.sub(r'[\s\W_]+', '', s or '')
+
+
+def companion_slice(info, chapters, idx, limit=40000):
+    """按章名在 Word 全文里找到这一章（找不到返回空）。跳过目录：用最后一次出现的章名（正文在目录后面）。"""
+    text = companion_text(info)
+    if not text:
+        return ''
+    flat, pos = [], []
+    for k, ch in enumerate(text):
+        if not ch.isspace():
+            flat.append(ch)
+            pos.append(k)
+    flat = ''.join(flat)
+
+    def find(title):
+        core = re.sub(r'^(第[一二三四五六七八九十百零〇两\d]+[章篇部讲])', '', _norm(title)) or _norm(title)
+        core = core[:14]
+        if len(core) < 4:
+            return -1
+        hits = [m.start() for m in re.finditer(re.escape(core), flat)]
+        if not hits:
+            return -1
+        # 目录里的章名后面紧跟页码，正文里的不是；取第一个不在目录里的
+        for h in hits:
+            tail = flat[h + len(core):h + len(core) + 6]
+            if not re.match(r'^\(?\d', tail):
+                return pos[h]
+        return pos[hits[-1]]
+    a = find(chapters[idx]['title'])
+    if a < 0:
+        return ''
+    b = len(text)
+    for nxt in chapters[idx + 1:]:
+        k = find(nxt['title'])
+        if k > a:
+            b = k
+            break
+    a = text.rfind('\n', 0, a) + 1  # 从章名所在行的开头算起（把「第一章」也带上）
+    if b < len(text):
+        b = text.rfind('\n', a, b) + 1 or b
+    return text[a:b].strip()[:limit]
 
 
 def detect_shift(pages):
@@ -303,7 +375,7 @@ def detect_chapters(info):
         if n not in seen:
             seen.add(n)
             uniq.append((title, n))
-    if not uniq:
+    if len(uniq) < 2:  # 只认出一个「章」多半是认错了（比如 OCR 把章名拆成两行），按页数分段，让用户用「AI 读目录分章」
         size = 30 if total > 40 else total
         return [{'title': (f'第 {a}–{min(total, a + size - 1)} 页' if total > size else '全文'), 'start': a, 'end': min(total, a + size - 1)}
                 for a in range(1, total + 1, size)]
@@ -450,7 +522,7 @@ def _rules(settings):
     return DEFAULT_RULES
 
 
-def _book_head(meta, chapter, info, teacher):
+def _book_head(meta, chapter, info, teacher):  # noqa: C901
     from . import llm
     lines = [f'书名：{meta.get("title") or ""}', f'作者：{meta.get("author") or "（未填写）"}',
              f'本次整理：{chapter["title"]}，{range_ref(chapter["start"], chapter["end"], info.get("shift"))}'
@@ -498,16 +570,29 @@ def _figure_note(with_images):
     return FIGURE_RULE if with_images else '这次没有页面图（没有设置能看图的 AI）：不要插原书图示；图表只能按文字层整理，看不到的图形关系写「需视觉核验」。'
 
 
-def organize_chapter(settings, name, path, info, chapter, meta, teacher=None, vision=True, progress=lambda f, m=None: None, cancel=None):
+WORD_NOTE = ('\n\n===== 同名 Word 里对应这一章的正文（WPS 做 OCR 后导出，文字一般比上面 PDF 文字层准，但没有页码）=====\n'
+             '用法：正文用词、术语、数字优先参考 Word，再用页面图核对；页码锚点一律按 PDF 每页开头的标注写；Word 里没有、PDF 里有的内容也要整理。\n')
+
+
+def organize_chapter(settings, name, path, info, chapter, meta, teacher=None, vision=True, progress=lambda f, m=None: None, cancel=None,
+                     chapters=None):
     """整理一章，返回章节 Markdown（不含属性和标题，由剪藏时加上）。"""
     from . import llm
     rules = _rules(settings)
     head = _book_head(meta, chapter, info, teacher)
+    word = ''
+    if info.get('companion') and chapters:
+        try:
+            word = companion_slice(info, chapters, chapters.index(chapter))
+        except (ValueError, IndexError):
+            word = ''
     parts = _parts(info, chapter)
     system = rules + '\n\n' + _figure_note(vision)
     if len(parts) == 1:
         progress(0.1, f'正在整理「{chapter["title"]}」…')
         content = [{'type': 'text', 'text': head + '\n\n请整理这一章。以下是这一章的全部页面：'}] + _content(path, info, parts[0], vision)
+        if word:
+            content.append({'type': 'text', 'text': WORD_NOTE + word})
         md = llm.complete(settings, name, [{'role': 'system', 'content': system}, {'role': 'user', 'content': content}])
     else:
         notes = []
@@ -523,7 +608,8 @@ def organize_chapter(settings, name, path, info, chapter, meta, teacher=None, vi
         joined = '\n\n'.join(f'===== 第 {k} 段笔记 =====\n{n}' for k, n in enumerate(notes, 1))
         md = llm.complete(settings, name, [{'role': 'system', 'content': system}, {'role': 'user', 'content':
                           head + '\n\n下面是这一章分段读完后的整理笔记（已经带锚点和插图标记）。请把它们合成这一章的最终整理稿：按固定栏目写，'
-                          '不能丢掉笔记里的任何知识点、数字和锚点，插图标记原样保留（每章最多 2 张）。\n\n' + joined}])
+                          '不能丢掉笔记里的任何知识点、数字和锚点，插图标记原样保留（每章最多 2 张）。\n\n' + joined
+                          + (WORD_NOTE + word if word else '')}])
     return _strip_h1(md)
 
 
@@ -587,6 +673,81 @@ def review_chapter(settings, name, info, chapter, md, meta, teacher=None):
         return md, 0, len(miss)
     adds = [a for a in (data.get('补充', []) if isinstance(data, dict) else []) if isinstance(a, dict)]
     return (llm.insert_additions(md, adds) if adds else md), len(adds), len(miss)
+
+
+VERIFY_PROMPT = (
+    '你在核对一章书籍整理稿里「需要人工确认的位置」。下面先给出这一节的内容，再给出它提到的原书页面图（每张前面标了 PDF 页序和锚点）。\n'
+    '请逐条看页面图：\n'
+    '- 页面图上能看清、能确定的：给出确认结果；如果整理稿正文里写错了，给出要替换的原文和改正后的文字（原文必须是整理稿里一字不差、只出现一次的片段，尽量短）；\n'
+    '- 页面图上也看不清、或者看清了但原书本身就有歧义的：保留在「需要人工确认」里，写明页面图上看到了什么；\n'
+    '- 只核对来源写的是什么，不判断作者说得对不对，不用外部常识改写。\n'
+    '只输出 JSON：{"替换": [{"原文": "…", "改为": "…"}], "已确认": ["| P5 | 文字层或 Word 的写法 | 页面图确认为… |"], "仍需确认": "新的「需要人工确认的位置」这一节正文（Markdown，不含标题；全部确认了就写空字符串）"}'
+)
+
+
+def _section(md, title_re):
+    """找到「## 十一、…」这样的一节：返回 (开始行, 结束行, 行列表)；没有返回 None。"""
+    lines = md.split('\n')
+    for i, line in enumerate(lines):
+        if re.match(r'^##\s+' + title_re, line):
+            j = next((k for k in range(i + 1, len(lines)) if re.match(r'^##\s', lines[k])), len(lines))
+            return i, j, lines
+    return None
+
+
+def verify_doubts(settings, name, path, info, chapter, md, meta, teacher=None, vision=True):
+    """回页面核对：「需要人工确认的位置」里提到的页截图给 AI 看，能看清的改正、记进「已确认的 OCR 修正」。返回 (新稿, 确认了几处)。"""
+    from . import llm
+    if not vision or info['kind'] != 'pdf':
+        return md, 0
+    sec = _section(md, r'十一[、.]')
+    if not sec:
+        return md, 0
+    i, j, lines = sec
+    body = '\n'.join(lines[i + 1:j]).strip()
+    pages = sorted(n for n in cited_pages(body, info.get('shift')) if chapter['start'] <= n <= chapter['end'])[:10]
+    if not body or not pages:
+        return md, 0
+    shift = info.get('shift')
+    content = [{'type': 'text', 'text': VERIFY_PROMPT + '\n\n' + _book_head(meta, chapter, info, teacher) + '\n\n===== 需要人工确认的位置 =====\n' + body}]
+    for n in pages:
+        content.append({'type': 'text', 'text': f'\n【PDF 第 {n} 页｜锚点写作（{page_ref(n, shift)}）】'})
+        content.append({'type': 'image', 'path': str(render_page(path, n, width=1400))})
+    try:
+        data = llm._json_from(llm.complete(settings, name, [{'role': 'user', 'content': content}], json_mode=True))
+    except (ValueError, llm.LlmError):
+        return md, 0
+    if not isinstance(data, dict):
+        return md, 0
+    fixed = 0
+    for r in data.get('替换') or []:
+        if isinstance(r, dict) and r.get('原文') and r.get('改为') is not None and md.count(str(r['原文'])) == 1:
+            md = md.replace(str(r['原文']), str(r['改为']))
+            fixed += 1
+    rows = [str(x).strip() for x in data.get('已确认') or [] if str(x).strip().startswith('|')]
+    rest = data.get('仍需确认')
+    sec = _section(md, r'十一[、.]')
+    if sec and isinstance(rest, str):
+        i, j, lines = sec
+        new = [] if not rest.strip() else [lines[i], '', rest.strip(), '']
+        lines[i:j] = new
+        md = '\n'.join(lines)
+    if rows:
+        sec12 = _section(md, r'十二[、.]')
+        lines = md.split('\n')
+        if sec12:
+            i, j, lines = sec12
+            k = j
+            while k > i + 1 and not lines[k - 1].strip():
+                k -= 1
+            has_table = any(x.strip().startswith('|') for x in lines[i + 1:j])
+            add = rows if has_table else ['', '| 页码 | 文字层 / Word 的写法 | 页面图确认结果 |', '| --- | --- | --- |'] + rows
+            lines[k:k] = add
+        else:
+            at = next((k for k, x in enumerate(lines) if re.match(r'^##\s+十三[、.]', x)), len(lines))
+            lines[at:at] = ['## 十二、已确认的 OCR 修正', '', '| 页码 | 文字层 / Word 的写法 | 页面图确认结果 |', '| --- | --- | --- |'] + rows + ['']
+        md = '\n'.join(lines)
+    return md, max(fixed, len(rows))
 
 
 OVERVIEW_PROMPT = """请根据下面各章的整理稿，写这本书的「00、全书总览」。要求：
@@ -660,6 +821,22 @@ def chapter_file(k, title):
     return f'{k:02d}、{safe_name(title)}'
 
 
+FRONT = re.compile(r'^\s*(前言|序言?|自序|目录|引言|出版说明|内容简介)')
+
+
+def chapter_files(chapters):
+    """每章的笔记文件名：前言、目录这类不编号，正文章节从 01 开始。"""
+    from .doc import safe_name
+    out, k = [], 0
+    for c in chapters:
+        if FRONT.match(c.get('title') or ''):
+            out.append(safe_name(c['title']))
+        else:
+            k += 1
+            out.append(chapter_file(k, c.get('title') or f'第{k}部分'))
+    return out
+
+
 def clip_book(doc, info, vault, folder, dir_pattern='《{title}》{author}'):
     """写进 Obsidian：《书名》作者/00、全书总览.md + 01、章节.md … + image/。返回 {dir, files, uri}。"""
     from .doc import safe_name
@@ -674,10 +851,9 @@ def clip_book(doc, info, vault, folder, dir_pattern='《{title}》{author}'):
     src_type = {'pdf': '扫描 PDF（OCR 文字层 + 原页面图）' if info.get('scan') else 'PDF（文字层 + 原页面图）', 'docx': 'Word 文档', 'text': '文本文档'}[info['kind']]
     written = []
     chapters = doc.get('chapters') or []
-    for k, c in enumerate(chapters, 1):
+    for c, fname in zip(chapters, chapter_files(chapters)):
         if not (c.get('md') or '').strip():
             continue
-        fname = chapter_file(k, c['title'])
         path = base / (fname + '.md')
         rng = range_ref(c['start'], c['end'], shift)
         status = _old_status(path) or '待审计'

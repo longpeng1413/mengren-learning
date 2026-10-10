@@ -334,7 +334,8 @@ class Api:
     def _book_info(info, d=None):
         shift = (d or {}).get('shift', info.get('shift')) if d and 'shift' in d else info.get('shift')
         return {'kind': info['kind'], 'pages': len(info['pages']), 'scan': info['scan'], 'shift': shift, 'detected_shift': info.get('shift'),
-                'chars': info['chars'], 'toc': len(info.get('toc') or []), 'figures': sum(1 for p in info['pages'] if p['figure'])}
+                'chars': info['chars'], 'toc': len(info.get('toc') or []), 'figures': sum(1 for p in info['pages'] if p['figure']),
+                'companion': Path(info['companion']).name if info.get('companion') else ''}
 
     def _open_book(self, path):
         info = book.read(path)
@@ -400,10 +401,12 @@ class Api:
 
                 def prog(f, m=None):
                     job.report(lo + (hi - lo) * f, (m or '') + (f'（第 {k + 1}/{len(todo)} 章）' if len(todo) > 1 else ''))
-                md = book.organize_chapter(s, name, path, info, c, d, teacher, vision, prog, job.cancel)
+                md = book.organize_chapter(s, name, path, info, c, d, teacher, vision, prog, job.cancel, chapters)
                 prog(0.92, f'正在查漏「{c["title"]}」…')
                 md, added, missing = book.review_chapter(s, name, info, c, md, d, teacher)
-                job.push([{'i': i, 'md': md, 'added': added, 'missing': missing}])
+                prog(0.96, f'正在回页面核对「{c["title"]}」里需要确认的地方…')
+                md, verified = book.verify_doubts(s, name, path, info, c, md, d, teacher, vision)
+                job.push([{'i': i, 'md': md, 'added': added, 'missing': missing, 'verified': verified}])
             return {'vision': vision}
         return {'job': jobs.start('book', run).id}
 
@@ -416,7 +419,7 @@ class Api:
 
         def run(job):
             job.report(0.1, 'AI 正在写全书总览…')
-            files = [book.chapter_file(k, c['title']) for k, c in enumerate(chapters, 1)]
+            files = book.chapter_files(chapters)
             info = book.read(d['media'])
             shift = d.get('shift', info.get('shift'))
             for c in chapters:
