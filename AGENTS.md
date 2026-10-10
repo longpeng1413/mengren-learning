@@ -6,17 +6,21 @@
 
 ## 绝对不要做的事
 
-- **不要强行结束用户正在运行的「猛人字幕.exe」**（不要一上来就 taskkill / Stop-Process）。他可能正在看课、改字幕，强关会丢未保存的修改。用户已允许升级时关闭它，但要**正常关闭**（等同点右上角 ×，程序会先保存），见下面「打包和更新」。
+- **不要强行结束用户正在运行的「猛人学习.exe」**（不要一上来就 taskkill / Stop-Process）。他可能正在看课、改字幕，强关会丢未保存的修改。用户已允许升级时关闭它，但要**正常关闭**（等同点右上角 ×，程序会先保存），见下面「打包和更新」。
 - **不要改回本机 HTTP 服务器**。界面必须用 `index.as_uri()`（`file://`）加载，通过 pywebview 的 `js_api` 和后台通信。用户电脑上的 360 主动防御和 Clash Verge 会干扰 127.0.0.1 回环连接（传输卡在约 64KB 或被重置），以前因此出过「图标只显示一半」「界面卡住」。注意：给 `create_window` 传普通路径时 pywebview 会**悄悄**起一个本地服务器，所以一定要传 `file://` URI。
-- **不要在关闭事件里同步调用 `window.evaluate_js`**。`closing` 事件在界面线程里执行，同步等界面会死锁（以前出过「猛人字幕.exe 未响应」）。现在的做法见 `app/main.py` 的 `on_closing`：先返回 False 取消关闭 → 后台线程通知界面 `window.prepareClose()` 保存 → 等 `api._quit`（最多 4 秒）→ `window.destroy()` → `os._exit` 兜底。
-- **不要把 API 密钥写进日志、报错信息或仓库**。密钥字段见 `config.SECRETS`，发给界面前用 `config.public()` 打码。用户的设置在 `%APPDATA%\猛人字幕\`，不在项目里。
+- **不要在关闭事件里同步调用 `window.evaluate_js`**。`closing` 事件在界面线程里执行，同步等界面会死锁（以前出过「猛人字幕.exe 未响应」，软件那时还叫猛人字幕）。现在的做法见 `app/main.py` 的 `on_closing`：先返回 False 取消关闭 → 后台线程通知界面 `window.prepareClose()` 保存 → 等 `api._quit`（最多 4 秒）→ `window.destroy()` → `os._exit` 兜底。
+- **不要把 API 密钥写进日志、报错信息或仓库**。密钥字段见 `config.SECRETS`，发给界面前用 `config.public()` 打码。用户的设置在 `%APPDATA%\猛人学习\`，不在项目里。
+
+### 改名（1.6）
+
+软件原名「猛人字幕」，1.6 起叫「猛人学习」。兼容要一直保留：`config._migrate_data_dir()` 把 `%APPDATA%\猛人字幕` 搬到 `%APPDATA%\猛人学习`；`doc.load` 还认旧的 `.猛人字幕.json`，保存时改成 `.猛人学习.json`；设置导入认两个名字；`find_note` 认两个标签。项目文件夹 `E:\Claude-猛人字幕` 没改名。
 - **不要动 `E:\Claude-乔木剪藏`**，那是另一个项目。
 
 ## 必须保持的行为
 
 ### 字幕文件兼容
 
-字幕存在视频旁边的 `视频名.mp4.猛人字幕.json`（写不进去时放 `%APPDATA%\猛人字幕\library\`），见 `app/core/doc.py`。用户已经有大量做好的字幕：
+字幕存在视频旁边的 `视频名.mp4.猛人学习.json`（写不进去时放 `%APPDATA%\猛人学习\library\`），见 `app/core/doc.py`。用户已经有大量做好的字幕：
 
 - 新增字段可以，但读取时要给旧文件缺的字段兜底；
 - 不要改名或删除已有字段（`segments`、`summary`、`chat`、`versions`、`teacher`、`reviewed`、`corrected`、`clip`、`pending_task`、`doubts` 等）；
@@ -67,7 +71,7 @@
   - `codex_auth.py`：ChatGPT 账号登录，借用 Codex 命令行工具的 OAuth 方式。端口 1455 被占用时用「粘贴回调网址」兜底。
   - `media.py`：ffmpeg 相关，包括探测、能否直接播放、转码、抽 16k 单声道音频、按静音切段、检查视频结尾是否损坏。
   - 插图原则（用户明确要求）：**非必要不插图**，知识库要小、便于以后 AI 蒸馏。课程重点最多 3 张，只插文字确实说不清的；剪藏时图片缩到 960 宽、压缩（`doc._small_copy`）。
-  - `frames.py`：关键帧。候选按 15 秒一段挑「最像背景」的小图（避开老师走动挡屏），加上老师说「请看」的时间；能看图的 AI 先筛选、再写画面记录。课程重点里写 `![[画面 mm:ss]]`，剪藏时 `doc.place_figures` 换成截图并复制到笔记旁边的 `image/`。只用豆包识别的字幕（`.猛人字幕.json`），不读用户以前本地模型生成的 `.srt`。
+  - `frames.py`：关键帧。候选按 15 秒一段挑「最像背景」的小图（避开老师走动挡屏），加上老师说「请看」的时间；能看图的 AI 先筛选、再写画面记录。课程重点里写 `![[画面 mm:ss]]`，剪藏时 `doc.place_figures` 换成截图并复制到笔记旁边的 `image/`。只用豆包识别的字幕（`.猛人学习.json`），不读用户以前本地模型生成的 `.srt`。
   - AI 消息内容可以是图文混排 `[{'type': 'text'|'image', …}]`，`llm.stream` 按各家格式转换（`_to_openai` / `_to_codex` / `_to_claude` / `_to_gemini`）。
   - `config.py`：设置、老师、媒体库、播放进度和存放位置。缓存和日志默认放软件目录下的「缓存（可随时删除）」「日志（可随时删除）」，可以自定义（`storage_dir`，重启生效），软件目录不可写时退回 LOCALAPPDATA。
   - `cache.py`：清理。音频保留 3 天，转换后的视频最多 5GB。
@@ -96,21 +100,29 @@ python -m venv .venv
 
 ## 打包和更新用户本机的程序
 
-用户从桌面快捷方式打开 `dist\猛人字幕\猛人字幕.exe`。
+用户从桌面快捷方式打开 `dist\猛人学习\猛人学习.exe`。
 
 1. `.venv\Scripts\python build.py` → 输出到 `dist-next\`（不碰正在用的 `dist\`）。
 2. `.venv\Scripts\python tests\run_ui_test.py --exe` 测打包版。
-3. 换进 `dist`：用户已允许升级时关闭正在运行的程序。先正常关闭（PowerShell：`Get-Process 猛人字幕 | ForEach-Object { $_.CloseMainWindow() }`，等它自己保存退出，最多等 15 秒左右，还不退出才 `Stop-Process`），然后执行「更新到新版.bat」里同样的步骤（把 `dist\猛人字幕` 里的「缓存（可随时删除）」「日志（可随时删除）」移进 `dist-next\猛人字幕`，删掉 `dist`，把 `dist-next` 改名为 `dist`），最后启动 `dist\猛人字幕\猛人字幕.exe` 并告诉用户。用户也可以自己双击「更新到新版.bat」。
+3. 换进 `dist`：用户已允许升级时关闭正在运行的程序。先正常关闭（PowerShell：`Get-Process 猛人学习 | ForEach-Object { $_.CloseMainWindow() }`，等它自己保存退出，最多等 15 秒左右，还不退出才 `Stop-Process`），然后执行「更新到新版.bat」里同样的步骤（把 `dist\猛人字幕` 里的「缓存（可随时删除）」「日志（可随时删除）」移进 `dist-next\猛人字幕`，删掉 `dist`，把 `dist-next` 改名为 `dist`），最后启动 `dist\猛人字幕\猛人字幕.exe` 并告诉用户。用户也可以自己双击「更新到新版.bat」。
 
 ## 发新版本
 
 1. 改 `app/main.py` 里的 `VERSION`。
 2. 测试、打包（见上）。
 3. 提交并推送到 `main`（仓库：https://github.com/longpeng1413/mengren-subtitles）。
-4. 把 `dist-next\猛人字幕` 文件夹打成 zip，用 `gh release create v版本号` 发布。**附件文件名必须是英文**，例如 `mengren-subtitles-1.4.0-windows.zip`，否则 GitHub 会把中文吞掉。中文名写在附件的 label 里。发布说明里提醒：要先装 ffmpeg；程序没有数字签名，可能会被安全软件提示。
+4. 把 `dist-next\猛人学习` 文件夹打成 zip，用 `gh release create v版本号` 发布。**附件文件名必须是英文**，例如 `mengren-subtitles-1.4.0-windows.zip`，否则 GitHub 会把中文吞掉。中文名写在附件的 label 里。发布说明里提醒：要先装 ffmpeg；程序没有数字签名，可能会被安全软件提示。
 5. README 的功能说明有变化时一起更新。
 
 推送、发布这类对外操作，先问用户。
+
+## 书籍和文档（1.6）
+
+- `app/core/book.py`：PDF 用 pypdfium2 读文字层、认图片 / 矢量图、渲染页面（需要 Pillow）；Word 直接解析 docx 的 XML；TXT / MD 按标题切。书上页码 = PDF 页序 − `shift`，自动从页面上下单独的数字认，用户可以改。
+- 书籍的整理结果也存在旁边的 `.猛人学习.json`，`kind: 'book'`，字段：`title, author, shift, chapters[{title, start, end, md}], overview, clip`，`segments` 留空列表（兼容）。
+- 整理一章时一次最多 18 页 / 36000 字 / 10 张页面图，超了先分段写笔记再合成；整理完按「没被引用的页」查漏（`review_chapter`）。用户在设置里关联了知识库的整理规范（`book_rules_file`）时，整份规范交给 AI，以它为准。
+- 原书图示：AI 写 `![[原书图示 第N页 图号 名称 @左,上,右,下]]`，剪藏时 `book.place_figures` 按比例裁剪、缩到 960 宽压缩。非必要不用，每章最多 2 张。
+- 书籍界面在 `#bookMain`，`S.mode === 'book'`；视频相关按钮加了 `video-only` 类，在书籍界面隐藏。
 
 ## 没有进仓库的东西（只在用户电脑的 `E:\Claude-猛人字幕` 里）
 

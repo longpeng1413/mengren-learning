@@ -1,7 +1,7 @@
 """用 ffmpeg 生成测试用的音视频（仓库里不放大文件）：
 - test-media/演示视频.mp4：40 秒，H.264 + AAC，能直接播放；
 - test-media/旧格式.avi：20 秒，MPEG-4 + MP3，需要转换才能播放。
-字幕 test-media/演示视频.mp4.猛人字幕.json 已经在仓库里。"""
+字幕 test-media/演示视频.mp4.猛人字幕.json 已经在仓库里（故意用改名前的文件名，测试旧文件能读、保存时改成新名字）。"""
 import shutil
 import subprocess
 import sys

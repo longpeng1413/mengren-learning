@@ -1,7 +1,11 @@
 // 在真实窗口里跑的界面自测（由 main.py --selftest= 执行）
 Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TIMEOUT'])), 240000)), (async () => {
   const R = window.__R = [];
-  const ok = (name, cond, info) => R.push((cond ? 'PASS ' : 'FAIL ') + name + (cond || info === undefined ? '' : ' :: ' + JSON.stringify(info)));
+  const ok = (name, cond, info) => {
+    const line = (cond ? 'PASS ' : 'FAIL ') + name + (cond || info === undefined ? '' : ' :: ' + JSON.stringify(info));
+    R.push(line);
+    api('log', { level: 'info', message: '自测 ' + line }).catch(() => {});  // 程序中途退出时，日志里能看到测到哪一步
+  };
   const wait = ms => new Promise(r => setTimeout(r, ms));
   const until = async (fn, ms = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { try { if (await fn()) return true; } catch (e) {} await wait(100); } return false; };
   const v = document.querySelector('#video');
@@ -16,7 +20,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     // 媒体库
     const lib = await api('library_add_folder', { path: base });
     await loadLibrary(lib.groups);
-    ok('添加文件夹到媒体库', document.querySelectorAll('.lib-item').length === 2, document.querySelectorAll('.lib-item').length);
+    ok('添加文件夹到媒体库（视频、音频和书籍）', document.querySelectorAll('.lib-item').length === 3, document.querySelectorAll('.lib-item').length);
     const item = [...document.querySelectorAll('.lib-item')].find(el => el.textContent.includes('演示视频'));
     ok('媒体库显示字幕数', item && item.textContent.includes('字幕 8'), item && item.textContent);
     item.click();
@@ -107,6 +111,8 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ta.value = '### 一句话主题\n测试重点 [00:10]'; ta.dispatchEvent(new Event('input'));
     document.querySelector('#btnEditSummary').click();
     ok('编辑课程重点', S.doc.summary.includes('测试重点') && document.querySelector('#summaryBox .tslink'));
+    const tb = md('前文\n\n| 模型 | 比例 |\n|---|---|\n| 金字塔 | 40% [01:02] |\n\n后文');
+    ok('Markdown 表格显示成表格', tb.includes('<table>') && tb.includes('<td>金字塔</td>') && tb.includes('tslink') && tb.includes('<p>后文</p>'), tb);
 
     // 字幕历史版本、清空、恢复
     window.confirm = () => true;
@@ -186,6 +192,33 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('设置：导入导出和存放位置', !!document.querySelector('#btnExportSettings') && await until(() => document.querySelector('#aboutRoot').textContent.length > 3));
     ok('设置：课程重点模板', document.querySelector('#summaryTemplate').value.includes('不要套用固定栏目'));
     document.querySelector('#dlgSettings').close();
+
+    // 书籍和文档
+    await flushSave();
+    await window.openPath(base + '测试书籍.pdf');
+    ok('打开 PDF 进入书籍界面', await until(() => S.mode === 'book' && !document.querySelector('#bookMain').hidden && document.querySelector('#stageMain').hidden && document.body.classList.contains('mode-book')));
+    ok('左边显示 PDF 原文', document.querySelector('#bookPdf').src.startsWith('file:') && !document.querySelector('#bookPdf').hidden);
+    ok('视频相关按钮在书籍界面隐藏', getComputedStyle(document.querySelector('#btnTranscribe')).display === 'none');
+    ok('列出章节和全书总览', document.querySelectorAll('#bkChapters .ch-row').length === 3 && document.querySelector('#bkChapters').textContent.includes('00、全书总览'));
+    ok('认出「书上第 1 页是 PDF 第 3 页」', document.querySelector('#bkFirst').value === '3' && document.querySelector('#bkTitle').value === '测试书籍');
+    document.querySelector('#bkChapters .ch-row[data-ch="0"] span').click();
+    ok('点章节：选中并跳到这一章的第一页', S.bookSel.i === 0 && document.querySelector('#bookPdf').src.endsWith('#page=3'));
+    S.doc.chapters[0].md = '## 一、本章主题\n\n讲趋势。（P2）（PDF 第 5 页）';
+    renderBook();
+    ok('整理稿里的页码可以点', document.querySelectorAll('#bkView .pglink').length === 2);
+    document.querySelector('#bkView .pglink[data-p]').click();
+    ok('点 P2 跳到 PDF 第 4 页', document.querySelector('#bookPdf').src.endsWith('#page=4'));
+    const ti = document.querySelector('#bkChapters .ch-row[data-ch="0"] input[data-f="title"]');
+    ti.value = '第一章 改过的名字'; ti.dispatchEvent(new Event('change', { bubbles: true }));
+    ok('可以改章名', S.doc.chapters[0].title === '第一章 改过的名字');
+    const fp = document.querySelector('#bkFirst'); fp.value = '4'; fp.dispatchEvent(new Event('change'));
+    ok('可以改页码对应关系', S.doc.shift === 3 && document.querySelector('#bkShiftHint').textContent.includes('PDF 第 4 页 = P1'));
+    ok('有整理好的章节时可以剪藏', !document.querySelector('#btnClip').disabled && !document.querySelector('#bkOverview').disabled);
+    await flushSave();
+    const reb = await api('open', { path: base + '测试书籍.pdf' });
+    ok('书籍整理结果保存到磁盘', reb.doc.chapters[0].title === '第一章 改过的名字' && reb.doc.shift === 3 && reb.doc.chapters[0].md.includes('讲趋势'));
+    await window.openPath(base + '演示视频.mp4');
+    ok('再打开视频回到视频界面', await until(() => S.mode === 'media' && !document.querySelector('#stageMain').hidden && document.querySelector('#bookMain').hidden && v.readyState >= 1 && !S.resumePending));
 
     // 播放进度续播
     v.currentTime = 21.3; await wait(300);

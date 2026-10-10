@@ -86,7 +86,8 @@ def cleanup(clear_all=False) -> int:
             freed += size
         except OSError:
             pass
-    for d in (CACHE_DIR / 'frames').glob('*'):  # 关键帧截图：30 天没用过的删掉，需要时会按时间重新截
+    # 关键帧截图、书籍页面图：30 天没用过的删掉，需要时会重新生成
+    for d in list((CACHE_DIR / 'frames').glob('*')) + list((CACHE_DIR / 'pages').glob('*')):
         try:
             newest = max((f.stat().st_mtime for f in d.iterdir()), default=d.stat().st_mtime)
             if clear_all or now - newest > FRAME_DAYS * 86400:

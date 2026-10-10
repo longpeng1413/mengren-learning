@@ -1,18 +1,38 @@
 """设置与目录。
-- 设置、老师档案、媒体库、播放进度（都很小）：%APPDATA%\\猛人字幕\\
+- 设置、老师档案、媒体库、播放进度（都很小）：%APPDATA%\\猛人学习\\（1.6 以前叫「猛人字幕」，第一次启动时自动搬过来）
 - 缓存和日志（会变大，可以随时删除）：默认放在软件所在文件夹，
   「缓存（可随时删除）」和「日志（可随时删除）」；也可以在设置里换到别的位置（重启后生效）。"""
 import copy
 import json
 import os
+import shutil
 import sys
 import threading
 import time
 import uuid
 from pathlib import Path
 
-APP_NAME = '猛人字幕'
-DATA_DIR = Path(os.environ.get('APPDATA') or Path.home()) / APP_NAME
+APP_NAME = '猛人学习'
+OLD_APP_NAME = '猛人字幕'  # 1.6 以前的名字
+_APPDATA = Path(os.environ.get('APPDATA') or Path.home())
+DATA_DIR = _APPDATA / APP_NAME
+OLD_DATA_DIR = _APPDATA / OLD_APP_NAME
+
+
+def _migrate_data_dir():
+    """改名后第一次启动：把旧名字下的设置、老师档案、媒体库、播放进度整个搬过来。"""
+    if DATA_DIR.exists() or not OLD_DATA_DIR.is_dir():
+        return
+    try:
+        os.replace(OLD_DATA_DIR, DATA_DIR)
+    except OSError:
+        try:
+            shutil.copytree(OLD_DATA_DIR, DATA_DIR)
+        except OSError:
+            pass
+
+
+_migrate_data_dir()
 SETTINGS_FILE = DATA_DIR / 'settings.json'
 POSITIONS_FILE = DATA_DIR / 'positions.json'
 TEACHERS_FILE = DATA_DIR / 'teachers.json'
@@ -20,7 +40,7 @@ LIBRARY_FILE = DATA_DIR / 'library.json'
 CACHE_NAME = '缓存（可随时删除）'
 LOG_NAME = '日志（可随时删除）'
 # 旧版本放在 C 盘的位置（启动时会清掉）
-OLD_CACHE_DIR = Path(os.environ.get('LOCALAPPDATA') or Path.home()) / APP_NAME / 'cache'
+OLD_CACHE_DIR = Path(os.environ.get('LOCALAPPDATA') or Path.home()) / OLD_APP_NAME / 'cache'
 OLD_LOG_DIR = DATA_DIR / 'logs'
 OLD_WEBVIEW_DIR = DATA_DIR / 'webview'
 
@@ -115,7 +135,9 @@ DEFAULTS = {
     'last_lang': 'zh',
     'last_teacher': '',
     'storage_dir': '',
-    'obsidian': {'vault': '', 'folder': '猛人字幕', 'teacher_subfolder': True, 'name_pattern': '{title}', 'include_frames': True},
+    'obsidian': {'vault': '', 'folder': '猛人学习', 'teacher_subfolder': True, 'name_pattern': '{title}', 'include_frames': True,
+                 'book_folder': '猛人学习/书籍', 'book_dir_pattern': '《{title}》{author}'},
+    'book_rules_file': '',
     'auto_review': True,
     'recent': [],
 }

@@ -1,4 +1,5 @@
-"""字幕文件：保存在视频旁边（「视频名.猛人字幕.json」），写不进去时放到 %APPDATA%\\猛人字幕\\library。
+"""字幕文件：保存在视频旁边（「视频名.猛人学习.json」），写不进去时放到 %APPDATA%\\猛人学习\\library。
+1.6 以前叫「视频名.猛人字幕.json」：照样能读，下次保存时改成新名字。
 另外负责导出 TXT / SRT，以及剪藏到 Obsidian。"""
 import hashlib
 import json
@@ -11,7 +12,8 @@ from pathlib import Path
 from .config import DATA_DIR
 from .llm import fmt
 
-SUFFIX = '.猛人字幕.json'
+SUFFIX = '.猛人学习.json'
+OLD_SUFFIX = '.猛人字幕.json'
 VERSION = 1
 
 
@@ -20,13 +22,26 @@ def sidecar(media_path: str) -> Path:
     return p.with_name(p.name + SUFFIX)
 
 
+def old_sidecar(media_path: str) -> Path:
+    p = Path(media_path)
+    return p.with_name(p.name + OLD_SUFFIX)
+
+
+def stored_file(media_path: str):
+    """这个文件现在的字幕 / 整理结果存在哪里（新名字、旧名字、%APPDATA% 里的备用位置），都没有返回 None。"""
+    for p in (sidecar(media_path), old_sidecar(media_path), fallback(media_path)):
+        if p.exists():
+            return p
+    return None
+
+
 def fallback(media_path: str) -> Path:
     h = hashlib.sha1(os.path.abspath(media_path).lower().encode('utf-8')).hexdigest()[:20]
     return DATA_DIR / 'library' / f'{h}.json'
 
 
 def load(media_path: str):
-    for path in (sidecar(media_path), fallback(media_path)):
+    for path in (sidecar(media_path), old_sidecar(media_path), fallback(media_path)):
         try:
             d = json.loads(path.read_text(encoding='utf-8'))
             if isinstance(d, dict) and isinstance(d.get('segments'), list):
@@ -86,8 +101,16 @@ def save(media_path: str, doc: dict) -> dict:
     data['segments'] = clean_segments(data.get('segments'))
     data['updated'] = time.strftime('%Y-%m-%d %H:%M:%S')
     try:
-        _write(sidecar(media_path), data)
-        where = sidecar(media_path)
+        old, new = old_sidecar(media_path), sidecar(media_path)
+        if old.exists() and not new.exists():  # 改名前的字幕文件：先改成新名字，保存时照样留一份上一版
+            os.replace(old, new)
+        _write(new, data)
+        where = new
+        for p in (old, old.with_name(old.name + '.bak')):
+            try:
+                p.unlink(missing_ok=True)
+            except OSError:
+                pass
     except OSError:
         _write(fallback(media_path), data)
         where = fallback(media_path)
@@ -219,7 +242,7 @@ def to_markdown(doc, teacher=None, series='', status='待审计', boundary='', i
         f'segments: {len(segs)}',
         f'clipped: {time.strftime("%Y-%m-%d %H:%M")}',
         'tags:',
-        '  - 猛人字幕',
+        '  - 猛人学习',
     ]
     if tname:
         lines.append(f'  - {safe_name(tname).replace(" ", "_")}')
@@ -272,7 +295,7 @@ def find_note(vault: Path, media: str, prefer: Path = None):
                     head = f.read(1500)
             except OSError:
                 continue
-            if not head.startswith('---') or '猛人字幕' not in head:
+            if not head.startswith('---') or ('猛人学习' not in head and '猛人字幕' not in head):
                 continue
             m = re.search(r'(?m)^source:\s*"?(.*?)"?\s*$', head)
             if m and _same_media(m.group(1), media):

@@ -1,4 +1,4 @@
-"""猛人字幕：在独立窗口里打开界面。界面直接调用 bridge.Api，不开网络端口。
+"""猛人学习：在独立窗口里打开界面。界面直接调用 bridge.Api，不开网络端口。
 python app/main.py [--debug]   （--debug 打开开发者工具，日志记得更详细）"""
 import json
 import os
@@ -19,11 +19,11 @@ from webview.dom import DOMEventHandler  # noqa: E402
 
 from bridge import Api  # noqa: E402
 
-VERSION = '1.5.0'
+VERSION = '1.6.0'
 
 
 def main():
-    log.info('==== 猛人字幕 %s 启动（%s）====', VERSION, 'exe' if getattr(sys, 'frozen', False) else '源码')
+    log.info('==== 猛人学习 %s 启动（%s）====', VERSION, 'exe' if getattr(sys, 'frozen', False) else '源码')
     from core import cache
     threading.Thread(target=cache.cleanup, daemon=True, name='cache-cleanup').start()
     api = Api()

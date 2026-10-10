@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from . import config, doc as docs
+from .book import LIB_EXT
 from .media import MEDIA_EXT
 
 MAX_FILES = 3000
@@ -17,19 +18,19 @@ def _natural(s):
 def _status(path, positions):
     """一个文件在列表里要显示的状态：有没有字幕、剪藏过没有、看到哪里。"""
     item = {'path': path, 'name': Path(path).stem, 'ext': Path(path).suffix.lower()[1:]}
-    side = docs.sidecar(path)
+    side = docs.stored_file(path)
     d = None
-    if side.exists():
+    if side is not None:
         try:
             d = json.loads(side.read_text(encoding='utf-8'))
         except (OSError, ValueError):
             d = None
-    if d is None and docs.fallback(path).exists():
-        try:
-            d = json.loads(docs.fallback(path).read_text(encoding='utf-8'))
-        except (OSError, ValueError):
-            d = None
-    if d:
+    if d and d.get('kind') == 'book':
+        chs = d.get('chapters') or []
+        item['book'] = {'done': sum(1 for c in chs if (c.get('md') or '').strip()), 'total': len(chs)}
+        item['clipped'] = bool(d.get('clip'))
+        item['teacher'] = d.get('teacher') or ''
+    elif d:
         item['subs'] = len(d.get('segments') or [])
         item['summary'] = bool((d.get('summary') or '').strip())
         item['clipped'] = bool(d.get('clip'))
@@ -46,9 +47,9 @@ def _status(path, positions):
 def scan(folder):
     out = []
     for root, dirs, files in os.walk(folder):
-        dirs[:] = sorted((d for d in dirs if not d.startswith('.')), key=_natural)
+        dirs[:] = sorted((d for d in dirs if not d.startswith(('.', '_'))), key=_natural)  # 「_关键帧缓存」这类辅助文件夹不列
         for f in sorted(files, key=_natural):
-            if Path(f).suffix.lower() in MEDIA_EXT:
+            if Path(f).suffix.lower() in MEDIA_EXT or Path(f).suffix.lower() in LIB_EXT:
                 out.append(os.path.join(root, f))
                 if len(out) >= MAX_FILES:
                     return out
@@ -96,7 +97,7 @@ def add_files(paths):
     n = 0
     for p in paths:
         p = os.path.abspath(p)
-        if os.path.isfile(p) and Path(p).suffix.lower() in MEDIA_EXT and os.path.normcase(p) not in known:
+        if os.path.isfile(p) and (Path(p).suffix.lower() in MEDIA_EXT or Path(p).suffix.lower() in LIB_EXT) and os.path.normcase(p) not in known:
             lib['files'].append(p)
             known.add(os.path.normcase(p))
             n += 1

@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>猛人字幕</title>
+<title>猛人学习</title>
 <link rel="icon" href="icon.png">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
 <header class="topbar">
   <button class="btn icon-only" id="btnLibrary" title="显示/隐藏媒体库"><svg viewBox="0 0 24 24"><path d="M3 5h18M3 12h18M3 19h18"/></svg></button>
-  <div class="brand"><img src="icon.png" alt=""><span>猛人字幕</span></div>
+  <div class="brand"><img src="icon.png" alt=""><span>猛人学习</span></div>
   <div class="file-title" id="fileTitle"></div>
   <div class="teacher-chip" id="teacherChip" hidden>
     <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
@@ -20,13 +20,13 @@
   <nav class="actions">
     <button class="btn" id="btnOpen" title="打开音视频文件（Ctrl+O）"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>打开</button>
     <span class="sep"></span>
-    <button class="btn primary" id="btnTranscribe" disabled><svg viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>生成字幕</button>
-    <button class="btn" id="btnCorrect" disabled title="让 AI 按术语表校对识别错误"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>AI 校对</button>
-    <button class="btn" id="btnTranslate" disabled><svg viewBox="0 0 24 24"><path d="M4 5h9M8 3v2m3 0c-1 4-4 7-7 8m3-5c1 2 3 4 6 5"/><path d="M13 21l4-9 4 9m-7-3h6"/></svg>翻译</button>
-    <button class="btn" id="btnPipeline" disabled title="一次完成：生成字幕 → AI 校对 → 翻译 → 课程重点"><svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>一键整理</button>
+    <button class="btn primary video-only" id="btnTranscribe" disabled><svg viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>生成字幕</button>
+    <button class="btn video-only" id="btnCorrect" disabled title="让 AI 按术语表校对识别错误"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>AI 校对</button>
+    <button class="btn video-only" id="btnTranslate" disabled><svg viewBox="0 0 24 24"><path d="M4 5h9M8 3v2m3 0c-1 4-4 7-7 8m3-5c1 2 3 4 6 5"/><path d="M13 21l4-9 4 9m-7-3h6"/></svg>翻译</button>
+    <button class="btn video-only" id="btnPipeline" disabled title="一次完成：生成字幕 → AI 校对 → 翻译 → 课程重点"><svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>一键整理</button>
     <span class="sep"></span>
     <button class="btn" id="btnSave" disabled title="保存（Ctrl+S）"><svg viewBox="0 0 24 24"><path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v6h8V3M7 21v-7h10v7"/></svg><span id="saveLabel">保存</span></button>
-    <div class="menu-wrap">
+    <div class="menu-wrap video-only">
       <button class="btn" id="btnExport" disabled><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>下载</button>
       <div class="menu export-menu" id="menuExport">
         <div class="menu-label">内容</div>
@@ -74,14 +74,49 @@
     <div class="stage-empty" id="empty">
       <div class="empty-card" id="dropZone">
         <img src="icon.png" alt="">
-        <h1>猛人字幕</h1>
-        <p>在左边的媒体库添加文件夹，点哪个看哪个；也可以直接打开或拖入文件。</p>
+        <h1>猛人学习</h1>
+        <p>在左边的媒体库添加文件夹，点哪个看哪个；也可以直接打开或拖入文件。<br>支持视频、音频，以及书籍和文档（PDF、Word、TXT、Markdown）。</p>
         <div class="empty-btns">
           <button class="btn primary big" id="btnAddFolder2">添加文件夹</button>
           <button class="btn big" id="btnOpen2">打开文件</button>
         </div>
         <div class="recent-list" id="recentList"></div>
       </div>
+    </div>
+
+    <!-- 书籍和文档 -->
+    <div class="stage-book" id="bookMain" hidden>
+      <section class="book-left" id="bookLeft">
+        <iframe id="bookPdf" title="原文" hidden></iframe>
+        <div class="book-text" id="bookText" hidden></div>
+      </section>
+      <div class="splitter" id="bookSplit" title="拖动调整宽度"></div>
+      <section class="book-right" id="bookRight">
+        <div class="book-meta">
+          <div class="field"><div class="label">书名</div><input id="bkTitle"></div>
+          <div class="field"><div class="label">作者</div><input id="bkAuthor" placeholder="没有可以不填"></div>
+          <div class="field bk-shift"><div class="label">书上第 1 页是 PDF 第几页</div><input id="bkFirst" type="number" min="1"><div class="hint" id="bkShiftHint"></div></div>
+        </div>
+        <div class="book-bar">
+          <button class="btn primary small" id="bkRun" title="整理勾选的章节（没勾选时整理当前这一章）">整理选中的章节</button>
+          <button class="btn small" id="bkRunAll" title="整理所有还没整理的章节">整理全部未整理的</button>
+          <button class="btn small" id="bkOverview" title="根据整理好的章节写「00、全书总览」">全书总览</button>
+          <span class="grow"></span>
+          <button class="btn small" id="bkAiToc" title="章节分得不对时，让 AI 读目录页重新分">AI 读目录分章</button>
+          <button class="btn small" id="bkAddCh" title="手动加一章">＋ 加一章</button>
+        </div>
+        <div class="book-info muted small-text" id="bkInfo"></div>
+        <div class="book-body">
+          <div class="chapter-list" id="bkChapters"></div>
+          <div class="chapter-view">
+            <div class="chapter-head"><b id="bkViewTitle"></b><span class="grow"></span>
+              <span class="muted small-text" id="bkViewHint"></span>
+              <button class="btn small" id="bkEdit" disabled>编辑</button><button class="btn small" id="bkCopy" disabled>复制</button></div>
+            <div class="ai-scroll md" id="bkView"></div>
+            <textarea class="summary-edit" id="bkEditor" hidden spellcheck="false"></textarea>
+          </div>
+        </div>
+      </section>
     </div>
 
     <div class="stage-main" id="stageMain" hidden>
@@ -284,6 +319,7 @@
       <li><b>术语表</b>：在「设置 → 老师与术语表」里给每位老师建一份；在顶栏选择这个视频是哪位老师的课。也可以在媒体库的文件夹上绑定老师，里面的视频会自动用这位老师。</li>
       <li><b>存疑句</b>：AI 校对时拿不准、读起来不通的句子会用橙色标出，不会乱改。点字幕栏上方的「存疑」按钮逐句跳过去，会单句循环播放方便回听；改好后点「已确认」。</li>
       <li><b>画面</b>：AI 区的「画面」页点「找关键帧」，软件会挑出课件、板书、老师手绘这类画面，让 AI 写成画面记录（照录课件文字和板书、分清哪些是老师现场画的、抄下画面上的字幕）。AI 校对、课程重点和对话都会参考画面记录；课程重点里可以插图，剪藏时图片会复制到笔记旁边的 image 文件夹。看到重要画面也可以点「截取当前画面」。</li>
+      <li><b>书籍和文档</b>：在媒体库里点 PDF 或 Word（也可以「打开」TXT / Markdown）。左边看原文，右边是章节：先核对书名、作者、「书上第 1 页是 PDF 第几页」和章节分得对不对，再整理。每章按固定栏目整理，标书上的页码（P42），点页码左边就跳过去；有图表的页会截图给 AI 看；整理完自动查漏没引用到的页。最后点「全书总览」，再点「剪藏」。</li>
       <li><b>查漏补缺</b>：对照完整字幕，把课程重点漏掉的内容补进对应小节，并显示字幕被引用到的比例。</li>
       <li><b>剪藏</b>：笔记上半部分是课程重点，下半部分是完整带时间戳的字幕，可以直接用来蒸馏。</li>
     </ul>
@@ -377,11 +413,18 @@
       <section data-sec="obsidian" hidden>
         <h3>Obsidian</h3>
         <div class="field"><div class="label">库的位置</div><div class="key-row"><input data-k="obsidian.vault"><button class="btn small" id="pickVault">选择…</button></div></div>
-        <div class="field"><div class="label">存到库里的哪个文件夹</div><div class="key-row"><input data-k="obsidian.folder" placeholder="例如：猛人字幕 或 学习/视频笔记"><button class="btn small" id="pickFolder">选择…</button></div></div>
-        <div class="field"><label class="check"><input type="checkbox" data-k="obsidian.teacher_subfolder"> 按老师分子文件夹（例如 猛人字幕/大聪老师/）</label></div>
+        <div class="field"><div class="label">存到库里的哪个文件夹</div><div class="key-row"><input data-k="obsidian.folder" placeholder="例如：猛人学习 或 学习/视频笔记"><button class="btn small" id="pickFolder">选择…</button></div></div>
+        <div class="field"><label class="check"><input type="checkbox" data-k="obsidian.teacher_subfolder"> 按老师分子文件夹（例如 猛人学习/大聪老师/）</label></div>
         <div class="field"><label class="check"><input type="checkbox" data-k="obsidian.include_frames"> 笔记最后附上「画面记录」（纯文字，很小；是课程重点里「画面显示……」的证据）</label></div>
         <div class="field"><div class="label">笔记文件名</div><input data-k="obsidian.name_pattern" placeholder="{title}">
-          <div class="hint">{title} 是视频名，{teacher} 是老师，{series} 是媒体库文件夹名。例如 <code>{title}（猛人字幕）</code>。</div></div>
+          <div class="hint">{title} 是视频名，{teacher} 是老师，{series} 是媒体库文件夹名。例如 <code>{title}（猛人学习）</code>。</div></div>
+        <div class="label strong" style="margin-top:18px">书籍和文档</div>
+        <div class="field"><div class="label">存到库里的哪个文件夹</div><div class="key-row"><input data-k="obsidian.book_folder" placeholder="例如：03、收集箱/01、外部原始资料/01、文章与书籍资料"><button class="btn small" id="pickBookFolder">选择…</button></div>
+          <div class="hint">每本书一个文件夹：<code>《书名》作者/00、全书总览.md</code>、<code>01、第一章 ….md</code>…，必要的原书图示放在 <code>image</code> 里。</div></div>
+        <div class="field"><div class="label">书的文件夹名</div><input data-k="obsidian.book_dir_pattern" placeholder="《{title}》{author}"></div>
+        <div class="field"><div class="label">书籍整理规范文件（可选，推荐关联知识库里的正式规范）</div>
+          <div class="key-row"><input data-k="book_rules_file" placeholder="例如：C:\交易员成长地图\02、规则体系\01、通用规则\07、外部书籍与文档整理规范 V1.1.md"><button class="btn small" id="pickBookRules">选择…</button></div>
+          <div class="hint">关联后，整理书籍时把整份规范交给 AI，以它为准；规范升级后不用改软件。没关联时用软件内置的要求（按 V1.1 的固定栏目、页码锚点、疑点三分法）。</div></div>
         <p class="hint">文件夹不存在会自动创建。同一个视频再次剪藏，会更新原来那篇笔记；你在 Obsidian 里移动或改名了也能找到（按笔记属性里的视频路径找），笔记里的 status 也会保留。笔记结构：属性（老师、系列、时长、是否校对、状态）→ 课程重点 → 来源情况 → 完整带时间戳的字幕（存疑句会标出来）。</p>
       </section>
 
@@ -511,10 +554,10 @@
 
       <section data-sec="about" hidden>
         <h3>关于与数据</h3>
-        <p>猛人字幕　版本 <b id="aboutVersion"></b>　·　开源项目：<a href="#" id="aboutHome">github.com/longpeng1413/mengren-subtitles</a></p>
+        <p>猛人学习（原名猛人字幕）　版本 <b id="aboutVersion"></b>　·　开源项目：<a href="#" id="aboutHome">github.com/longpeng1413/mengren-subtitles</a></p>
 
         <div class="label strong">换电脑：导出 / 导入设置</div>
-        <p class="hint">导出成一个文件，在新电脑的猛人字幕里导入，就能直接用原来的设置、各家 API 密钥、ChatGPT 登录、老师和术语表。</p>
+        <p class="hint">导出成一个文件，在新电脑的猛人学习里导入，就能直接用原来的设置、各家 API 密钥、ChatGPT 登录、老师和术语表。</p>
         <div class="field">
           <label class="check"><input type="checkbox" id="exKeys" checked> 包含 API 密钥和 ChatGPT 登录（文件要妥善保管，不要发给别人）</label>
           <label class="check"><input type="checkbox" id="exLibrary"> 包含媒体库的文件夹列表（新电脑上路径相同时才有用）</label>

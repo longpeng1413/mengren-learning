@@ -18,6 +18,7 @@ dist-next/
 tests/*.result.json
 test-media/*.mp4
 test-media/*.avi
+test-media/*.pdf
 test-media/ui/
 !test-media/*.猛人字幕.json
 

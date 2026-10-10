@@ -131,7 +131,7 @@ def start() -> str:
         def do_GET(self):
             ok = login.accept(self.path)
             body = ('<meta charset="utf-8"><body style="font:16px sans-serif;background:#111;color:#eee;padding:40px">'
-                    + ('登录完成，可以关掉这个页面，回到「猛人字幕」。' if ok and not login.error else '没有拿到登录结果，请回到「猛人字幕」重试。')
+                    + ('登录完成，可以关掉这个页面，回到「猛人学习」。' if ok and not login.error else '没有拿到登录结果，请回到「猛人字幕」重试。')
                     + '</body>').encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')

@@ -6,11 +6,12 @@ import threading
 import time
 from pathlib import Path
 
-from core import asr, cache, codex_auth, config, doc as docs, frames, jobs, library, llm, media
+from core import asr, book, cache, codex_auth, config, doc as docs, frames, jobs, library, llm, media
 from core.log import LOG_DIR, log
 
-MEDIA_FILTER = ('音视频文件 (*.mp4;*.m4v;*.mov;*.mkv;*.webm;*.avi;*.flv;*.ts;*.wmv;*.3gp;*.mpg;*.mpeg;'
-                '*.mp3;*.m4a;*.aac;*.wav;*.flac;*.ogg;*.opus;*.wma;*.amr;*.ape)', '所有文件 (*.*)')
+MEDIA_FILTER = ('音视频和文档 (*.mp4;*.m4v;*.mov;*.mkv;*.webm;*.avi;*.flv;*.ts;*.wmv;*.3gp;*.mpg;*.mpeg;'
+                '*.mp3;*.m4a;*.aac;*.wav;*.flac;*.ogg;*.opus;*.wma;*.amr;*.ape;*.pdf;*.docx;*.txt;*.md)',
+                '书籍和文档 (*.pdf;*.docx;*.txt;*.md)', '所有文件 (*.*)')
 
 
 def file_url(path) -> str:
@@ -33,7 +34,7 @@ class Api:
             out = fn(body or {})
             out.setdefault('ok', True)
             return out
-        except (asr.AsrError, llm.LlmError, media.MediaError, OSError, ValueError, codex_auth.AuthError) as e:
+        except (asr.AsrError, llm.LlmError, media.MediaError, book.BookError, OSError, ValueError, codex_auth.AuthError) as e:
             log.warning('%s 失败：%s', name, e)
             return {'ok': False, 'error': str(e)}
         except Exception as e:
@@ -71,6 +72,13 @@ class Api:
                 continue
         raise ValueError('读不出这个文件的文字，请用 UTF-8 编码保存后再试')
 
+    def do_pick_file(self, b):
+        """选一个文件，只返回路径。"""
+        import webview
+        types = ('Markdown / 文本 (*.md;*.txt)', '所有文件 (*.*)') if b.get('kind') == 'text' else ('所有文件 (*.*)',)
+        r = self._window.create_file_dialog(webview.FileDialog.OPEN, file_types=types)
+        return {'path': r[0] if r else None}
+
     def do_pick_folder(self, b):
         import webview
         r = self._window.create_file_dialog(webview.FileDialog.FOLDER, directory=b.get('start') or '')
@@ -103,8 +111,10 @@ class Api:
         path = os.path.abspath(str(b.get('path') or '').strip().strip('"'))
         if not os.path.isfile(path):
             raise ValueError('找不到这个文件：' + path)
+        if Path(path).suffix.lower() in book.DOC_EXT:
+            return self._open_book(path)
         if Path(path).suffix.lower() not in media.MEDIA_EXT:
-            raise ValueError('不支持这种文件。支持常见的视频（mp4、mkv、mov、webm…）和音频（mp3、m4a、wav…）')
+            raise ValueError('不支持这种文件。支持常见的视频（mp4、mkv、mov、webm…）、音频（mp3、m4a、wav…）和文档（pdf、docx、txt、md）')
         info = media.probe(path)
         d = docs.load(path) or docs.new(path, info)
         d['duration'] = info['duration'] or d.get('duration', 0)
@@ -319,6 +329,107 @@ class Api:
             return {'provider': name}
         return {'job': jobs.start('correct', run).id}
 
+    # ------------------------------------------------------------ 书籍 ----
+    @staticmethod
+    def _book_info(info, d=None):
+        shift = (d or {}).get('shift', info.get('shift')) if d and 'shift' in d else info.get('shift')
+        return {'kind': info['kind'], 'pages': len(info['pages']), 'scan': info['scan'], 'shift': shift, 'detected_shift': info.get('shift'),
+                'chars': info['chars'], 'toc': len(info.get('toc') or []), 'figures': sum(1 for p in info['pages'] if p['figure'])}
+
+    def _open_book(self, path):
+        info = book.read(path)
+        d = docs.load(path)
+        if not d or d.get('kind') != 'book':
+            d = book.new_doc(path, info)
+        d['pages'] = len(info['pages'])
+        if not d.get('teacher'):
+            d['teacher'] = library.folder_teacher(path)
+        config.add_recent(path, d.get('title') or Path(path).stem)
+        return {'path': path, 'kind': 'book', 'doc': d, 'book': self._book_info(info, d),
+                'viewer': file_url(path) if info['kind'] == 'pdf' else None}
+
+    def do_book_pages(self, b):
+        """Word / 文本在左边显示：每「页」的文字和图片。"""
+        info = book.read(b.get('path'))
+        shift = b.get('shift') if 'shift' in b else info.get('shift')
+        return {'pages': [{'n': p['n'], 'ref': book.page_ref(p['n'], shift), 'text': p['text'],
+                           'images': [file_url(x) for x in p.get('images') or []]} for p in info['pages']]}
+
+    def do_book_chapters(self, b):
+        """重新识别章节。ai=True 时让 AI 读目录页（后台任务）。"""
+        path = b.get('path')
+        info = book.read(path)
+        if 'shift' in b:
+            info = dict(info, shift=b['shift'])
+        if not b.get('ai'):
+            return {'chapters': book.detect_chapters(info)}
+        s = config.load()
+        name = s['chat']
+        llm.check(s, name)
+
+        def run(job):
+            job.report(0.1, 'AI 正在读目录…')
+            return {'chapters': book.ai_chapters(s, name, info)}
+        return {'job': jobs.start('book', run).id}
+
+    def do_book_organize(self, b):
+        """整理选中的章节（一章一章来，每章整理完再查漏）。"""
+        path = b.get('path')
+        if not path or not os.path.isfile(path):
+            raise ValueError('文件不见了')
+        d = b.get('doc') or {}
+        todo = [int(i) for i in b.get('indexes') or []]
+        chapters = d.get('chapters') or []
+        if not todo:
+            raise ValueError('没有选择要整理的章节')
+        s = config.load()
+        name = s['chat']
+        llm.check(s, name)
+        vision = name not in llm.VISION_NOTE
+        info = book.read(path)
+        if 'shift' in d:
+            info = dict(info, shift=d['shift'])
+        teacher = config.get_teacher(d.get('teacher'))
+
+        def run(job):
+            for k, i in enumerate(todo):
+                if job.cancel.is_set():
+                    break
+                c = chapters[i]
+                lo, hi = k / len(todo), (k + 1) / len(todo)
+
+                def prog(f, m=None):
+                    job.report(lo + (hi - lo) * f, (m or '') + (f'（第 {k + 1}/{len(todo)} 章）' if len(todo) > 1 else ''))
+                md = book.organize_chapter(s, name, path, info, c, d, teacher, vision, prog, job.cancel)
+                prog(0.92, f'正在查漏「{c["title"]}」…')
+                md, added, missing = book.review_chapter(s, name, info, c, md, d, teacher)
+                job.push([{'i': i, 'md': md, 'added': added, 'missing': missing}])
+            return {'vision': vision}
+        return {'job': jobs.start('book', run).id}
+
+    def do_book_overview(self, b):
+        d = b.get('doc') or {}
+        s = config.load()
+        name = s['chat']
+        llm.check(s, name)
+        chapters = d.get('chapters') or []
+
+        def run(job):
+            job.report(0.1, 'AI 正在写全书总览…')
+            files = [book.chapter_file(k, c['title']) for k, c in enumerate(chapters, 1)]
+            info = book.read(d['media'])
+            shift = d.get('shift', info.get('shift'))
+            for c in chapters:
+                c['range'] = book.range_ref(c['start'], c['end'], shift)
+            return {'overview': book.overview(s, name, d, chapters, files)}
+        return {'job': jobs.start('book', run).id}
+
+    def do_book_clip(self, b):
+        d = b.get('doc') or {}
+        ob = config.load()['obsidian']
+        info = book.read(d['media'])
+        return book.clip_book(d, info, ob.get('vault'), ob.get('book_folder') or '', ob.get('book_dir_pattern') or '《{title}》{author}')
+
     # ------------------------------------------------------------ 画面 ----
     def _vision(self, s, need=True):
         name = s.get('vision') or ''
@@ -477,7 +588,7 @@ class Api:
     def do_export_settings(self, b):
         import json as _json
         import webview
-        r = b.get('dest') or self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename='猛人字幕设置.json', file_types=('设置文件 (*.json)',))
+        r = b.get('dest') or self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename='猛人学习设置.json', file_types=('设置文件 (*.json)',))
         if not r:
             return {'path': None}
         dest = r if isinstance(r, str) else r[0]
@@ -513,9 +624,9 @@ class Api:
         try:
             data = _json.loads(Path(r[0]).read_text(encoding='utf-8-sig'))
         except (OSError, ValueError):
-            raise ValueError('读不出这个文件，请选择从猛人字幕导出的设置文件')
-        if not isinstance(data, dict) or data.get('app') != config.APP_NAME or not isinstance(data.get('settings'), dict):
-            raise ValueError('这不是猛人字幕导出的设置文件')
+            raise ValueError('读不出这个文件，请选择从猛人学习（猛人字幕）导出的设置文件')
+        if not isinstance(data, dict) or data.get('app') not in (config.APP_NAME, config.OLD_APP_NAME) or not isinstance(data.get('settings'), dict):
+            raise ValueError('这不是猛人学习（猛人字幕）导出的设置文件')
         cur = config.load()
         new = config._merge(config.DEFAULTS, data['settings'])
         new['storage_dir'] = cur.get('storage_dir', '')  # 位置跟电脑有关，保留这台电脑的

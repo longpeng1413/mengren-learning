@@ -19,23 +19,27 @@ RESULT = SCRIPT.with_suffix('.result.json')
 
 def main():
     subprocess.run([sys.executable, str(ROOT / 'tests' / 'make_test_media.py')], check=True)
+    if not (ROOT / 'test-media' / '测试书籍.pdf').exists():
+        subprocess.run([sys.executable, str(ROOT / 'tests' / 'make_test_book.py')], check=True)
     for d in (TD, UI):
         shutil.rmtree(d, ignore_errors=True)
     RESULT.unlink(missing_ok=True)
-    (TD / 'appdata' / '猛人字幕').mkdir(parents=True)
+    (TD / 'appdata' / '猛人学习').mkdir(parents=True)
     (TD / 'local').mkdir()
-    (TD / 'appdata' / '猛人字幕' / 'settings.json').write_text(
+    (TD / 'appdata' / '猛人学习' / 'settings.json').write_text(
         json.dumps({'storage_dir': str(TD / 'store')}, ensure_ascii=False), encoding='utf-8')
     UI.mkdir(parents=True)
-    for name in ('演示视频.mp4', '演示视频.mp4.猛人字幕.json', '旧格式.avi'):
+    for name in ('演示视频.mp4', '演示视频.mp4.猛人字幕.json', '旧格式.avi', '测试书籍.pdf'):
         shutil.copy(ROOT / 'test-media' / name, UI / name)
 
     env = dict(os.environ, APPDATA=str(TD / 'appdata'), LOCALAPPDATA=str(TD / 'local'), PYTHONIOENCODING='utf-8')
     if '--exe' in sys.argv:
-        cmd = [str(ROOT / 'dist-next' / '猛人字幕' / '猛人字幕.exe')]
+        cmd = [str(ROOT / 'dist-next' / '猛人学习' / '猛人学习.exe')]
     else:
         cmd = [sys.executable, str(ROOT / 'app' / 'main.py')]
-    subprocess.run(cmd + [f'--selftest={SCRIPT}', '--selftest-close'], env=env, timeout=400)
+    rc = subprocess.run(cmd + [f'--selftest={SCRIPT}', '--selftest-close'], env=env, timeout=400).returncode
+    if rc:
+        print('程序退出码', rc, hex(rc & 0xffffffff))
 
     results = json.loads(RESULT.read_text(encoding='utf-8')) if RESULT.exists() else ['没有结果']
     bad = [r for r in results if not r.startswith('PASS')]

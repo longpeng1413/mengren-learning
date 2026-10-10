@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if not (ROOT / 'test-media' / '旧格式.avi').exists():  # 测试视频不放进仓库，用 ffmpeg 生成
     import subprocess
     subprocess.run([sys.executable, str(ROOT / 'tests' / 'make_test_media.py')], check=True)
-(TMP / 'appdata' / '猛人字幕').mkdir(parents=True)
+(TMP / 'appdata' / '猛人字幕').mkdir(parents=True)  # 故意用改名前的位置，测试自动搬家
 (TMP / 'appdata' / '猛人字幕' / 'settings.json').write_text(json.dumps({'storage_dir': str(TMP / 'store')}), encoding='utf-8')
 sys.path.insert(0, str(ROOT / 'app'))
 
@@ -51,6 +51,10 @@ def wait(job_id, timeout=120):
     raise TimeoutError(job_id)
 
 
+# 改名：设置文件夹自动从 %APPDATA%\\猛人字幕 搬到 %APPDATA%\\猛人学习
+check('改名后设置自动搬家', config.DATA_DIR.name == '猛人学习' and config.DATA_DIR.exists() and not (TMP / 'appdata' / '猛人字幕').exists()
+      and config.load()['storage_dir'] == str(TMP / 'store'))
+
 # 打开已有字幕的 mp4：直接播放，读回字幕
 r = api.call('open', {'path': str(MEDIA / '演示视频.mp4')})
 check('打开 mp4', r['ok'] and r['plan'] == 'direct' and r['src'].startswith('file:///'), r)
@@ -62,7 +66,7 @@ d = r['doc']
 d['segments'][0]['text'] = 'Edited line'
 d['segments'].append({'start': 1.0, 'end': 2.0, 'text': '乱序插入', 'tr': ''})
 s = api.call('save', {'path': r['path'], 'doc': d})
-check('保存字幕', s['ok'] and s['stored'].endswith('.猛人字幕.json'))
+check('保存字幕（改名前的字幕文件存成新名字，旧文件去掉）', s['ok'] and s['stored'].endswith('.猛人学习.json') and not (MEDIA / '演示视频.mp4.猛人字幕.json').exists(), s)
 again = api.call('open', {'path': r['path']})['doc']
 check('保存后能读回修改', again['segments'][0]['text'] == 'Edited line')
 check('保存时按时间排序', [x['start'] for x in again['segments']] == sorted(x['start'] for x in again['segments']))
@@ -301,6 +305,99 @@ os.utime(oldf, (time.time() - 40 * 86400, time.time() - 40 * 86400))
 cache.cleanup()
 check('30 天没用的截图自动清掉', not oldf.exists() and g.exists())
 
+# ---------------------------------------------------------------- 1.6 书籍 ----
+from core import book  # noqa: E402
+import zipfile  # noqa: E402
+if not (ROOT / 'test-media' / '测试书籍.pdf').exists():
+    import subprocess
+    subprocess.run([sys.executable, str(ROOT / 'tests' / 'make_test_book.py')], check=True)
+BOOKS = TMP / 'books'
+BOOKS.mkdir()
+pdfp = BOOKS / '《测试书籍》测试作者.pdf'
+shutil.copy(ROOT / 'test-media' / '测试书籍.pdf', pdfp)
+info = book.read(str(pdfp))
+check('PDF：读出每页文字', len(info['pages']) == 8 and '三段结构' in info['pages'][3]['text'])
+check('PDF：认出书上的页码（PDF 第 3 页 = P1）', info['shift'] == 2 and book.page_ref(3, 2) == 'P1' and book.page_ref(1, 2) == 'PDF 第 1 页')
+check('PDF：认出有图的页', info['pages'][3]['figure'] and not info['pages'][4]['figure'])
+chs = book.detect_chapters(info)
+check('PDF：按「第X章」分章，目录页不算', [(c['title'], c['start'], c['end']) for c in chs] == [('第一章 趋势的起点', 3, 5), ('第二章 仓位的分配', 6, 8)], chs)
+check('页码范围写法', book.range_ref(3, 5, 2) == 'P1-P3' and book.range_ref(3, 5, None) == 'PDF 第 3-5 页')
+nd = book.new_doc(str(pdfp), info)
+check('书名、作者从文件名「《书名》作者」读出', nd['title'] == '测试书籍' and nd['author'] == '测试作者' and len(nd['chapters']) == 2 and nd['segments'] == [])
+pg = book.render_page(str(pdfp), 4)
+check('渲染页面图', pg.exists() and pg.stat().st_size > 5000)
+check('引用到的页', book.cited_pages('……（P1-P2）……（PDF 第 8 页）', 2) == {3, 4, 8})
+check('没被引用的页', [p['n'] for p in book.uncovered_pages(info, chs[0], '- 定义（P1）')] == [] and
+      [p['n'] for p in book.uncovered_pages(dict(info, pages=[dict(p, text=p['text'] * 5) for p in info['pages']]), chs[0], '- 定义（P1）')] == [4, 5])
+# Word
+docx = BOOKS / '讲义.docx'
+W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+paras = ''.join(f'<w:p><w:pPr><w:pStyle w:val="{st}"/></w:pPr><w:r><w:t>{t}</w:t></w:r></w:p>' if st else f'<w:p><w:r><w:t>{t}</w:t></w:r></w:p>'
+                for st, t in [('Heading1', '第一章 开始'), ('', '正文一' * 50), ('Heading1', '第二章 继续'), ('', '正文二' * 50)])
+table = '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>模型</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>比例</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:t>金字塔</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>40%</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'
+with zipfile.ZipFile(docx, 'w') as z:
+    z.writestr('word/document.xml', f'<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="{W}"><w:body>{paras}{table}</w:body></w:document>')
+    z.writestr('docProps/core.xml', '<?xml version="1.0"?><cp:coreProperties xmlns:cp="x" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>讲义标题</dc:title><dc:creator>某作者</dc:creator></cp:coreProperties>')
+dinfo = book.read(str(docx))
+dch = book.detect_chapters(dinfo)
+check('Word：按标题分章、表格转成 Markdown', [c['title'] for c in dch] == ['第一章 开始', '第二章 继续'] and '| 金字塔 | 40% |' in dinfo['pages'][-1]['text'] and dinfo['title'] == '讲义标题', (dch, dinfo['pages'][-1]['text'][-60:]))
+txt = BOOKS / '文章.md'
+txt.write_text('# 第一部分\n\n' + '甲' * 300 + '\n\n# 第二部分\n\n' + '乙' * 300, encoding='utf-8')
+check('文本：按 # 标题分章', [c['title'] for c in book.detect_chapters(book.read(str(txt)))] == ['第一部分', '第二部分'])
+# 打开、整理（AI 用假的）、剪藏
+ob = api.call('open', {'path': str(pdfp)})
+check('打开 PDF 进入书籍模式', ob['ok'] and ob['kind'] == 'book' and ob['viewer'].startswith('file:///') and ob['book']['pages'] == 8 and len(ob['doc']['chapters']) == 2, ob.get('error'))
+api.call('settings', {'settings': {'chat': 'openai', 'providers': {'openai': {'key': 'sk-test-1234567890'}}}})
+calls = []
+
+
+def fake_complete(s_, n_, msgs, **k):
+    text = json.dumps([m['content'] if isinstance(m['content'], str) else [p.get('text', '[图]') for p in m['content']] for m in msgs], ensure_ascii=False)
+    calls.append(text)
+    if '查漏员' in text:
+        return json.dumps({'补充': []})
+    return '## 一、本章主题\n\n讲趋势。（P1）\n\n## 十三、一句话概括\n\n三段。（P1-P3）\n\n![[原书图示 第4页 图1-1 三段结构 @0.1,0.3,0.9,0.6]]\n*原书图示｜图 1-1 三段结构（P2）*'
+
+
+llm.complete = fake_complete
+r_ = api.call('book_organize', {'path': str(pdfp), 'doc': ob['doc'], 'indexes': [0]})
+jb = wait(r_['job'])
+check('整理一章', jb['status'] == 'done' and jb['items'][0]['md'].startswith('## 一、本章主题'), jb)
+check('有图表的页附上页面图、锚点写法正确', '[图]' in calls[0] and '锚点写作（P2）' in calls[0] and '【PDF 第 4 页' in calls[0])
+check('整理要求：固定栏目、疑点三分法、非必要不插图', '## 十三、一句话概括' in book.DEFAULT_RULES and '疑点三分法' in book.DEFAULT_RULES and '每章最多 2 张' in book.DEFAULT_RULES)
+rules = TMP / '规范.md'
+rules.write_text('# 外部书籍与文档整理规范 V9\n只回答原书讲了什么。', encoding='utf-8')
+check('关联知识库里的书籍整理规范', '规范 V9' in book._rules({'book_rules_file': str(rules)}) and '规范 V9' not in book._rules({}))
+llm.complete = orig_complete
+bdoc = ob['doc']
+bdoc['chapters'][0]['md'] = jb['items'][0]['md']
+bdoc['overview'] = '## 一、书籍基本信息\n\n测试。'
+api.call('save', {'path': str(pdfp), 'doc': bdoc})
+check('书籍整理结果存进旁边的文件', json.loads(docs.sidecar(str(pdfp)).read_text(encoding='utf-8'))['chapters'][0]['md'].startswith('## 一'))
+api.call('settings', {'settings': {'obsidian': dict(config.load()['obsidian'], vault=str(vault), book_folder='资料/书籍')}})
+bc = api.call('clip', {'doc': bdoc}) if False else api.call('book_clip', {'doc': bdoc})
+bdir = vault / '资料' / '书籍' / '《测试书籍》测试作者'
+ch1 = bdir / '01、第一章 趋势的起点.md'
+check('剪藏书籍：总览 + 章节文件', bc['ok'] and (bdir / '00、全书总览.md').exists() and ch1.exists() and not (bdir / '02、第二章 仓位的分配.md').exists(), bc)
+cb = ch1.read_text(encoding='utf-8')
+check('章节笔记：属性、来源说明、页码范围', 'type: 书籍章节整理' in cb and 'page_range: "P1-P3"' in cb and '整理范围：P1-P3（PDF 第 3-5 页）' in cb and 'status: "待审计"' in cb, cb[:500])
+figp = bdir / 'image' / '原书图示-图1-1-三段结构.jpg'
+check('原书图示按位置裁剪、压缩', '![[image/原书图示-图1-1-三段结构.jpg]]' in cb and figp.exists() and figp.stat().st_size < 60000, cb[-300:])
+from PIL import Image  # noqa: E402
+with Image.open(figp) as im:
+    check('裁剪后的图比整页小', im.width <= 960 and im.height < im.width, im.size)
+ch1.write_text(cb.replace('status: "待审计"', 'status: "已确认-资料"'), encoding='utf-8')
+api.call('book_clip', {'doc': bdoc})
+check('再次剪藏书籍保留 status', 'status: "已确认-资料"' in ch1.read_text(encoding='utf-8'))
+(BOOKS / '_关键帧缓存').mkdir()
+shutil.copy(pdfp, BOOKS / '_关键帧缓存' / '视觉资料.pdf')
+lb = api.call('library_add_folder', {'path': str(BOOKS)})
+names = [i['name'] for i in lb['groups'][-1]['items']]
+check('媒体库列出 PDF 和 Word、不列「_」开头的辅助文件夹', '《测试书籍》测试作者' in names and '讲义' in names and '视觉资料' not in names and '文章' not in names, names)
+bi = next(i for i in lb['groups'][-1]['items'] if i['name'] == '《测试书籍》测试作者')
+check('媒体库显示整理进度', bi.get('book') == {'done': 1, 'total': 2}, bi)
+api.call('library_remove', {'kind': 'folder', 'path': str(BOOKS)})
+
 # 媒体库
 lib = api.call('library_add_folder', {'path': str(MEDIA)})
 check('添加文件夹', lib['added'] == 2 and len(lib['groups'][0]['items']) == 2, lib)
@@ -353,7 +450,7 @@ check('导入设置', imp['imported'] and s_['providers']['deepseek']['key'] == 
 api.call('import_settings', {'path': str(TMP / 'exp2.json')})
 check('导入不带密钥的文件时保留已有密钥', config.load()['providers']['deepseek']['key'] == 'sk-export-test-123456')
 (TMP / 'bad.json').write_text('{"a": 1}', encoding='utf-8')
-check('拒绝不是猛人字幕的文件', '不是猛人字幕导出的设置文件' in api.call('import_settings', {'path': str(TMP / 'bad.json')})['error'])
+check('拒绝不是猛人学习的文件', '不是猛人学习（猛人字幕）导出的设置文件' in api.call('import_settings', {'path': str(TMP / 'bad.json')})['error'])
 
 # 缓存和日志位置
 check('缓存和日志在指定位置，文件夹名写着可随时删除', config.CACHE_DIR == TMP / 'store' / '缓存（可随时删除）' and config.LOG_DIR.name == '日志（可随时删除）')
