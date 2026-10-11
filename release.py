@@ -3,8 +3,7 @@
     .venv\\Scripts\\python release.py --src dist-next      # 用 dist-next 里刚打包好的
     .venv\\Scripts\\python release.py --personal 设置.json --out 桌面\\xx.zip   # 再打一个带个人设置的包（含密钥，别上传）
 
-- mengren-learning-版本-windows.zip：只有软件（需要自己装 ffmpeg）；
-- mengren-learning-版本-windows-with-ffmpeg.zip：附带 ffmpeg，解压就能用；
+- mengren-learning-版本-windows-with-ffmpeg.zip：附带 ffmpeg，解压就能用（发布只用这一个包）；
 - 个人包：附带 ffmpeg 和导出的设置（软件第一次启动时自动导入）。
 软件文件夹里的「缓存」「日志」不打进去。"""
 import argparse
@@ -112,7 +111,7 @@ def main():
     rel = ROOT / 'release'
     for old in rel.glob('mengren-learning-*.zip'):
         old.unlink()
-    make_zip(src, rel / f'mengren-learning-{ver}-windows.zip', ver)
+    # 用户 2026-10 要求：发布包一律附带 ffmpeg，别人下载解压就能用（不再单独发不带 ffmpeg 的包）
     make_zip(src, rel / f'mengren-learning-{ver}-windows-with-ffmpeg.zip', ver, with_ffmpeg=True)
 
 

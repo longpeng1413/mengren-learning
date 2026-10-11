@@ -131,7 +131,7 @@ python -m venv .venv
 
 ### 发布压缩包
 
-`.venv\Scripts\python release.py --src dist-next` 在 `release\` 里打两个包：`mengren-learning-版本-windows.zip`（只有软件）和 `…-with-ffmpeg.zip`（附带本机 winget 装的 ffmpeg.exe、ffprobe.exe 和它的 LICENSE / README，GPL 要求一起分发；软件会先找自己文件夹里 `ffmpeg\` 下的 ffmpeg）。两个都上传到 GitHub Release，with-ffmpeg 的是推荐下载。打包时不要带软件文件夹里的缓存和日志（会有好几 GB），也**不要带任何个人设置**：用户会直接把包发给朋友。
+`.venv\Scripts\python release.py --src dist-next` 在 `release\` 里打 `mengren-learning-版本-windows-with-ffmpeg.zip`（附带本机 winget 装的 ffmpeg.exe、ffprobe.exe 和它的 LICENSE / README，GPL 要求一起分发；软件会先找自己文件夹里 `ffmpeg\` 下的 ffmpeg）。**用户 2026-10 要求：GitHub Release 一律只发这个附带 ffmpeg 的包**，别人下载解压就能用；不再发不带 ffmpeg 的包，也不用往桌面放压缩包。打包时不要带软件文件夹里的缓存和日志（会有好几 GB），也**不要带任何个人设置**：用户会直接把包发给朋友。
 
 `app/core/portable.py`：软件文件夹里有 `猛人学习设置.json`、而这台电脑还没有设置时，第一次启动自动导入，导入后改名「…（已导入，可删除）」。
 
