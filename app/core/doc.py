@@ -335,22 +335,166 @@ def _old_status(path: Path):
     return m.group(1).strip() if m and m.group(1).strip() else None
 
 
-def note_fingerprint(text: str) -> str:
-    """笔记文件的指纹，用来判断剪藏后有没有在 Obsidian 里改过。属性里的 status 是用户自己改的，重新剪藏会保留，不算。"""
+# ---- 重新剪藏时保留用户在 Obsidian 里加的内容 ----
+# 软件只负责：属性里自己的那些字段、标题和说明行、「## 课程重点」「## 完整字幕」两节。
+# 用户自己加的 ## 小节、属性、tags，以及写在这几块里的标注（> [!…]）都保留；标注跟着它上面那一行走。
+APP_KEYS = {'标题', '老师', '系列', '视频日期', '视频文件', '时长', '语言', '字幕识别', '术语表', 'AI校对', '人工校对', '状态', '字幕句数', '剪藏时间',
+            # 1.7.4 以前的英文属性名
+            'title', 'teacher', 'series', 'lesson_date', 'source', 'duration', 'language', 'asr', 'glossary', 'corrected', 'reviewed',
+            'status', 'segments', 'clipped'}
+MANAGED = ('', '课程重点', '完整字幕')  # '' 是第一个 ## 之前的部分（标题和说明行）
+LEGACY = ('画面记录',)  # 以前的版本写过、现在不写的小节：重新剪藏时去掉
+
+
+def _split_front(text):
     text = (text or '').replace('\r\n', '\n')
-    head, sep, body = text.partition('\n---\n') if text.startswith('---\n') else ('', '', text)
-    head = re.sub(r'(?m)^(?:状态|status):.*$', '', head)
-    return hashlib.sha1((head + sep + body).encode('utf-8')).hexdigest()[:16]
+    if text.startswith('---\n'):
+        end = text.find('\n---\n', 4)
+        if end > 0:
+            return text[4:end], text[end + 5:]
+        if text.endswith('\n---'):
+            return text[4:-4], ''
+    return '', text
+
+
+def _fm_blocks(fm):
+    """属性 → [[名字, [行…]]]，一个属性可以跨几行（列表）。"""
+    blocks = []
+    for line in fm.split('\n'):
+        m = re.match(r'^([^\s#-][^:]*):', line)
+        if m:
+            blocks.append([m.group(1).strip(), [line]])
+        elif blocks:
+            blocks[-1][1].append(line)
+    return blocks
+
+
+def _tag_list(lines):
+    first = lines[0].split(':', 1)[1].strip()
+    tags = [t.strip().strip('"\'') for t in first.strip('[]').split(',')] if first else []
+    tags += [ln.strip()[2:].strip().strip('"\'') for ln in lines[1:] if ln.strip().startswith('- ')]
+    return [t for t in tags if t]
+
+
+def _sections(body):
+    parts, cur = [], ['', []]
+    for line in body.split('\n'):
+        m = re.match(r'^##\s+(.+?)\s*$', line)
+        if m:
+            parts.append(cur)
+            cur = [m.group(1), [line]]
+        else:
+            cur[1].append(line)
+    parts.append(cur)
+    return parts
+
+
+def _is_callout(line):
+    return line.lstrip().startswith('> [!')
+
+
+def _callouts(lines):
+    """取出标注块：[(它上面那一行, [标注的几行])]，以及去掉标注后剩下的行。"""
+    found, rest, anchor, i = [], [], None, 0
+    while i < len(lines):
+        if _is_callout(lines[i]):
+            blk = [lines[i]]
+            i += 1
+            while i < len(lines) and lines[i].lstrip().startswith('>') and not _is_callout(lines[i]):
+                blk.append(lines[i])
+                i += 1
+            found.append((anchor, blk))
+            continue
+        if lines[i].strip():
+            anchor = lines[i].strip()
+        rest.append(lines[i])
+        i += 1
+    return found, rest
+
+
+def _put_callouts(lines, found):
+    """把标注放回它上面那一行的后面；那一行没了就放到这一节最后。返回 (新的行, 找不到原位置的个数)。"""
+    out, lost = list(lines), []
+    for anchor, blk in found:
+        k = next((n for n, ln in enumerate(out) if anchor is not None and ln.strip() == anchor and not ln.lstrip().startswith('>')), None)
+        if k is None:
+            lost.append(blk)
+            continue
+        j = k + 1
+        while j < len(out) and _is_callout(out[j]):
+            j += 1
+            while j < len(out) and out[j].lstrip().startswith('>') and not _is_callout(out[j]):
+                j += 1
+        piece = ([''] if out[j - 1].strip() else []) + blk + ([''] if j < len(out) and out[j].strip() else [])
+        out[j:j] = piece
+    if lost:
+        while out and not out[-1].strip():
+            out.pop()
+        for blk in lost:
+            out += [''] + blk
+        out.append('')
+    return out, len(lost)
+
+
+def merge_note(old_text, new_text):
+    """新生成的笔记 + 用户在 Obsidian 里加的内容。返回 (合并后的文字, 找不到原位置、挪到小节末尾的标注个数)。"""
+    old_fm, old_body = _split_front(old_text)
+    new_fm, new_body = _split_front(new_text)
+    old_blocks = _fm_blocks(old_fm)
+    old_keys = {k: v for k, v in old_blocks}
+    old_teacher = next((v[0].split(':', 1)[1].strip().strip('"') for k, v in old_blocks if k in ('老师', 'teacher')), '')
+    fm_lines, new_names = [], set()
+    for key, lines in _fm_blocks(new_fm):
+        new_names.add(key)
+        if key == 'tags' and 'tags' in old_keys:  # tags 取并集：软件的在前，用户加的在后
+            tags = _tag_list(lines)
+            stale = safe_name(old_teacher).replace(' ', '_') if old_teacher else None  # 以前按老师名字加的标签
+            tags += [t for t in _tag_list(old_keys['tags']) if t not in tags and t != stale]
+            lines = ['tags:'] + [f'  - {t}' for t in tags]
+        fm_lines += lines
+    for key, lines in old_blocks:
+        if key not in APP_KEYS and key not in new_names:
+            fm_lines += lines
+    new_parts = {name: lines for name, lines in _sections(new_body)}
+    out, used, moved = [], set(), 0
+    for name, lines in _sections(old_body):
+        if name in LEGACY:
+            continue
+        if name in new_parts and name in MANAGED:
+            found, _ = _callouts(lines)
+            merged, n = _put_callouts(new_parts[name], found)
+            out += merged
+            moved += n
+            used.add(name)
+        elif name not in MANAGED:
+            out += lines  # 用户自己的小节，原样保留
+    for name, lines in _sections(new_body):
+        if name not in used:
+            out += lines
+    text = '---\n' + '\n'.join(fm_lines) + '\n---\n' + '\n'.join(out)
+    return re.sub(r'\n{3,}', '\n\n', text).rstrip() + '\n', moved
+
+
+def note_fingerprint(text: str) -> str:
+    """笔记里软件负责的那部分的指纹，用来判断剪藏后有没有在 Obsidian 里改过它。
+    不算：属性里的状态和剪藏时间、用户自己加的属性和小节、标注（这些重新剪藏时都会保留）。"""
+    fm, body = _split_front(text)
+    keys = [[k, [ln.rstrip() for ln in v]] for k, v in _fm_blocks(fm) if k in APP_KEYS and k not in ('状态', 'status', '剪藏时间', 'clipped')]
+    parts = []
+    for name, lines in _sections(body):
+        if name in MANAGED:
+            parts.append([name, [ln.rstrip() for ln in _callouts(lines)[1] if ln.strip()]])  # 空行多少不算改动
+    return 'v2:' + hashlib.sha1(json.dumps([keys, parts], ensure_ascii=False).encode('utf-8')).hexdigest()[:16]
 
 
 def note_changed(path: Path, clip) -> bool:
     """上次剪藏后，笔记在 Obsidian 里被改过。
-    有指纹（1.7.3 起）就比指纹；以前剪藏的没有指纹，看文件修改时间是不是比剪藏时间晚。"""
+    有指纹（1.7.5 起）就比软件负责那部分的指纹；以前剪藏的没有，看文件修改时间是不是比剪藏时间晚。"""
     clip = clip if isinstance(clip, dict) else {}
     try:
         if not path.is_file():
             return False
-        if clip.get('file_hash'):
+        if str(clip.get('file_hash') or '').startswith('v2:'):
             return note_fingerprint(path.read_text(encoding='utf-8', errors='replace')) != clip['file_hash']
         t = time.mktime(time.strptime(str(clip.get('time') or ''), '%Y-%m-%d %H:%M:%S'))
     except (OSError, ValueError, OverflowError):
@@ -456,11 +600,13 @@ def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolde
     status = (_old_status(path) if path.exists() else None) or '待审计'
     path.parent.mkdir(parents=True, exist_ok=True)
     out = dict(doc, summary=place_figures(doc.get('summary') or '', doc.get('frames'), path.parent, doc.get('title') or '字幕', shot))
-    text = to_markdown(out, teacher, series, status, boundary)
+    text, moved = to_markdown(out, teacher, series, status, boundary), 0
+    if path.exists():  # 更新原来的笔记：保留用户在 Obsidian 里加的小节、标注和属性
+        text, moved = merge_note(path.read_text(encoding='utf-8', errors='replace'), text)
     path.write_text(text, encoding='utf-8')
     vault_name = Path(vault).name
     rel = path.relative_to(Path(vault)).as_posix()
     from urllib.parse import quote
     return {'path': str(path), 'uri': f'obsidian://open?vault={quote(vault_name)}&file={quote(rel)}',
             'time': time.strftime('%Y-%m-%d %H:%M:%S'), 'hash': note_hash(doc), 'file_hash': note_fingerprint(text),
-            'backup': str(backup) if backup else ''}
+            'backup': str(backup) if backup else '', 'moved': moved}

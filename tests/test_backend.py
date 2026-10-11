@@ -327,6 +327,33 @@ old_clip = dict(cl, clip={'path': g3['path'], 'time': time.strftime('%Y-%m-%d %H
 check('以前剪藏的（没有文件指纹）：文件比剪藏时间新就先问', api.call('clip', {'doc': old_clip}).get('conflict'))
 os.utime(note, (time.time() - 600, time.time() - 600))
 check('以前剪藏的：文件没比剪藏时间新就直接更新', not api.call('clip', {'doc': old_clip}).get('conflict'))
+
+# 重新剪藏只更新软件负责的部分，保留用户在 Obsidian 里加的小节、标注、属性
+m0 = api.call('clip', {'doc': cl, 'force': True})
+nt = Path(m0['path'])
+st = {'path': m0['path'], 'time': m0['time'], 'hash': m0['hash'], 'file_hash': m0['file_hash']}
+tx = nt.read_text(encoding='utf-8')
+check('剪藏的课程重点里有这两条要点', '- 要点 [00:05]\n' in tx and '- 再一个 [00:20]' in tx, tx[:900])
+tx = tx.replace('- 要点 [00:05]\n', '- 要点 [00:05]\n\n> [!note] 我的理解\n> 先看要点\n\n', 1)
+tx = tx.replace('- 再一个 [00:20]', '- 再一个 [00:20]\n> [!tip] 这一条后来会被删掉', 1)
+tx = tx.replace('## 完整字幕', '## 我的笔记\n\n链接到 [[峰级线]]\n\n## 完整字幕', 1)
+tx = tx.replace('\ntags:\n', '\n相关课程: "[[第3课]]"\ntags:\n', 1).replace('  - 猛人学习\n', '  - 猛人学习\n  - 我的标签\n', 1)
+tx = tx.rstrip() + '\n\n## 画面记录\n\n以前版本写的画面记录\n'
+nt.write_text(tx, encoding='utf-8')
+cl4 = dict(cl, clip=st, summary='## 一、开头\n- 要点 [00:05]\n- 新的一条 [00:10]')
+m1 = api.call('clip', {'doc': cl4})
+t1 = nt.read_text(encoding='utf-8')
+check('只加了自己的小节、标注、属性：重新剪藏不弹窗', not m1.get('conflict'), m1)
+check('重新剪藏：课程重点更新了', '- 新的一条 [00:10]' in t1 and '- 再一个 [00:20]' not in t1, t1[:1200])
+check('重新剪藏：写在要点下面的标注跟着那条要点', t1.index('- 要点 [00:05]') < t1.index('> [!note] 我的理解') < t1.index('- 新的一条 [00:10]') and '> 先看要点' in t1, t1[:1200])
+check('重新剪藏：原来那条要点没了，标注挪到这一节最后，不丢', '> [!tip] 这一条后来会被删掉' in t1 and t1.index('> [!tip]') < t1.index('## 我的笔记') and m1['moved'] == 1, t1[:1500])
+check('重新剪藏：自己加的小节原样保留在原来的位置', '## 我的笔记\n\n链接到 [[峰级线]]' in t1 and t1.index('## 课程重点') < t1.index('## 我的笔记') < t1.index('## 完整字幕'))
+check('重新剪藏：自己加的属性和标签保留', '相关课程: "[[第3课]]"' in t1 and '  - 我的标签' in t1 and t1.count('  - 猛人学习') == 1)
+check('重新剪藏：以前版本写的画面记录去掉', '## 画面记录' not in t1)
+st2 = {'path': m1['path'], 'time': m1['time'], 'hash': m1['hash'], 'file_hash': m1['file_hash']}
+nt.write_text(t1.replace('- 新的一条 [00:10]', '- 新的一条（我在 Obsidian 里改的）[00:10]'), encoding='utf-8')
+check('在 Obsidian 里直接改了课程重点的文字：先问再覆盖', api.call('clip', {'doc': dict(cl4, clip=st2)}).get('conflict'))
+check('课程重点模板：不让 AI 用标注框（留给用户写理解）', '不要用「> [!…]」这种标注框' in llm.DEFAULT_TEMPLATE)
 check('插图非必要不用：最多 3 张，纯文字课件不插', '最多 3 张' in llm.DEFAULT_TEMPLATE and '纯文字课件' in frames.DESCRIBE_PROMPT
       and '纯文字的课件页' in frames.SCREEN_PROMPT and '不要照抄课件上的文字' in frames.DESCRIBE_PROMPT)
 
