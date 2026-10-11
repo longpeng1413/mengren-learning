@@ -234,17 +234,14 @@ def to_markdown(doc, teacher=None, series='', status='待审计', boundary=''):
     """蒸馏用的笔记：上半部分课程重点（含必要的插图），下半部分完整带时间戳的字幕（审核校验用的原始数据）。
     画面记录不写进笔记（用户 2026-10 要求：笔记只要课程重点和完整字幕）。"""
     media = doc.get('media', '')
-    uri = Path(media).as_uri() if media else ''
     tname = (teacher or {}).get('display') or (teacher or {}).get('name', '')
     segs = doc.get('segments', [])
     lines = [
         '---',
         # 属性名用中文，只留有用的（用户 2026-10 要求）。tags 是 Obsidian 固定的属性名，不能改；
         # 视频文件不能去掉：重新剪藏时靠它找回被挪走、改名的笔记（find_note）
-        f'老师: {_yaml(tname)}',
-        f'系列: {_yaml(series)}',
         f'视频文件: {_yaml(media)}',
-        # 用户明确不要：语言、时长（一眼就知道）、视频日期（是文件修改时间，会误导）、识别服务、句数等技术信息
+        # 用户明确不要：老师、系列（写在正文标题下面那一行，占地方少）、语言、时长、视频日期（是文件修改时间，会误导）、识别服务、句数等
         f'人工校对: {"true" if doc.get("reviewed") else "false"}',
         f'状态: {_yaml(status)}',
         f'剪藏时间: {time.strftime("%Y-%m-%d %H:%M")}',
@@ -257,9 +254,7 @@ def to_markdown(doc, teacher=None, series='', status='待审计', boundary=''):
     meta = [f'老师：{tname}'] if tname else []
     if series:
         meta.append(f'系列：{series}')
-    meta.append(f'时长：{fmt(doc.get("duration") or 0)}')
-    if uri:
-        meta.append(f'视频：[{Path(media).name}]({uri.replace(" ", "%20")})')
+    meta.append(f'时长：{fmt(doc.get("duration") or 0)}')  # 视频链接不写（属性里有视频文件）
     lines += ['> ' + ' ｜ '.join(meta), '']
     lines += ['## 课程重点', '', _shift_headings(doc.get('summary')) or '（还没有生成课程重点）', '']
     if boundary and '整理者注' not in (doc.get('summary') or ''):  # 课程重点里已经写了就不重复
@@ -420,6 +415,9 @@ def merge_note(old_text, new_text):
     old_blocks = _fm_blocks(old_fm)
     old_keys = {k: v for k, v in old_blocks}
     old_teacher = next((v[0].split(':', 1)[1].strip().strip('"') for k, v in old_blocks if k in ('老师', 'teacher')), '')
+    if not old_teacher:  # 1.7.7 起老师只写在标题下面那一行
+        m = re.search(r'(?m)^> 老师：(.+?)(?: ｜|$)', old_body)
+        old_teacher = m.group(1).strip() if m else ''
     fm_lines, new_names = [], set()
     for key, lines in _fm_blocks(new_fm):
         new_names.add(key)

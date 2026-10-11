@@ -108,9 +108,9 @@ check('剪藏生成笔记', c['ok'] and note.exists() and note.parent == vault /
 body = note.read_text(encoding='utf-8')
 check('笔记：上半部分课程重点，下半部分完整字幕', body.index('## 课程重点') < body.index('## 完整字幕') and '[00:00] Edited line' in body and '人工校对: false' in body)
 fm_keys = [ln.split(':', 1)[0] for ln in body.split('\n---\n', 1)[0].split('\n')[1:] if ln and not ln.startswith(' ')]
-check('笔记属性只留有用的几个（英文课也一样）', fm_keys == ['老师', '系列', '视频文件', '人工校对', '状态', '剪藏时间', 'tags'], fm_keys)
-check('不写语言、时长、视频日期、字幕识别、字幕句数这些', all(f'\n{k}:' not in body for k in ('语言', '时长', '视频日期', '字幕识别', '字幕句数', 'AI校对', '标题', '术语表')), body[:400])
-check('笔记属性用中文（tags 是 Obsidian 固定的，不改）', all(k in body for k in ('老师: ', '视频文件: ', '状态: ', '剪藏时间: '))
+check('笔记属性只留有用的几个（英文课也一样）', fm_keys == ['视频文件', '人工校对', '状态', '剪藏时间', 'tags'], fm_keys)
+check('不写语言、时长、视频日期、字幕识别、字幕句数这些', all(f'\n{k}:' not in body for k in ('老师', '系列', '语言', '时长', '视频日期', '字幕识别', '字幕句数', 'AI校对', '标题', '术语表')), body[:400])
+check('笔记属性用中文（tags 是 Obsidian 固定的，不改）', all(k in body for k in ('视频文件: ', '状态: ', '剪藏时间: ')) and '视频：[' not in body
       and 'status:' not in body and 'source:' not in body and '\ntags:\n' in body, body[:700])
 check('obsidian 链接', c['uri'].startswith('obsidian://open?vault='))
 again['clip'] = {'path': c['path']}
@@ -166,7 +166,7 @@ again['teacher'] = t['id']
 again['clip'] = None
 c3 = api.call('clip', {'doc': again})
 check('没有剪藏记录时，按视频路径找到已有笔记并更新', c3['path'] == c['path'], c3)
-check('笔记属性里有老师', '老师: "大聪老师"' in Path(c3['path']).read_text(encoding='utf-8'))
+check('标题下面一行写老师、系列、时长，不写视频链接', '> 老师：大聪老师 ｜ ' in Path(c3['path']).read_text(encoding='utf-8') and '时长：' in Path(c3['path']).read_text(encoding='utf-8'))
 shutil.rmtree(vault / '学习')
 c3b = api.call('clip', {'doc': again})
 check('按老师分子文件夹', Path(c3b['path']).parent.name == '大聪老师', c3b)
@@ -251,7 +251,7 @@ api.call('settings', {'settings': {'obsidian': {'vault': str(vault), 'folder': '
 c4 = api.call('clip', {'doc': d14})
 n4 = Path(c4['path'])
 b4_ = n4.read_text(encoding='utf-8')
-check('笔记文件名格式、老师称呼', n4.name == '演示视频（猛人字幕）.md' and n4.parent.name == '王老师' and '老师: "王老师"' in b4_, c4)
+check('笔记文件名格式、老师称呼', n4.name == '演示视频（猛人字幕）.md' and n4.parent.name == '王老师' and '> 老师：王老师' in b4_, c4)
 check('笔记：标题层级、状态、存疑句', '\n### 一、开头' in b4_ and '# 课程重点：演示' not in b4_ and '状态: "待审计"' in b4_ and '〔存疑：疑似识别错误〕' in b4_, b4_[:600])
 moved = vault / '别处' / '改了名.md'
 moved.parent.mkdir()
@@ -355,6 +355,10 @@ check('重新剪藏：以前版本写的画面记录去掉', '## 画面记录' n
 st2 = {'path': m1['path'], 'time': m1['time'], 'hash': m1['hash'], 'file_hash': m1['file_hash']}
 nt.write_text(t1.replace('- 新的一条 [00:10]', '- 新的一条（我在 Obsidian 里改的）[00:10]'), encoding='utf-8')
 check('在 Obsidian 里直接改了课程重点的文字：先问再覆盖', api.call('clip', {'doc': dict(cl4, clip=st2)}).get('conflict'))
+old_n = '---\n视频文件: "x.mp4"\ntags:\n  - 猛人学习\n  - 旧老师\n  - 我的标签\n---\n\n# 课\n\n> 老师：旧老师 ｜ 时长：01:00\n\n## 课程重点\n\n- 甲\n'
+new_n = '---\n视频文件: "x.mp4"\ntags:\n  - 猛人学习\n  - 新老师\n---\n\n# 课\n\n> 老师：新老师 ｜ 时长：01:00\n\n## 课程重点\n\n- 甲\n'
+mt = docs.merge_note(old_n, new_n)[0]
+check('老师改名后重新剪藏：旧老师的标签去掉，自己加的标签保留', '  - 新老师' in mt and '  - 旧老师' not in mt and '  - 我的标签' in mt, mt[:200])
 check('课程重点模板：不让 AI 用标注框（留给用户写理解）', '不要用「> [!…]」这种标注框' in llm.DEFAULT_TEMPLATE)
 check('插图非必要不用：最多 3 张，纯文字课件不插', '最多 3 张' in llm.DEFAULT_TEMPLATE and '纯文字课件' in frames.DESCRIBE_PROMPT
       and '纯文字的课件页' in frames.SCREEN_PROMPT and '不要照抄课件上的文字' in frames.DESCRIBE_PROMPT)
