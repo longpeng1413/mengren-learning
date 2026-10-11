@@ -157,7 +157,7 @@ python -m venv .venv
 
 ## 没有进仓库的东西（只在用户电脑的 `E:\Claude-猛人字幕` 里）
 
-- `design/`：图标设计稿、原图、字体、其他配色方案。正式图标是「帝王紫」，在 `app/assets/` 和 `app/web/icon.png`。
+- `design/`：图标设计稿、原图、字体、其他配色方案。正式图标是「紫晶」（1.7.12 起，`design/recolor_full.py` 的 full-4：字、龙纹、边框、背景整体换成紫色，和金色的猛人截图教鞭、红宝石色的猛人快传区分开），在 `app/assets/` 和 `app/web/icon.png`。之前的「帝王紫」只换了背景、字还是金色，和另外两个软件放在一起分不清。
 - `.venv/`、`dist/`、`dist-next/`、`build/`、`release/`。
 
 ## 还没在真实使用中验证的
