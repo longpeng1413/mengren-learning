@@ -221,7 +221,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('点「保存设置」时把改名一起保存，顶栏下拉框跟着变', teacherById(tEdit.id).name === tOld + '改名'
        && [...document.querySelectorAll('#teacherSelect option')].some(o => o.textContent.includes(tOld + '改名')) && !teacherFormDirty());
     document.querySelector('#tName').value = tOld; await saveTeacher();
-    ok('设置：可以关联术语表文件、填笔记里的称呼', document.querySelector('#tFile').textContent === '没有关联' && !!document.querySelector('#tFilePick') && !!document.querySelector('#tDisplay'));
+    ok('设置：可以关联术语表文件；没有「笔记里的称呼」（笔记不写老师）', document.querySelector('#tFile').textContent === '没有关联' && !!document.querySelector('#tFilePick') && !document.querySelector('#tDisplay'));
     showSection('doubao');
     ok('设置：对象存储写清楚存储桶名称和 AK 从哪里来', document.querySelector('section[data-sec="doubao"] .tos').textContent.includes('小写英文字母') && document.querySelector('[data-k="providers.doubao.tos_ak"]').placeholder === 'AKLT…');
     showSection('obsidian');

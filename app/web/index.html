@@ -414,7 +414,7 @@
             </ul></li>
           <li><b>逐课积累</b>：AI 区「课程重点」页的「新术语」按钮（一键整理的最后一步也会做）：AI 从这节课的校对改动（AI 改的、看画面改的、你手动改的）和完整字幕里，找出术语表还没有的新术语和识别错误，弹出来让你勾选、改字、点时间回听；确认的才加进去。关联了文件时写在文件末尾的「逐课补充（猛人学习）」一节（表格，软件下次就会用上），写之前自动备份到 <code>%APPDATA%\猛人学习\backups\术语表</code>；只记名称，不写定义。</li>
           <li><b>术语说明</b>：放整份术语说明文档，只给 AI 参考，不传给识别服务。关联了文件时一般留空。</li>
-          <li><b>笔记里的称呼</b>：剪藏笔记里写的老师名字，比如档案叫「王老师（交易课）」，笔记里想写「王老师」。</li>
+          <li>剪藏笔记里<b>不写老师</b>：一份术语表常常是几位老师共用的（例如「峰级分析」），它的名字只当笔记的标签。讲课老师请在 Obsidian 里给笔记加一个「老师」属性自己填，重新剪藏会保留。</li>
           <li><b>剪藏子文件夹</b>、<b>单独的课程重点模板</b>：可选。</li>
         </ul>
       </section>
@@ -487,9 +487,9 @@
       <section data-h="clip" hidden>
         <h3>剪藏到 Obsidian</h3>
         <ul>
-          <li>点顶栏「剪藏」。笔记结构：属性（视频文件、人工校对、状态、剪藏时间、tags。tags 是 Obsidian 固定的，保持英文）→ 标题下面一行写老师、系列、时长→ 课程重点（含必要的插图）→ 来源情况 → 完整带时间戳的字幕（存疑句会标出）。不附画面记录，笔记只有课程重点和完整字幕。</li>
+          <li>点顶栏「剪藏」。笔记结构：属性（视频文件、人工校对、剪藏时间、tags。tags 是 Obsidian 固定的，保持英文）→ 标题（下面不写老师、系列、时长；老师和归类请在 Obsidian 里自己处理，自己加的属性重新剪藏会保留）→ 课程重点（含必要的插图）→ 来源情况 → 完整带时间戳的字幕（存疑句会标出）。不附画面记录，笔记只有课程重点和完整字幕。</li>
           <li>存放位置：「设置 → Obsidian」里的文件夹，按老师分子文件夹；文件名格式可以设置（比如 <code>{title}（猛人学习）</code>）。插图放在笔记旁边的 <code>image</code> 文件夹。</li>
-          <li>同一节课再剪藏会更新原来那篇笔记——你在 Obsidian 里移动或改名了也能找到；笔记属性里的「状态」（比如你改成的「已确认-资料」）会保留。新笔记的状态是「待审计」。</li>
+          <li>同一节课再剪藏会更新原来那篇笔记——你在 Obsidian 里移动或改名了也能找到；软件不写「状态」（以前给交叉审核用的，已经不需要）；你自己在 Obsidian 里加的属性（比如状态、老师）重新剪藏都会保留。</li>
           <li><b>在 Obsidian 里加自己的内容，重新剪藏不会丢</b>：重新剪藏只更新软件负责的部分（属性里软件写的那些、「## 课程重点」「## 完整字幕」两节），下面这些原样保留：
             <ul>
               <li>自己加的小节：新起一行写 <code>## 我的笔记</code>（名字随意，只要不叫「课程重点」「完整字幕」），放在哪里都行；</li>
@@ -630,7 +630,6 @@
               <div class="field"><div class="label">名称（老师或课程体系）</div><input id="tName" placeholder="例如：大聪老师；几位老师共用一套术语时可以写：峰级"></div>
               <div class="field"><div class="label">课程通常是</div><select id="tLang"><option value="zh">中文</option><option value="en">英文</option></select></div>
             </div>
-            <div class="field"><div class="label">笔记里的称呼（可选）</div><input id="tDisplay" placeholder="剪藏笔记里写的老师名字，默认用上面的名字，例如：王老师"></div>
             <div class="field"><div class="label">关联 Obsidian 里的术语表文件（推荐）</div>
               <div class="file-link"><code class="path" id="tFile">没有关联</code><button class="btn small" id="tFilePick">选择文件…</button><button class="btn small" id="tFileClear">取消关联</button></div>
               <div class="hint" id="tFileHint">关联后，软件每次都读这个文件的最新内容：小节里的「正确写法 / 标准写法」和热词当术语，「ASR 常见错误」表当识别错误参考，整份文件给 AI 当术语说明。以后只在 Obsidian 里改术语表就行。</div></div>
@@ -684,7 +683,7 @@
         <div class="field"><div class="label">书籍整理规范文件（可选，推荐关联知识库里的正式规范）</div>
           <div class="key-row"><input data-k="book_rules_file" placeholder="例如：D:\知识库\规则\书籍整理规范.md"><button class="btn small" id="pickBookRules">选择…</button></div>
           <div class="hint">关联后，整理书籍时把整份规范交给 AI，以它为准；规范升级后不用改软件。没关联时用软件内置的要求（按 V1.1 的固定栏目、页码锚点、疑点三分法）。</div></div>
-        <p class="hint">文件夹不存在会自动创建。同一个视频再次剪藏，会更新原来那篇笔记；你在 Obsidian 里移动或改名了也能找到（按笔记属性里的视频路径找），笔记属性里的「状态」也会保留。笔记结构：属性（老师、系列、时长、是否校对、状态）→ 课程重点 → 来源情况 → 完整带时间戳的字幕（存疑句会标出来）。</p>
+        <p class="hint">文件夹不存在会自动创建。同一个视频再次剪藏，会更新原来那篇笔记；你在 Obsidian 里移动或改名了也能找到（按笔记属性里的视频路径找），你自己加的属性也会保留。笔记结构：属性（老师、系列、时长、是否校对、状态）→ 课程重点 → 来源情况 → 完整带时间戳的字幕（存疑句会标出来）。</p>
       </section>
 
       <section data-sec="asr" hidden>

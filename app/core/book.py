@@ -805,6 +805,11 @@ def _yaml(v):
     return '"' + str(v or '').replace('\\', '/').replace('"', "'") + '"'
 
 
+def _status_line(status):
+    """1.7.8 起不写状态（以前给交叉审核用的「待审计」）；用户改过的状态保留。"""
+    return [f'状态: {_yaml(status)}'] if status and status != '待审计' else []
+
+
 def _old_status(p: Path):
     try:
         head = p.read_text(encoding='utf-8', errors='replace')[:3000]
@@ -854,9 +859,9 @@ def clip_book(doc, info, vault, folder, dir_pattern='《{title}》{author}'):
             continue
         path = base / (fname + '.md')
         rng = range_ref(c['start'], c['end'], shift)
-        status = _old_status(path) or '待审计'
+        status = _old_status(path)
         body = place_figures(c['md'], doc['media'], info, base)
-        lines = ['---', f'标题: {_yaml(c["title"])}', '类型: 书籍章节整理', f'状态: {_yaml(status)}', f'书名: {_yaml(title)}',
+        lines = ['---', f'标题: {_yaml(c["title"])}', '类型: 书籍章节整理'] + _status_line(status) + [f'书名: {_yaml(title)}',
                  f'作者: {_yaml(author)}', f'章节: {_yaml(c["title"])}', f'页码范围: {_yaml(rng)}',
                  f'来源类型: {_yaml(src_type)}', f'来源文件: {_yaml(doc["media"])}', f'整理时间: {time.strftime("%Y-%m-%d %H:%M")}',
                  'tags:', '  - 外部原始资料', '  - 书籍', '  - 猛人学习', f'  - {safe_name(title).replace(" ", "_")}', '---', '',
@@ -868,9 +873,9 @@ def clip_book(doc, info, vault, folder, dir_pattern='《{title}》{author}'):
         written.append(str(path))
     if (doc.get('overview') or '').strip():
         path = base / '00、全书总览.md'
-        status = _old_status(path) or '待审计'
+        status = _old_status(path)
         done = [c['title'] for c in chapters if (c.get('md') or '').strip()]
-        lines = ['---', f'标题: {_yaml(title + " 全书总览")}', '类型: 书籍总览', f'状态: {_yaml(status)}', f'书名: {_yaml(title)}',
+        lines = ['---', f'标题: {_yaml(title + " 全书总览")}', '类型: 书籍总览'] + _status_line(status) + [f'书名: {_yaml(title)}',
                  f'作者: {_yaml(author)}', f'来源类型: {_yaml(src_type)}', f'来源文件: {_yaml(doc["media"])}',
                  f'已整理范围: {_yaml("、".join(done) if len(done) < len(chapters) else "全书")}',
                  'tags:', '  - 外部原始资料', '  - 书籍', '  - 猛人学习', f'  - {safe_name(title).replace(" ", "_")}', '---', '',

@@ -1,7 +1,6 @@
 """后台自测（不联网、不需要 API Key）。运行：.venv\\Scripts\\python tests\\test_backend.py
 会把设置和缓存放到临时目录，不影响真实数据。"""
 import json
-import re
 import os
 import shutil
 import subprocess
@@ -108,9 +107,9 @@ check('剪藏生成笔记', c['ok'] and note.exists() and note.parent == vault /
 body = note.read_text(encoding='utf-8')
 check('笔记：上半部分课程重点，下半部分完整字幕', body.index('## 课程重点') < body.index('## 完整字幕') and '[00:00] Edited line' in body and '人工校对: false' in body)
 fm_keys = [ln.split(':', 1)[0] for ln in body.split('\n---\n', 1)[0].split('\n')[1:] if ln and not ln.startswith(' ')]
-check('笔记属性只留有用的几个（英文课也一样）', fm_keys == ['视频文件', '人工校对', '状态', '剪藏时间', 'tags'], fm_keys)
+check('笔记属性只留有用的几个（英文课也一样）', fm_keys == ['视频文件', '人工校对', '剪藏时间', 'tags'], fm_keys)
 check('不写语言、时长、视频日期、字幕识别、字幕句数这些', all(f'\n{k}:' not in body for k in ('老师', '系列', '语言', '时长', '视频日期', '字幕识别', '字幕句数', 'AI校对', '标题', '术语表')), body[:400])
-check('笔记属性用中文（tags 是 Obsidian 固定的，不改）', all(k in body for k in ('视频文件: ', '状态: ', '剪藏时间: ')) and '视频：[' not in body
+check('笔记属性用中文（tags 是 Obsidian 固定的，不改）', all(k in body for k in ('视频文件: ', '剪藏时间: ')) and '状态:' not in body and '视频：[' not in body
       and 'status:' not in body and 'source:' not in body and '\ntags:\n' in body, body[:700])
 check('obsidian 链接', c['uri'].startswith('obsidian://open?vault='))
 again['clip'] = {'path': c['path']}
@@ -166,7 +165,9 @@ again['teacher'] = t['id']
 again['clip'] = None
 c3 = api.call('clip', {'doc': again})
 check('没有剪藏记录时，按视频路径找到已有笔记并更新', c3['path'] == c['path'], c3)
-check('标题下面一行写老师、系列、时长，不写视频链接', '> 老师：大聪老师 ｜ ' in Path(c3['path']).read_text(encoding='utf-8') and '时长：' in Path(c3['path']).read_text(encoding='utf-8'))
+t3 = Path(c3['path']).read_text(encoding='utf-8')
+check('标题下面不写老师、系列、时长；术语表名字只当标签', '时长：' not in t3 and '系列：' not in t3 and '老师：' not in t3 and '\n老师:' not in t3 and '  - 大聪老师' in t3
+      and t3.split('\n---\n', 1)[1].lstrip().split('\n\n')[:2] == [f'# {again["title"]}', '## 课程重点'], t3[:400])
 shutil.rmtree(vault / '学习')
 c3b = api.call('clip', {'doc': again})
 check('按老师分子文件夹', Path(c3b['path']).parent.name == '大聪老师', c3b)
@@ -251,13 +252,13 @@ api.call('settings', {'settings': {'obsidian': {'vault': str(vault), 'folder': '
 c4 = api.call('clip', {'doc': d14})
 n4 = Path(c4['path'])
 b4_ = n4.read_text(encoding='utf-8')
-check('笔记文件名格式、老师称呼', n4.name == '演示视频（猛人字幕）.md' and n4.parent.name == '王老师' and '> 老师：王老师' in b4_, c4)
-check('笔记：标题层级、状态、存疑句', '\n### 一、开头' in b4_ and '# 课程重点：演示' not in b4_ and '状态: "待审计"' in b4_ and '〔存疑：疑似识别错误〕' in b4_, b4_[:600])
+check('笔记文件名格式、老师称呼', n4.name == '演示视频（猛人字幕）.md' and n4.parent.name == '王老师' and '老师：' not in b4_, c4)
+check('笔记：标题层级、状态、存疑句', '\n### 一、开头' in b4_ and '# 课程重点：演示' not in b4_ and '状态:' not in b4_ and '〔存疑：疑似识别错误〕' in b4_, b4_[:600])
 moved = vault / '别处' / '改了名.md'
 moved.parent.mkdir()
 n4.replace(moved)
 # 模拟 1.7.4 以前的笔记：属性是英文（status、source）
-moved.write_text(moved.read_text(encoding='utf-8').replace('状态: "待审计"', 'status: "已确认-资料"').replace('视频文件: ', 'source: '), encoding='utf-8')
+moved.write_text(moved.read_text(encoding='utf-8').replace('\ntags:\n', '\nstatus: "已确认-资料"\ntags:\n', 1).replace('视频文件: ', 'source: '), encoding='utf-8')
 d14['clip'] = {'path': str(n4)}
 c5 = api.call('clip', {'doc': d14})
 check('笔记被移动改名后，再剪藏仍更新原笔记', Path(c5['path']) == moved and not n4.exists(), c5)
@@ -314,9 +315,9 @@ g0 = api.call('clip', {'doc': cl})
 check('笔记没改过：直接更新', not g0.get('conflict') and g0['file_hash'], g0)
 cl2 = dict(cl, clip={'path': g0['path'], 'time': g0['time'], 'hash': g0['hash'], 'file_hash': g0['file_hash']})
 note = Path(g0['path'])
-note.write_text(re.sub(r'(?m)^状态:.*$', '状态: 已审计', note.read_text(encoding='utf-8'), count=1), encoding='utf-8')
+note.write_text(note.read_text(encoding='utf-8').replace('\ntags:\n', '\n状态: "已审计"\ntags:\n', 1), encoding='utf-8')
 g1 = api.call('clip', {'doc': cl2})
-check('只在 Obsidian 里改了 status：不算改动，照常更新并保留 status', not g1.get('conflict') and '状态: "已审计"' in note.read_text(encoding='utf-8'), g1)
+check('只在 Obsidian 里加了属性（例如状态）：不算改动，照常更新并保留', not g1.get('conflict') and '状态: "已审计"' in note.read_text(encoding='utf-8'), g1)
 cl3 = dict(cl, clip={'path': g1['path'], 'time': g1['time'], 'hash': g1['hash'], 'file_hash': g1['file_hash']})
 note.write_text(note.read_text(encoding='utf-8') + '\n我在 Obsidian 里加的一句 [[另一篇笔记]]\n', encoding='utf-8')
 g2 = api.call('clip', {'doc': cl3})
@@ -359,6 +360,19 @@ old_n = '---\n视频文件: "x.mp4"\ntags:\n  - 猛人学习\n  - 旧老师\n  -
 new_n = '---\n视频文件: "x.mp4"\ntags:\n  - 猛人学习\n  - 新老师\n---\n\n# 课\n\n> 老师：新老师 ｜ 时长：01:00\n\n## 课程重点\n\n- 甲\n'
 mt = docs.merge_note(old_n, new_n)[0]
 check('老师改名后重新剪藏：旧老师的标签去掉，自己加的标签保留', '  - 新老师' in mt and '  - 旧老师' not in mt and '  - 我的标签' in mt, mt[:200])
+# 老师由用户自己在 Obsidian 里填：重新剪藏保留；以前软件写的「老师」（术语表名字）去掉
+o1 = '---\n老师: "峰级分析"\n视频文件: "x.mp4"\ntags:\n  - 猛人学习\n  - 峰级分析\n---\n\n# 课\n\n## 课程重点\n\n- 甲\n'
+n1 = '---\n视频文件: "x.mp4"\ntags:\n  - 猛人学习\n  - 峰级分析\n---\n\n# 课\n\n## 课程重点\n\n- 甲\n'
+check('旧笔记里软件写的「老师」（术语表名字）去掉', '老师:' not in docs.merge_note(o1, n1, None, {'峰级分析'})[0])
+o2 = o1.replace('老师: "峰级分析"', '老师: "咖米大葱老师"')
+check('自己在 Obsidian 里填的老师：重新剪藏保留', '老师: "咖米大葱老师"' in docs.merge_note(o2, n1, None, {'峰级分析'})[0])
+check('1.7.8 起剪藏的笔记：「老师」属性一律当成用户填的', '老师: "峰级分析"' in docs.merge_note(o1, n1, ['猛人学习', '峰级分析'], {'峰级分析'})[0])
+o3 = o1.replace('  - 峰级分析\n', '  - 旧术语表\n  - 我的标签\n')
+m3 = docs.merge_note(o3, n1, ['猛人学习', '旧术语表'], ())[0]
+check('上次软件写的标签这次不写了就去掉，自己加的标签保留', '  - 旧术语表' not in m3 and '  - 我的标签' in m3 and '  - 峰级分析' in m3, m3[:200])
+o4 = '---\n视频文件: "x.mp4"\n状态: "待审计"\ntags:\n  - 猛人学习\n---\n\n# 课\n\n## 课程重点\n\n- 甲\n'
+check('旧笔记里软件写的「状态: 待审计」去掉', '状态' not in docs.merge_note(o4, n1, None, ())[0])
+check('旧笔记里自己改过的状态保留', '状态: "已确认-资料"' in docs.merge_note(o4.replace('待审计', '已确认-资料'), n1, None, ())[0])
 check('课程重点模板：不让 AI 用标注框（留给用户写理解）', '不要用「> [!…]」这种标注框' in llm.DEFAULT_TEMPLATE)
 check('插图非必要不用：最多 3 张，纯文字课件不插', '最多 3 张' in llm.DEFAULT_TEMPLATE and '纯文字课件' in frames.DESCRIBE_PROMPT
       and '纯文字的课件页' in frames.SCREEN_PROMPT and '不要照抄课件上的文字' in frames.DESCRIBE_PROMPT)
@@ -550,13 +564,13 @@ bdir = vault / '资料' / '书籍' / '《测试书籍》测试作者'
 ch1 = bdir / '01、第一章 趋势的起点.md'
 check('剪藏书籍：总览 + 章节文件', bc['ok'] and (bdir / '00、全书总览.md').exists() and ch1.exists() and not (bdir / '02、第二章 仓位的分配.md').exists(), bc)
 cb = ch1.read_text(encoding='utf-8')
-check('章节笔记：属性、来源说明、页码范围', '类型: 书籍章节整理' in cb and '页码范围: "P1-P3"' in cb and '整理范围：P1-P3（PDF 第 3-5 页）' in cb and '状态: "待审计"' in cb, cb[:500])
+check('章节笔记：属性、来源说明、页码范围', '类型: 书籍章节整理' in cb and '页码范围: "P1-P3"' in cb and '状态:' not in cb and '整理范围：P1-P3（PDF 第 3-5 页）' in cb , cb[:500])
 figp = bdir / 'image' / '原书图示-图1-1-三段结构.jpg'
 check('原书图示按位置裁剪、压缩', '![[image/原书图示-图1-1-三段结构.jpg]]' in cb and figp.exists() and figp.stat().st_size < 60000, cb[-300:])
 from PIL import Image  # noqa: E402
 with Image.open(figp) as im:
     check('裁剪后的图比整页小', im.width <= 960 and im.height < im.width, im.size)
-ch1.write_text(cb.replace('状态: "待审计"', 'status: "已确认-资料"'), encoding='utf-8')  # 以前的英文属性
+ch1.write_text(cb.replace('类型: 书籍章节整理', '类型: 书籍章节整理\nstatus: "已确认-资料"'), encoding='utf-8')  # 以前的英文属性，用户改过
 api.call('book_clip', {'doc': bdoc})
 check('再次剪藏书籍保留状态（以前英文的 status 也认得）', '状态: "已确认-资料"' in ch1.read_text(encoding='utf-8'))
 check('笔记文件名：前言、目录不编号，正文从 01 开始', book.chapter_files([{'title': '前言与目录'}, {'title': '第一章 甲'}, {'title': '第二章 乙'}]) == ['前言与目录', '01、第一章 甲', '02、第二章 乙'])

@@ -230,32 +230,27 @@ def doubt_map(doc):
     return out
 
 
-def to_markdown(doc, teacher=None, series='', status='待审计', boundary=''):
+def to_markdown(doc, teacher=None, series='', boundary=''):
     """蒸馏用的笔记：上半部分课程重点（含必要的插图），下半部分完整带时间戳的字幕（审核校验用的原始数据）。
     画面记录不写进笔记（用户 2026-10 要求：笔记只要课程重点和完整字幕）。"""
     media = doc.get('media', '')
-    tname = (teacher or {}).get('display') or (teacher or {}).get('name', '')
+    tag = (teacher or {}).get('name', '')  # 术语表档案的名字只当标签（课程体系，例如「峰级分析」），不当讲课老师
     segs = doc.get('segments', [])
     lines = [
         '---',
         # 属性名用中文，只留有用的（用户 2026-10 要求）。tags 是 Obsidian 固定的属性名，不能改；
         # 视频文件不能去掉：重新剪藏时靠它找回被挪走、改名的笔记（find_note）
         f'视频文件: {_yaml(media)}',
-        # 用户明确不要：老师、系列（写在正文标题下面那一行，占地方少）、语言、时长、视频日期（是文件修改时间，会误导）、识别服务、句数等
+        # 用户明确不要：状态（以前给交叉审核用的「待审计」，现在不交叉审核了）、老师、系列（写在正文标题下面那一行，占地方少）、语言、时长、视频日期（是文件修改时间，会误导）、识别服务、句数等
         f'人工校对: {"true" if doc.get("reviewed") else "false"}',
-        f'状态: {_yaml(status)}',
         f'剪藏时间: {time.strftime("%Y-%m-%d %H:%M")}',
         'tags:',
         '  - 猛人学习',
     ]
-    if tname:
-        lines.append(f'  - {safe_name(tname).replace(" ", "_")}')
+    if tag:
+        lines.append(f'  - {safe_name(tag).replace(" ", "_")}')
     lines += ['---', '', f'# {doc.get("title") or ""}', '']
-    meta = [f'老师：{tname}'] if tname else []
-    if series:
-        meta.append(f'系列：{series}')
-    meta.append(f'时长：{fmt(doc.get("duration") or 0)}')  # 视频链接不写（属性里有视频文件）
-    lines += ['> ' + ' ｜ '.join(meta), '']
+    # 标题下面不再写老师、系列、时长这一行（用户 2026-10：老师和归类自己在 Obsidian 里处理）
     lines += ['## 课程重点', '', _shift_headings(doc.get('summary')) or '（还没有生成课程重点）', '']
     if boundary and '整理者注' not in (doc.get('summary') or ''):  # 课程重点里已经写了就不重复
         lines += [f'> 来源情况（软件检查）：{boundary}。整理时没有补写缺失或没说完的内容。', '']
@@ -298,22 +293,14 @@ def find_note(vault: Path, media: str, prefer: Path = None):
     return None
 
 
-def _old_status(path: Path):
-    try:
-        head = path.read_text(encoding='utf-8', errors='replace')[:3000]
-    except OSError:
-        return None
-    m = re.search(r'(?m)^(?:状态|status):\s*"?(.*?)"?\s*$', head.split('\n---', 1)[0])  # 1.7.4 以前叫 status
-    return m.group(1).strip() if m and m.group(1).strip() else None
-
-
 # ---- 重新剪藏时保留用户在 Obsidian 里加的内容 ----
 # 软件只负责：属性里自己的那些字段、标题和说明行、「## 课程重点」「## 完整字幕」两节。
 # 用户自己加的 ## 小节、属性、tags，以及写在这几块里的标注（> [!…]）都保留；标注跟着它上面那一行走。
-APP_KEYS = {'标题', '老师', '系列', '视频日期', '视频文件', '时长', '语言', '字幕识别', '术语表', 'AI校对', '人工校对', '状态', '字幕句数', '剪藏时间',
+APP_KEYS = {'标题', '系列', '视频日期', '视频文件', '时长', '语言', '字幕识别', '术语表', 'AI校对', '人工校对', '字幕句数', '剪藏时间',
             # 1.7.4 以前的英文属性名
             'title', 'teacher', 'series', 'lesson_date', 'source', 'duration', 'language', 'asr', 'glossary', 'corrected', 'reviewed',
             'status', 'segments', 'clipped'}
+# 「老师」不在这里：1.7.8 起软件不写老师，用户自己在属性里填的要保留
 MANAGED = ('', '课程重点', '完整字幕')  # '' 是第一个 ## 之前的部分（标题和说明行）
 LEGACY = ('画面记录',)  # 以前的版本写过、现在不写的小节：重新剪藏时去掉
 
@@ -408,8 +395,10 @@ def _put_callouts(lines, found):
     return out, len(lost)
 
 
-def merge_note(old_text, new_text):
-    """新生成的笔记 + 用户在 Obsidian 里加的内容。返回 (合并后的文字, 找不到原位置、挪到小节末尾的标注个数)。"""
+def merge_note(old_text, new_text, app_tags=None, legacy_teacher=()):
+    """新生成的笔记 + 用户在 Obsidian 里加的内容。返回 (合并后的文字, 找不到原位置、挪到小节末尾的标注个数)。
+    app_tags：上次剪藏时软件写的标签（这次不写了的就去掉，用户加的保留）；1.7.8 以前剪藏的没有记，传 None。
+    legacy_teacher：以前软件往「老师」属性里写的术语表名字，旧笔记里遇到就去掉（用户自己填的老师保留）。"""
     old_fm, old_body = _split_front(old_text)
     new_fm, new_body = _split_front(new_text)
     old_blocks = _fm_blocks(old_fm)
@@ -423,11 +412,23 @@ def merge_note(old_text, new_text):
         new_names.add(key)
         if key == 'tags' and 'tags' in old_keys:  # tags 取并集：软件的在前，用户加的在后
             tags = _tag_list(lines)
-            stale = safe_name(old_teacher).replace(' ', '_') if old_teacher else None  # 以前按老师名字加的标签
-            tags += [t for t in _tag_list(old_keys['tags']) if t not in tags and t != stale]
+            if app_tags is not None:
+                stale = set(app_tags)  # 上次软件写的、这次没写的
+            else:
+                stale = {safe_name(old_teacher).replace(' ', '_')} if old_teacher else set()  # 以前按老师名字加的标签
+            tags += [t for t in _tag_list(old_keys['tags']) if t not in tags and t not in stale]
             lines = ['tags:'] + [f'  - {t}' for t in tags]
         fm_lines += lines
     for key, lines in old_blocks:
+        value = lines[0].split(':', 1)[1].strip().strip('"')
+        if key == '老师' and app_tags is None and value in legacy_teacher:
+            continue  # 1.7.4～1.7.7 软件写的「老师」（其实是术语表名字）
+        if key in ('状态', 'status'):  # 1.7.8 起软件不写状态：还是默认的「待审计」就去掉，用户改过的保留
+            if app_tags is None and value in ('待审计', ''):
+                continue
+            if key == 'status':
+                lines = [f'状态: {_yaml(value)}'] + lines[1:]
+                key = '状态'
         if key not in APP_KEYS and key not in new_names:
             fm_lines += lines
     new_parts = {name: lines for name, lines in _sections(new_body)}
@@ -572,16 +573,18 @@ def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolde
             return {'conflict': True, 'path': str(path),
                     'modified': time.strftime('%Y-%m-%d %H:%M', time.localtime(path.stat().st_mtime))}
         backup = backup_note(path)
-    status = (_old_status(path) if path.exists() else None) or '待审计'
     path.parent.mkdir(parents=True, exist_ok=True)
     out = dict(doc, summary=place_figures(doc.get('summary') or '', doc.get('frames'), path.parent, doc.get('title') or '字幕', shot))
-    text, moved = to_markdown(out, teacher, series, status, boundary), 0
+    text, moved = to_markdown(out, teacher, series, boundary), 0
     if path.exists():  # 更新原来的笔记：保留用户在 Obsidian 里加的小节、标注和属性
-        text, moved = merge_note(path.read_text(encoding='utf-8', errors='replace'), text)
+        legacy = {x for x in ((teacher or {}).get('name'), (teacher or {}).get('display')) if x}
+        text, moved = merge_note(path.read_text(encoding='utf-8', errors='replace'), text,
+                                 ((doc.get('clip') or {}).get('tags') if isinstance(doc.get('clip'), dict) else None), legacy)
     path.write_text(text, encoding='utf-8')
     vault_name = Path(vault).name
     rel = path.relative_to(Path(vault)).as_posix()
     from urllib.parse import quote
     return {'path': str(path), 'uri': f'obsidian://open?vault={quote(vault_name)}&file={quote(rel)}',
             'time': time.strftime('%Y-%m-%d %H:%M:%S'), 'hash': note_hash(doc), 'file_hash': note_fingerprint(text),
-            'backup': str(backup) if backup else '', 'moved': moved}
+            'backup': str(backup) if backup else '', 'moved': moved,
+            'tags': _tag_list(dict(_fm_blocks(_split_front(text)[0])).get('tags') or ['tags:'])}

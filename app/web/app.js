@@ -1228,7 +1228,7 @@ async function doClip() {
       }
       r = await api('clip', { doc: S.doc, force: true });
     }
-    S.doc.clip = { path: r.path, time: r.time, hash: r.hash, file_hash: r.file_hash }; S.docStale = false; markDirty(); save();
+    S.doc.clip = { path: r.path, time: r.time, hash: r.hash, file_hash: r.file_hash, tags: r.tags }; S.docStale = false; markDirty(); save();
     toast((S.doc.reviewed ? '已剪藏到 Obsidian' : '已剪藏到 Obsidian（字幕还没标记为已校对）') + (r.backup ? '。覆盖前的旧笔记已备份' : '') + (r.moved ? `。有 ${r.moved} 条你写的标注找不到原来那句话，放在了那一节的最后` : ''),
       { action: { label: '在 Obsidian 中打开', run: () => api('reveal', { target: r.uri }) }, ms: 7000 });
     return true;
@@ -1678,7 +1678,6 @@ function editTeacher(t) {
   editingTeacher = t ? t.id : null;
   $$('#teacherList button').forEach(b => b.classList.toggle('active', b.dataset.tid === (t ? t.id : '__new')));
   $('#tName').value = t ? t.name : '';
-  $('#tDisplay').value = t ? (t.display || '') : '';
   setTermsFile(t ? (t.terms_file || '') : '');
   $('#tAbout').value = t ? t.about : '';
   $('#tTerms').value = t ? t.terms : '';
@@ -1728,7 +1727,7 @@ async function pickTermsFile() {
   } catch (e) { fail(e); }
 }
 function teacherForm() {
-  return { id: editingTeacher, name: $('#tName').value, display: $('#tDisplay').value, terms_file: $('#tFile').dataset.path || '',
+  return { id: editingTeacher, name: $('#tName').value, display: (teacherById(editingTeacher) || {}).display || '', terms_file: $('#tFile').dataset.path || '',
     about: $('#tAbout').value, terms: $('#tTerms').value, notes: $('#tNotes').value, lang: $('#tLang').value,
     folder: $('#tFolder').value, template: $('#tOwnTemplate').checked ? $('#tTemplate').value : '' };
 }
@@ -1737,7 +1736,7 @@ function teacherFormDirty() {
   if (!$('#tName')) return false;
   const f = teacherForm(), t = teacherById(editingTeacher);
   if (!t) return !!f.name.trim();
-  return ['name', 'display', 'terms_file', 'about', 'terms', 'notes', 'lang', 'folder', 'template']
+  return ['name', 'terms_file', 'about', 'terms', 'notes', 'lang', 'folder', 'template']
     .some(k => String(f[k] || '').trim() !== String(t[k] || '').trim());
 }
 async function saveTeacher() {
