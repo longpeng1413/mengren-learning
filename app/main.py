@@ -19,7 +19,7 @@ from webview.dom import DOMEventHandler  # noqa: E402
 
 from bridge import Api  # noqa: E402
 
-VERSION = '1.7.5'
+VERSION = '1.7.6'
 
 
 def main():

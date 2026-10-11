@@ -107,8 +107,10 @@ note = Path(c['path'])
 check('剪藏生成笔记', c['ok'] and note.exists() and note.parent == vault / '学习' / '猛人字幕', c)
 body = note.read_text(encoding='utf-8')
 check('笔记：上半部分课程重点，下半部分完整字幕', body.index('## 课程重点') < body.index('## 完整字幕') and '[00:00] Edited line' in body and '人工校对: false' in body)
-check('识别服务写成看得懂的中文', docs.asr_label('doubao · flash') == '豆包语音 · 极速版' and docs.asr_label('openai · whisper-1') == 'OpenAI · whisper-1' and docs.asr_label('') == '')
-check('笔记属性用中文（tags 是 Obsidian 固定的，不改）', all(k in body for k in ('标题: ', '老师: ', '视频文件: ', '时长: ', '字幕识别: ', 'AI校对: ', '状态: ', '字幕句数: ', '剪藏时间: '))
+fm_keys = [ln.split(':', 1)[0] for ln in body.split('\n---\n', 1)[0].split('\n')[1:] if ln and not ln.startswith(' ')]
+check('笔记属性只留有用的几个（英文课也一样）', fm_keys == ['老师', '系列', '视频文件', '人工校对', '状态', '剪藏时间', 'tags'], fm_keys)
+check('不写语言、时长、视频日期、字幕识别、字幕句数这些', all(f'\n{k}:' not in body for k in ('语言', '时长', '视频日期', '字幕识别', '字幕句数', 'AI校对', '标题', '术语表')), body[:400])
+check('笔记属性用中文（tags 是 Obsidian 固定的，不改）', all(k in body for k in ('老师: ', '视频文件: ', '状态: ', '剪藏时间: '))
       and 'status:' not in body and 'source:' not in body and '\ntags:\n' in body, body[:700])
 check('obsidian 链接', c['uri'].startswith('obsidian://open?vault='))
 again['clip'] = {'path': c['path']}

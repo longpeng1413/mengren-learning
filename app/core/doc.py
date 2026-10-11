@@ -9,7 +9,7 @@ import shutil
 import time
 from pathlib import Path
 
-from .config import DATA_DIR, PROVIDER_NAMES
+from .config import DATA_DIR
 from .llm import fmt
 
 SUFFIX = '.猛人学习.json'
@@ -230,46 +230,23 @@ def doubt_map(doc):
     return out
 
 
-DOUBAO_SHORT = {'flash': '极速版', 'stream2': '流式 2.0', 'stream2c': '流式 2.0 并发版', 'stream1': '流式 1.0', 'stream1c': '流式 1.0 并发版',
-                'std2': '标准版 2.0', 'std1': '标准版 1.0', 'idle': '闲时版'}
-
-
-def asr_label(v):
-    """字幕文件里记的识别服务（例如「doubao · flash」）→ 笔记里看得懂的写法（「豆包语音 · 极速版」）。"""
-    name, _, model = str(v or '').partition(' · ')
-    shown = re.sub(r'（.*?）', '', PROVIDER_NAMES.get(name.strip(), name.strip()))
-    if model:
-        shown += ' · ' + (DOUBAO_SHORT.get(model.strip(), model.strip()) if name.strip() == 'doubao' else model.strip())
-    return shown
-
-
 def to_markdown(doc, teacher=None, series='', status='待审计', boundary=''):
     """蒸馏用的笔记：上半部分课程重点（含必要的插图），下半部分完整带时间戳的字幕（审核校验用的原始数据）。
     画面记录不写进笔记（用户 2026-10 要求：笔记只要课程重点和完整字幕）。"""
     media = doc.get('media', '')
     uri = Path(media).as_uri() if media else ''
-    try:
-        lesson_date = time.strftime('%Y-%m-%d', time.localtime(os.path.getmtime(media))) if media else ''
-    except OSError:
-        lesson_date = ''
     tname = (teacher or {}).get('display') or (teacher or {}).get('name', '')
     segs = doc.get('segments', [])
     lines = [
         '---',
-        # 属性名用中文（用户 2026-10 要求）；tags 是 Obsidian 固定的属性名，不能改
-        f'标题: {_yaml(doc.get("title"))}',
+        # 属性名用中文，只留有用的（用户 2026-10 要求）。tags 是 Obsidian 固定的属性名，不能改；
+        # 视频文件不能去掉：重新剪藏时靠它找回被挪走、改名的笔记（find_note）
         f'老师: {_yaml(tname)}',
         f'系列: {_yaml(series)}',
-        f'视频日期: {lesson_date}',
         f'视频文件: {_yaml(media)}',
-        f'时长: "{fmt(doc.get("duration") or 0)}"',
-        f'语言: {_yaml({"zh": "中文", "en": "英文"}.get(doc.get("lang") or "", doc.get("lang") or ""))}',
-        f'字幕识别: {_yaml(asr_label(doc.get("provider")))}',
-        f'术语表: {_yaml((teacher or {}).get("name", "") if teacher and teacher.get("terms") else "")}',
-        f'AI校对: {"true" if doc.get("corrected") else "false"}',
+        # 用户明确不要：语言、时长（一眼就知道）、视频日期（是文件修改时间，会误导）、识别服务、句数等技术信息
         f'人工校对: {"true" if doc.get("reviewed") else "false"}',
         f'状态: {_yaml(status)}',
-        f'字幕句数: {len(segs)}',
         f'剪藏时间: {time.strftime("%Y-%m-%d %H:%M")}',
         'tags:',
         '  - 猛人学习',
