@@ -295,6 +295,12 @@ img = Path(c6['path']).parent / 'image' / '演示视频__00-05.jpg'
 check('剪藏：插图复制到笔记旁边的 image 文件夹', '![[image/演示视频__00-05.jpg]]' in b6 and img.exists() and img.stat().st_size > 1000, b6[:800])
 check('剪藏：笔记只有课程重点和完整字幕，不附画面记录', '## 画面记录' not in b6 and '课件标题：交易心理学' not in b6 and b6.index('## 课程重点') < b6.index('## 完整字幕'))
 check('剪藏：插图压缩得比原截图小', img.stat().st_size < frames.grab(mp4, 5.0).stat().st_size, (img.stat().st_size, frames.grab(mp4, 5.0).stat().st_size))
+cl = dict(d15, clip={'path': c6['path'], 'time': c6['time'], 'hash': c6['hash']})
+check('剪藏后内容没变：不提示待更新剪藏', c6['hash'] and not docs.clip_stale(cl))
+check('剪藏后改了课程重点：提示待更新剪藏', docs.clip_stale(dict(cl, summary=cl['summary'] + '\n- 新加一条')))
+check('剪藏后改了字幕：提示待更新剪藏', docs.clip_stale(dict(cl, segments=[dict(x, text=x['text'] + '改') if k == 0 else x for k, x in enumerate(cl['segments'])])))
+check('对话、画面这类不进笔记的改动：不提示', not docs.clip_stale(dict(cl, chat=[{'role': 'user', 'content': '问'}], frames=[])))
+check('以前剪藏的没有指纹：不提示', not docs.clip_stale(dict(cl, clip={'path': c6['path']}, summary='变了')))
 check('插图非必要不用：最多 3 张，纯文字课件不插', '最多 3 张' in llm.DEFAULT_TEMPLATE and '纯文字课件' in frames.DESCRIBE_PROMPT
       and '纯文字的课件页' in frames.SCREEN_PROMPT and '不要照抄课件上的文字' in frames.DESCRIBE_PROMPT)
 

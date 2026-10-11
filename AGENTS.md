@@ -27,6 +27,7 @@
 - `frames` 是可插的图：`[{t: 秒, why: 为什么挑这张, note: 一句话说明, caption: 旧版的画面字幕（新版不再写）, figure: 可插图, manual: 手动截取}]`。截图本身不存，放在缓存 `frames/` 里，需要时按时间重新截（`frames.grab`）；
 - `doubts` 是 AI 校对标出的存疑句：`[{t: 句子开始时间, reason: 原因, text: 原句}]`，按开始时间对应到字幕（`segments` 每段只存 4 个字段，`clean_segments` 会去掉别的字段，所以不能把标记放进段里）；
 - 每段的格式是 `{start, end, text, tr}`，秒为单位。
+- `clip` 是剪藏记录 `{path, time, hash}`：`hash` 是 `doc.note_hash`（会写进笔记的内容的指纹），之后内容变了，媒体库显示「待更新剪藏」（`doc.clip_stale`）。1.7.2 以前剪藏的没有 hash，不提示。剪藏不会自动更新 Obsidian（用户选的是「提醒」，不是自动同步）。
 
 ### 术语表语法（`app/core/llm.py` 的 `parse_terms`）
 

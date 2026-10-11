@@ -203,13 +203,14 @@ async function loadLibrary(groups) {
 function itemHTML(it) {
   const tags = [];
   if (it.book) tags.push(`<span class="tag ${it.book.done ? 'ok' : ''}">整理 ${it.book.done}/${it.book.total}</span>`);
-  if (it.subs) tags.push(`<span class="tag ok">字幕 ${it.subs}</span>`);
+  if (it.subs) tags.push(`<span class="tag ok" title="这节课的字幕有 ${it.subs} 句">字幕 ${it.subs} 句</span>`);
   if (it.summary) tags.push('<span class="tag acc">重点</span>');
   if (it.reviewed) tags.push('<span class="tag ok">已校对</span>');
-  if (it.clipped) tags.push('<span class="tag">已剪藏</span>');
+  if (it.clipped) tags.push(it.stale ? '<span class="tag warn" title="剪藏后在软件里又改过字幕或课程重点。再点一次「剪藏」，Obsidian 里的笔记才会更新">待更新剪藏</span>'
+    : '<span class="tag" title="Obsidian 里的笔记和软件里的内容一致">已剪藏</span>');
   if (it.pos && it.duration) tags.push(`<span>看到 ${fmt(it.pos)}</span>`);
   const pct = it.pos && it.duration ? Math.min(100, it.pos / it.duration * 100) : 0;
-  const dot = it.clipped ? 'done' : (it.subs || (it.book && it.book.done) ? 'has' : '');
+  const dot = it.clipped && !it.stale ? 'done' : (it.subs || (it.book && it.book.done) ? 'has' : '');
   return `<div class="lib-item ${S.path && it.path.toLowerCase() === S.path.toLowerCase() ? 'active' : ''}" data-open="${esc(it.path)}" title="${esc(it.path)}">
     <i class="dot ${dot}"></i><div class="lib-name">${esc(it.name)}</div>
     ${tags.length ? `<div class="lib-meta">${tags.join('')}</div>` : ''}
@@ -260,7 +261,7 @@ function syncLibFromDoc() {
     patchLib(S.path, { book: { done: chs.filter(c => (c.md || '').trim()).length, total: chs.length }, clipped: !!S.doc.clip });
     return;
   }
-  patchLib(S.path, { subs: S.doc.segments.length, summary: !!(S.doc.summary || '').trim(), clipped: !!S.doc.clip, reviewed: !!S.doc.reviewed, duration: S.doc.duration });
+  patchLib(S.path, { subs: S.doc.segments.length, summary: !!(S.doc.summary || '').trim(), clipped: !!S.doc.clip, stale: !!S.docStale, reviewed: !!S.doc.reviewed, duration: S.doc.duration });
 }
 function showCtx(x, y, html, bindings) {
   const m = $('#ctxMenu');
@@ -330,6 +331,7 @@ window.openPath = async function (path) {
     setMode('media');
     S.resumeAt = d.position || 0;
     S.path = d.path; S.doc = d.doc; S.info = d.info; S.undo = []; S.active = -1; S.dirty = false; S.loopIdx = null;
+    S.docStale = (S.lib || []).some(g => g.items.some(it => it.stale && it.path.toLowerCase() === d.path.toLowerCase()));
     S.lastSaved = d.doc.updated || null;
     $('#btnUndo').disabled = true;
     $('#empty').hidden = true; $('#stageMain').hidden = false;
@@ -782,7 +784,7 @@ async function save(quiet = true) {
   const run = (async () => {
     try {
       const r = await api('save', { path: S.path, doc: S.doc });
-      S.lastSaved = r.updated;
+      S.lastSaved = r.updated; S.docStale = !!r.stale;
       syncLibFromDoc();
       if (!quiet) toast('已保存');
     } catch (e) { S.dirty = true; fail(new Error('保存失败：' + e.message)); }
@@ -1218,7 +1220,7 @@ async function doClip() {
   try {
     await flushSave();
     const r = await api('clip', { doc: S.doc });
-    S.doc.clip = { path: r.path, time: r.time }; markDirty(); save();
+    S.doc.clip = { path: r.path, time: r.time, hash: r.hash }; S.docStale = false; markDirty(); save();
     toast(S.doc.reviewed ? '已剪藏到 Obsidian' : '已剪藏到 Obsidian（字幕还没标记为已校对）',
       { action: { label: '在 Obsidian 中打开', run: () => api('reveal', { target: r.uri }) }, ms: 7000 });
     return true;

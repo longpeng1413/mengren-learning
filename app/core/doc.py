@@ -82,6 +82,21 @@ def clean_segments(segments):
     return out
 
 
+def note_hash(doc) -> str:
+    """会写进剪藏笔记的内容（标题、老师、课程重点、字幕、存疑句、是否已校对）的指纹。
+    剪藏时记在 clip.hash 里；之后内容变了，媒体库就显示「待更新剪藏」。"""
+    segs = [[s['start'], s['text'], s['tr']] for s in clean_segments(doc.get('segments'))]
+    doubts = sorted([round(float(d.get('t') or 0), 2), str(d.get('reason') or '')] for d in doc.get('doubts') or [] if isinstance(d, dict))
+    data = [doc.get('title') or '', doc.get('teacher') or '', (doc.get('summary') or '').strip(), segs, doubts, bool(doc.get('reviewed'))]
+    return hashlib.sha1(json.dumps(data, ensure_ascii=False).encode('utf-8')).hexdigest()[:16]
+
+
+def clip_stale(doc) -> bool:
+    """剪藏后又改过要写进笔记的内容。1.7.2 以前剪藏的没有指纹，不判断。"""
+    clip = doc.get('clip') if isinstance(doc.get('clip'), dict) else {}
+    return bool(clip.get('hash')) and doc.get('kind') != 'book' and clip['hash'] != note_hash(doc)
+
+
 def _write(path: Path, data: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():  # 留一份上一次保存的版本，以防万一
@@ -114,7 +129,7 @@ def save(media_path: str, doc: dict) -> dict:
     except OSError:
         _write(fallback(media_path), data)
         where = fallback(media_path)
-    return {'updated': data['updated'], 'stored': str(where)}
+    return {'updated': data['updated'], 'stored': str(where), 'stale': clip_stale(data)}
 
 
 # ------------------------------------------------------------------ 导出 ----
@@ -391,4 +406,4 @@ def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolde
     rel = path.relative_to(Path(vault)).as_posix()
     from urllib.parse import quote
     return {'path': str(path), 'uri': f'obsidian://open?vault={quote(vault_name)}&file={quote(rel)}',
-            'time': time.strftime('%Y-%m-%d %H:%M:%S')}
+            'time': time.strftime('%Y-%m-%d %H:%M:%S'), 'hash': note_hash(doc)}

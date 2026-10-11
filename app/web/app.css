@@ -424,3 +424,6 @@ body.mode-book .video-only { display: none !important; }
 .tm-pair { display: grid; grid-template-columns: 1fr 16px 1fr; gap: 4px; align-items: center; min-width: 260px; }
 .tm-quote { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dialog-btns .grow { flex: 1; }
+
+/* 剪藏后又改过：提醒重新剪藏 */
+.tag.warn { color: #f0a030; border-color: color-mix(in srgb, #f0a030 55%, transparent); background: color-mix(in srgb, #f0a030 12%, transparent); }

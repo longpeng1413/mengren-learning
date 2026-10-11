@@ -284,6 +284,13 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     await api('settings', { settings: { obsidian: { vault: base, folder: 'clip-test', teacher_subfolder: true } } });
     const okClip = await doClip();
     ok('剪藏到老师子文件夹', okClip && S.doc.clip.path.includes('clip-test\\测试老师\\'), S.doc.clip);
+    const libTag = () => (document.querySelector('#libBody .lib-item.active .lib-meta') || {}).textContent || '';
+    ok('剪藏后媒体库显示「已剪藏」', await until(() => libTag().includes('已剪藏') && !libTag().includes('待更新')), libTag());
+    S.doc.summary = (S.doc.summary || '') + '\n- 剪藏后又加的一条 [00:01]'; markDirty(); await save();
+    ok('剪藏后又改了课程重点：显示「待更新剪藏」', await until(() => libTag().includes('待更新剪藏')), libTag());
+    ok('字幕标签写明是几句', /字幕 \d+ 句/.test(libTag()), libTag());
+    await doClip();
+    ok('重新剪藏后恢复「已剪藏」', await until(() => libTag().includes('已剪藏') && !libTag().includes('待更新')), libTag());
 
     await api('teacher_delete', { id: tr.teacher.id });
 

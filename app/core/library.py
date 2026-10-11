@@ -34,6 +34,7 @@ def _status(path, positions):
         item['subs'] = len(d.get('segments') or [])
         item['summary'] = bool((d.get('summary') or '').strip())
         item['clipped'] = bool(d.get('clip'))
+        item['stale'] = docs.clip_stale(d)
         item['reviewed'] = bool(d.get('reviewed'))
         item['teacher'] = d.get('teacher') or ''
         item['duration'] = d.get('duration') or 0
