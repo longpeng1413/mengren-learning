@@ -21,8 +21,8 @@
 
 ### 改名（1.6）
 
-软件原名「猛人字幕」，1.6 起叫「猛人学习」。兼容要一直保留：`config._migrate_data_dir()` 把 `%APPDATA%\猛人字幕` 搬到 `%APPDATA%\猛人学习`；`doc.load` 还认旧的 `.猛人字幕.json`，保存时改成 `.猛人学习.json`；设置导入认两个名字；`find_note` 认两个标签。项目文件夹 `E:\Claude-猛人字幕` 没改名。
-- **不要动 `E:\Claude-乔木剪藏`**，那是另一个项目。
+软件原名「猛人字幕」，1.6 起叫「猛人学习」。兼容要一直保留：`config._migrate_data_dir()` 把 `%APPDATA%\猛人字幕` 搬到 `%APPDATA%\猛人学习`；`doc.load` 还认旧的 `.猛人字幕.json`，保存时改成 `.猛人学习.json`；设置导入认两个名字；`find_note` 认两个标签。项目文件夹 2026-10-12 从 `E:\Claude-猛人字幕` 搬到 `D:\mengren-learning`（和 GitHub 仓库同名，用户要求软件开发文件都放 D 盘）。
+- **不要动 `D:\Claude-乔木剪藏`**（以前在 `E:\Claude-乔木剪藏`），那是另一个项目。
 
 ## 必须保持的行为
 
@@ -127,7 +127,7 @@ python -m venv .venv
 
 1. `.venv\Scripts\python build.py` → 输出到 `dist-next\`（不碰正在用的 `dist\`）。
 2. `.venv\Scripts\python tests\run_ui_test.py --exe` 测打包版。
-3. 换进 `dist`：用户已允许升级时关闭正在运行的程序。先正常退出（运行 `& "E:\Claude-猛人字幕\dist\猛人学习\猛人学习.exe" --quit`，等它自己保存退出，最多等 15 秒左右，还不退出才 `Stop-Process`；1.7.12 及以前的版本没有 --quit，用 `CloseMainWindow()`），然后执行「更新到新版.bat」里同样的步骤（把 `dist\猛人字幕` 里的「缓存（可随时删除）」「日志（可随时删除）」移进 `dist-next\猛人字幕`，删掉 `dist`，把 `dist-next` 改名为 `dist`），最后用 `explorer.exe "E:\Claude-猛人字幕\dist\猛人学习\猛人学习.exe"` 启动（不要直接启动，见上面「转存」）并告诉用户。用户也可以自己双击「更新到新版.bat」。
+3. 换进 `dist`：用户已允许升级时关闭正在运行的程序。先正常退出（运行 `& "D:\mengren-learning\dist\猛人学习\猛人学习.exe" --quit`，等它自己保存退出，最多等 15 秒左右，还不退出才 `Stop-Process`；1.7.12 及以前的版本没有 --quit，用 `CloseMainWindow()`），然后执行「更新到新版.bat」里同样的步骤（把 `dist\猛人字幕` 里的「缓存（可随时删除）」「日志（可随时删除）」移进 `dist-next\猛人字幕`，删掉 `dist`，把 `dist-next` 改名为 `dist`），最后用 `explorer.exe "D:\mengren-learning\dist\猛人学习\猛人学习.exe"` 启动（不要直接启动，见上面「转存」）并告诉用户。用户也可以自己双击「更新到新版.bat」。
 
 ## 发新版本
 
@@ -156,7 +156,7 @@ python -m venv .venv
 - 原书图示：AI 写 `![[原书图示 第N页 图号 名称 @左,上,右,下]]`，剪藏时 `book.place_figures` 按比例裁剪、缩到 960 宽压缩。非必要不用，每章最多 2 张。
 - 书籍界面在 `#bookMain`，`S.mode === 'book'`；视频相关按钮加了 `video-only` 类，在书籍界面隐藏。
 
-## 没有进仓库的东西（只在用户电脑的 `E:\Claude-猛人字幕` 里）
+## 没有进仓库的东西（只在用户电脑的 `D:\mengren-learning` 里）
 
 - `design/`：图标设计稿、原图、字体、其他配色方案。正式图标是「紫晶」（1.7.12 起，`design/recolor_full.py` 的 full-4：字、龙纹、边框、背景整体换成紫色，和金色的猛人截图教鞭、红宝石色的猛人快传区分开），在 `app/assets/` 和 `app/web/icon.png`。之前的「帝王紫」只换了背景、字还是金色，和另外两个软件放在一起分不清。
 - `.venv/`、`dist/`、`dist-next/`、`build/`、`release/`。
