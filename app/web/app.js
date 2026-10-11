@@ -509,9 +509,18 @@ async function bookAiToc() {
 async function bookClip() {
   try {
     await flushSave();
-    const r = await api('book_clip', { doc: S.doc });
-    S.doc.clip = { dir: r.dir, time: r.time }; markDirty(); save();
-    toast(`已剪藏 ${r.files.length} 篇笔记到 Obsidian`, { action: { label: '在 Obsidian 中打开', run: () => api('reveal', { target: r.uri }) }, ms: 8000 });
+    let r = await api('book_clip', { doc: S.doc });
+    if (r.conflict) {
+      if (!confirm(`下面这些笔记上次剪藏后在 Obsidian 里改过：\n${r.changed.join('\n')}\n\n继续剪藏会用软件里的内容更新软件写的那些小节：你在这些小节里直接改的文字会没掉。你自己加的小节、标注（> [!…]）和属性会保留。改过的笔记会先备份到：\n%APPDATA%\\猛人学习\\backups\\笔记\n\n要继续剪藏吗？`)) {
+        toast('没有剪藏，Obsidian 里的笔记保持不变');
+        return true;
+      }
+      r = await api('book_clip', { doc: S.doc, force: true });
+    }
+    S.doc.clip = { dir: r.dir, time: r.time, files: r.records }; markDirty(); save();
+    toast(`已剪藏 ${r.files.length} 篇笔记到 Obsidian` + (r.backups ? `，${r.backups} 篇改过的旧笔记已备份` : '')
+      + (r.moved ? `。有 ${r.moved} 条你写的标注找不到原来那句话，放在了那一节的最后` : ''),
+      { action: { label: '在 Obsidian 中打开', run: () => api('reveal', { target: r.uri }) }, ms: 8000 });
     return true;
   } catch (e) { fail(e); return false; }
 }

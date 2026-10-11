@@ -395,10 +395,28 @@ def _put_callouts(lines, found):
     return out, len(lost)
 
 
-def merge_note(old_text, new_text, app_tags=None, legacy_teacher=()):
+# 书籍笔记：软件写的属性；小节是「一、本章主题」这类编号小节，以及上次剪藏时记下的小节名（全书总览的小节不编号）
+BOOK_KEYS = {'标题', '类型', '书名', '作者', '章节', '页码范围', '来源类型', '来源文件', '整理时间', '已整理范围',
+             # 1.7.4 以前的英文属性名
+             'title', 'type', 'book', 'author', 'chapter', 'page_range', 'source_type', 'source', 'organized', 'completed_scope', 'status'}
+_CN_SECTION = re.compile(r'^[一二三四五六七八九十百]+、')
+_VOLATILE = ('状态', 'status', '剪藏时间', 'clipped', '整理时间', 'organized')  # 每次剪藏都会变、或由用户改的，不算改动
+
+
+def _owned(name, kind, app_sections=None):
+    """这一节是不是软件负责的。"""
+    if kind == 'video':
+        return name in MANAGED
+    return name == '' or name in (app_sections or ()) or bool(_CN_SECTION.match(name))
+
+
+def merge_note(old_text, new_text, app_tags=None, legacy_teacher=(), kind='video', app_sections=None):
     """新生成的笔记 + 用户在 Obsidian 里加的内容。返回 (合并后的文字, 找不到原位置、挪到小节末尾的标注个数)。
     app_tags：上次剪藏时软件写的标签（这次不写了的就去掉，用户加的保留）；1.7.8 以前剪藏的没有记，传 None。
-    legacy_teacher：以前软件往「老师」属性里写的术语表名字，旧笔记里遇到就去掉（用户自己填的老师保留）。"""
+    legacy_teacher：以前软件往「老师」属性里写的术语表名字，旧笔记里遇到就去掉（用户自己填的老师保留）。
+    kind：'video' 或 'book'；app_sections：书籍笔记上次剪藏时软件写的小节名。
+    用户自己的小节跟着它前面那个软件小节走。"""
+    keys_owned = APP_KEYS if kind == 'video' else BOOK_KEYS
     old_fm, old_body = _split_front(old_text)
     new_fm, new_body = _split_front(new_text)
     old_blocks = _fm_blocks(old_fm)
@@ -414,8 +432,10 @@ def merge_note(old_text, new_text, app_tags=None, legacy_teacher=()):
             tags = _tag_list(lines)
             if app_tags is not None:
                 stale = set(app_tags)  # 上次软件写的、这次没写的
-            else:
+            elif kind == 'video':
                 stale = {safe_name(old_teacher).replace(' ', '_')} if old_teacher else set()  # 以前按老师名字加的标签
+            else:
+                stale = set()
             tags += [t for t in _tag_list(old_keys['tags']) if t not in tags and t not in stale]
             lines = ['tags:'] + [f'  - {t}' for t in tags]
         fm_lines += lines
@@ -429,41 +449,60 @@ def merge_note(old_text, new_text, app_tags=None, legacy_teacher=()):
             if key == 'status':
                 lines = [f'状态: {_yaml(value)}'] + lines[1:]
                 key = '状态'
-        if key not in APP_KEYS and key not in new_names:
+        if key not in keys_owned and key not in new_names:
             fm_lines += lines
-    new_parts = {name: lines for name, lines in _sections(new_body)}
-    out, used, moved = [], set(), 0
+    new_sections = _sections(new_body)
+    new_parts = {name: lines for name, lines in new_sections}
+    owned_names = set(app_sections or ()) | set(new_parts)
+    # 旧笔记：软件的小节取出标注；用户的小节记下跟在哪个软件小节后面
+    found_by, follow, carry, anchor = {}, {}, [], ''
     for name, lines in _sections(old_body):
-        if name in LEGACY:
+        if kind == 'video' and name in LEGACY:
             continue
-        if name in new_parts and name in MANAGED:
-            found, _ = _callouts(lines)
-            merged, n = _put_callouts(new_parts[name], found)
-            out += merged
-            moved += n
-            used.add(name)
-        elif name not in MANAGED:
-            out += lines  # 用户自己的小节，原样保留
-    for name, lines in _sections(new_body):
-        if name not in used:
-            out += lines
+        if _owned(name, kind, owned_names):
+            found = _callouts(lines)[0]
+            if name in new_parts:
+                found_by[name] = found
+                anchor = name
+            else:
+                carry += [(None, blk) for _, blk in found]  # 这一节这次没有了：标注挪到最后，不丢
+        else:
+            follow.setdefault(anchor if anchor in new_parts else None, []).append(lines)
+    out, moved = [], 0
+    for name, lines in new_sections:
+        merged, n = _put_callouts(lines, found_by.get(name, []))
+        out += merged
+        moved += n
+        for user_lines in follow.get(name, []):
+            out += user_lines
+    for user_lines in follow.get(None, []):
+        out += user_lines
+    if carry:
+        out += [''] + [ln for _, blk in carry for ln in blk + ['']]
+        moved += len(carry)
     text = '---\n' + '\n'.join(fm_lines) + '\n---\n' + '\n'.join(out)
     return re.sub(r'\n{3,}', '\n\n', text).rstrip() + '\n', moved
 
 
-def note_fingerprint(text: str) -> str:
+def note_sections(text):
+    """笔记里的 ## 小节名（书籍剪藏时记下，下次用来分清哪些是软件写的）。"""
+    return [name for name, _ in _sections(_split_front(text)[1]) if name]
+
+
+def note_fingerprint(text: str, kind='video', app_sections=None) -> str:
     """笔记里软件负责的那部分的指纹，用来判断剪藏后有没有在 Obsidian 里改过它。
     不算：属性里的状态和剪藏时间、用户自己加的属性和小节、标注（这些重新剪藏时都会保留）。"""
+    keys_owned = APP_KEYS if kind == 'video' else BOOK_KEYS
     fm, body = _split_front(text)
-    keys = [[k, [ln.rstrip() for ln in v]] for k, v in _fm_blocks(fm) if k in APP_KEYS and k not in ('状态', 'status', '剪藏时间', 'clipped')]
+    keys = [[k, [ln.rstrip() for ln in v]] for k, v in _fm_blocks(fm) if k in keys_owned and k not in _VOLATILE]
     parts = []
     for name, lines in _sections(body):
-        if name in MANAGED:
+        if _owned(name, kind, app_sections):
             parts.append([name, [ln.rstrip() for ln in _callouts(lines)[1] if ln.strip()]])  # 空行多少不算改动
     return 'v2:' + hashlib.sha1(json.dumps([keys, parts], ensure_ascii=False).encode('utf-8')).hexdigest()[:16]
 
 
-def note_changed(path: Path, clip) -> bool:
+def note_changed(path: Path, clip, kind='video', app_sections=None) -> bool:
     """上次剪藏后，笔记在 Obsidian 里被改过。
     有指纹（1.7.5 起）就比软件负责那部分的指纹；以前剪藏的没有，看文件修改时间是不是比剪藏时间晚。"""
     clip = clip if isinstance(clip, dict) else {}
@@ -471,7 +510,7 @@ def note_changed(path: Path, clip) -> bool:
         if not path.is_file():
             return False
         if str(clip.get('file_hash') or '').startswith('v2:'):
-            return note_fingerprint(path.read_text(encoding='utf-8', errors='replace')) != clip['file_hash']
+            return note_fingerprint(path.read_text(encoding='utf-8', errors='replace'), kind, app_sections) != clip['file_hash']
         t = time.mktime(time.strptime(str(clip.get('time') or ''), '%Y-%m-%d %H:%M:%S'))
     except (OSError, ValueError, OverflowError):
         return False

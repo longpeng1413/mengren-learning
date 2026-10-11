@@ -452,7 +452,8 @@ class Api:
         d = b.get('doc') or {}
         ob = config.load()['obsidian']
         info = book.read(d['media'])
-        return book.clip_book(d, info, ob.get('vault'), ob.get('book_folder') or '', ob.get('book_dir_pattern') or '《{title}》{author}')
+        return book.clip_book(d, info, ob.get('vault'), ob.get('book_folder') or '', ob.get('book_dir_pattern') or '《{title}》{author}',
+                              bool(b.get('force')))
 
     # ------------------------------------------------------------ 画面 ----
     def _vision(self, s, need=True):

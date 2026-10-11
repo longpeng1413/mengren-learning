@@ -805,20 +805,6 @@ def _yaml(v):
     return '"' + str(v or '').replace('\\', '/').replace('"', "'") + '"'
 
 
-def _status_line(status):
-    """1.7.8 起不写状态（以前给交叉审核用的「待审计」）；用户改过的状态保留。"""
-    return [f'状态: {_yaml(status)}'] if status and status != '待审计' else []
-
-
-def _old_status(p: Path):
-    try:
-        head = p.read_text(encoding='utf-8', errors='replace')[:3000]
-    except OSError:
-        return None
-    m = re.search(r'(?m)^(?:状态|status):\s*"?(.*?)"?\s*$', head.split('\n---', 1)[0])  # 1.7.4 以前叫 status
-    return m.group(1).strip() if m and m.group(1).strip() else None
-
-
 def chapter_file(k, title):
     from .doc import safe_name
     return f'{k:02d}、{safe_name(title)}'
@@ -840,54 +826,85 @@ def chapter_files(chapters):
     return out
 
 
-def clip_book(doc, info, vault, folder, dir_pattern='《{title}》{author}'):
-    """写进 Obsidian：《书名》作者/00、全书总览.md + 01、章节.md … + image/。返回 {dir, files, uri}。"""
-    from .doc import safe_name
+def clip_book(doc, info, vault, folder, dir_pattern='《{title}》{author}', force=False):
+    """写进 Obsidian：《书名》作者/00、全书总览.md + 01、章节.md … + image/。返回 {dir, files, uri, records}。
+    重新剪藏时和视频笔记一样合并：保留用户在 Obsidian 里加的小节、标注和属性。
+    软件写的部分在 Obsidian 里改过、又没有 force 时，不写，返回 {'conflict': True, 'changed': [文件名…]}；
+    确认后（force）先把这些笔记备份再更新。"""
+    from .doc import (backup_note, merge_note, note_changed, note_fingerprint, note_sections, safe_name,
+                      _fm_blocks, _split_front, _tag_list)
     if not vault or not Path(vault).is_dir():
         raise OSError('找不到 Obsidian 库文件夹，请到「设置 → Obsidian」检查库的位置')
     title = (doc.get('title') or Path(doc['media']).stem).strip('《》 ')
     author = (doc.get('author') or '').strip()
     dname = safe_name((dir_pattern or '《{title}》{author}').replace('{title}', title).replace('{author}', author).strip())
     base = Path(vault) / (folder or '') / dname
-    base.mkdir(parents=True, exist_ok=True)
     shift = doc.get('shift') if doc.get('shift') is not None else info.get('shift')
     src_type = {'pdf': '扫描 PDF（OCR 文字层 + 原页面图）' if info.get('scan') else 'PDF（文字层 + 原页面图）', 'docx': 'Word 文档', 'text': '文本文档'}[info['kind']]
-    written = []
     chapters = doc.get('chapters') or []
+    clip = doc.get('clip') if isinstance(doc.get('clip'), dict) else {}
+    prev = clip.get('files') if isinstance(clip.get('files'), dict) else {}
+    tag_lines = ['tags:', '  - 外部原始资料', '  - 书籍', '  - 猛人学习', f'  - {safe_name(title).replace(" ", "_")}']
+    todo = []  # (文件名, 生成笔记的函数)
     for c, fname in zip(chapters, chapter_files(chapters)):
         if not (c.get('md') or '').strip():
             continue
-        path = base / (fname + '.md')
-        rng = range_ref(c['start'], c['end'], shift)
-        status = _old_status(path)
-        body = place_figures(c['md'], doc['media'], info, base)
-        lines = ['---', f'标题: {_yaml(c["title"])}', '类型: 书籍章节整理'] + _status_line(status) + [f'书名: {_yaml(title)}',
-                 f'作者: {_yaml(author)}', f'章节: {_yaml(c["title"])}', f'页码范围: {_yaml(rng)}',
-                 f'来源类型: {_yaml(src_type)}', f'来源文件: {_yaml(doc["media"])}', f'整理时间: {time.strftime("%Y-%m-%d %H:%M")}',
-                 'tags:', '  - 外部原始资料', '  - 书籍', '  - 猛人学习', f'  - {safe_name(title).replace(" ", "_")}', '---', '',
-                 f'# {c["title"]}', '',
-                 f'> 来源：《{title}》' + (f'，{author}' if author else '') + '。', '>',
-                 f'> 整理范围：{rng}' + (f'（PDF 第 {c["start"]}-{c["end"]} 页）' if info['kind'] == 'pdf' and shift is not None else '') + '。', '>',
-                 '> 整理边界：只忠实说明本章如何表述，不使用外部常识纠正作者理论，不评价或验证作者观点。', '', '---', '', body.strip(), '']
-        path.write_text('\n'.join(lines), encoding='utf-8')
-        written.append(str(path))
+
+        def make(c=c):
+            rng = range_ref(c['start'], c['end'], shift)
+            body = place_figures(c['md'], doc['media'], info, base)
+            return '\n'.join(['---', f'标题: {_yaml(c["title"])}', '类型: 书籍章节整理', f'书名: {_yaml(title)}',
+                              f'作者: {_yaml(author)}', f'章节: {_yaml(c["title"])}', f'页码范围: {_yaml(rng)}',
+                              f'来源类型: {_yaml(src_type)}', f'来源文件: {_yaml(doc["media"])}', f'整理时间: {time.strftime("%Y-%m-%d %H:%M")}',
+                              *tag_lines, '---', '',
+                              f'# {c["title"]}', '',
+                              f'> 来源：《{title}》' + (f'，{author}' if author else '') + '。', '>',
+                              f'> 整理范围：{rng}' + (f'（PDF 第 {c["start"]}-{c["end"]} 页）' if info['kind'] == 'pdf' and shift is not None else '') + '。', '>',
+                              '> 整理边界：只忠实说明本章如何表述，不使用外部常识纠正作者理论，不评价或验证作者观点。', '', '---', '', body.strip(), ''])
+        todo.append((fname, make))
     if (doc.get('overview') or '').strip():
-        path = base / '00、全书总览.md'
-        status = _old_status(path)
         done = [c['title'] for c in chapters if (c.get('md') or '').strip()]
-        lines = ['---', f'标题: {_yaml(title + " 全书总览")}', '类型: 书籍总览'] + _status_line(status) + [f'书名: {_yaml(title)}',
-                 f'作者: {_yaml(author)}', f'来源类型: {_yaml(src_type)}', f'来源文件: {_yaml(doc["media"])}',
-                 f'已整理范围: {_yaml("、".join(done) if len(done) < len(chapters) else "全书")}',
-                 'tags:', '  - 外部原始资料', '  - 书籍', '  - 猛人学习', f'  - {safe_name(title).replace(" ", "_")}', '---', '',
-                 f'# 《{title}》全书总览', '', doc['overview'].strip(), '']
-        path.write_text('\n'.join(lines), encoding='utf-8')
-        written.insert(0, str(path))
-    if not written:
+
+        def make_overview():
+            return '\n'.join(['---', f'标题: {_yaml(title + " 全书总览")}', '类型: 书籍总览', f'书名: {_yaml(title)}',
+                              f'作者: {_yaml(author)}', f'来源类型: {_yaml(src_type)}', f'来源文件: {_yaml(doc["media"])}',
+                              f'已整理范围: {_yaml("、".join(done) if len(done) < len(chapters) else "全书")}',
+                              *tag_lines, '---', '', f'# 《{title}》全书总览', '', doc['overview'].strip(), ''])
+        todo.insert(0, ('00、全书总览', make_overview))
+    if not todo:
         raise BookError('还没有整理好的章节')
+    # 先检查：软件写的部分在 Obsidian 里改过没有
+    changed = []
+    for fname, _ in todo:
+        rec = prev.get(fname) if isinstance(prev.get(fname), dict) else {'time': clip.get('time')}
+        if note_changed(base / (fname + '.md'), rec, 'book', rec.get('sections')):
+            changed.append(fname)
+    if changed and not force:
+        return {'conflict': True, 'changed': changed, 'dir': str(base)}
+    base.mkdir(parents=True, exist_ok=True)
+    written, records, moved, backups = [], {}, 0, 0
+    for fname, make in todo:
+        path = base / (fname + '.md')
+        fresh = make()  # 软件这次写的内容
+        text = fresh
+        if path.exists():
+            rec = prev.get(fname) if isinstance(prev.get(fname), dict) else {}
+            if fname in changed:
+                backup_note(path)
+                backups += 1
+            text, n = merge_note(path.read_text(encoding='utf-8', errors='replace'), fresh,
+                                 rec.get('tags'), (), 'book', rec.get('sections'))
+            moved += n
+        path.write_text(text, encoding='utf-8')
+        written.append(str(path))
+        # 记下这次软件写的小节和标签，下次用来分清哪些是用户加的
+        app_secs = note_sections(fresh)
+        records[fname] = {'sections': app_secs, 'tags': _tag_list(dict(_fm_blocks(_split_front(fresh)[0])).get('tags') or ['tags:']),
+                          'file_hash': note_fingerprint(text, 'book', app_secs)}
     from urllib.parse import quote
     rel = Path(written[0]).relative_to(Path(vault)).as_posix()
     return {'dir': str(base), 'files': written, 'uri': f'obsidian://open?vault={quote(Path(vault).name)}&file={quote(rel)}',
-            'time': time.strftime('%Y-%m-%d %H:%M:%S')}
+            'time': time.strftime('%Y-%m-%d %H:%M:%S'), 'records': records, 'moved': moved, 'backups': backups}
 
 
 def new_doc(path, info):

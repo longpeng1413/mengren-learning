@@ -573,6 +573,44 @@ with Image.open(figp) as im:
 ch1.write_text(cb.replace('类型: 书籍章节整理', '类型: 书籍章节整理\nstatus: "已确认-资料"'), encoding='utf-8')  # 以前的英文属性，用户改过
 api.call('book_clip', {'doc': bdoc})
 check('再次剪藏书籍保留状态（以前英文的 status 也认得）', '状态: "已确认-资料"' in ch1.read_text(encoding='utf-8'))
+
+# 书籍重新剪藏：和视频笔记一样，保留用户在 Obsidian 里加的小节、标注和属性
+md_orig = bdoc['chapters'][0]['md']
+bdoc['chapters'][0]['md'] = '## 一、本章主题\n\n本章讲趋势的起点（P1）。\n\n## 二、核心内容\n\n- 趋势由三段构成（P2）\n\n## 十三、一句话概括\n\n趋势从三段开始。'
+bc2 = api.call('book_clip', {'doc': bdoc})
+bdoc['clip'] = {'dir': bc2['dir'], 'time': bc2['time'], 'files': bc2['records']}
+rec1 = bc2['records']['01、第一章 趋势的起点']
+check('书籍剪藏记下每篇笔记软件写的小节和指纹', '一、本章主题' in rec1['sections'] and rec1['file_hash'].startswith('v2:') and '00、全书总览' in bc2['records'], rec1)
+lines = ch1.read_text(encoding='utf-8').split('\n')
+i1 = lines.index('## 一、本章主题')
+first = next(ln for ln in lines[i1 + 1:] if ln.strip())
+i2 = next(k for k, ln in enumerate(lines) if ln.startswith('## 二、'))
+lines[i2:i2] = ['## 我的笔记', '', '这一章对照 [[峰级线]] 看', '']
+lines[i1 + 1 + lines[i1 + 1:].index(first) + 1:i1 + 1 + lines[i1 + 1:].index(first) + 1] = ['', '> [!note] 我的理解', '> 先看本章主题', '']
+txt = '\n'.join(lines).replace('\ntags:\n', '\n关联课程: "[[第4课]]"\ntags:\n', 1).replace('  - 书籍\n', '  - 书籍\n  - 我的书单\n', 1)
+ch1.write_text(txt, encoding='utf-8')
+bc3 = api.call('book_clip', {'doc': bdoc})
+t3 = ch1.read_text(encoding='utf-8')
+check('书籍：只加了自己的东西，重新剪藏不弹窗', not bc3.get('conflict'), bc3)
+check('书籍：自己加的小节留在原来的位置', t3.index('## 一、本章主题') < t3.index('## 我的笔记') < t3.index('## 二、') and '这一章对照 [[峰级线]] 看' in t3, t3[:1500])
+check('书籍：标注跟着那一行', t3.index(first) < t3.index('> [!note] 我的理解') < t3.index('## 我的笔记'), t3[:1500])
+check('书籍：自己加的属性和标签保留', '关联课程: "[[第4课]]"' in t3 and '  - 我的标签' not in t3 and '  - 我的书单' in t3 and t3.count('  - 猛人学习') == 1)
+check('书籍：之前保留的状态还在', '状态: "已确认-资料"' in t3)
+bdoc['clip'] = {'dir': bc3['dir'], 'time': bc3['time'], 'files': bc3['records']}
+md0 = bdoc['chapters'][0]['md']
+bdoc['chapters'][0]['md'] = md0.replace(first, '（本章主题重新整理过）', 1)
+bc4 = api.call('book_clip', {'doc': bdoc})
+t4 = ch1.read_text(encoding='utf-8')
+check('书籍：标注上面那一行没了，标注挪到这一节最后，不丢', '> [!note] 我的理解' in t4 and bc4['moved'] == 1 and t4.index('（本章主题重新整理过）') < t4.index('> [!note] 我的理解') < t4.index('## 我的笔记'), t4[:1500])
+bdoc['clip'] = {'dir': bc4['dir'], 'time': bc4['time'], 'files': bc4['records']}
+ch1.write_text(t4.replace('（本章主题重新整理过）', '（我在 Obsidian 里直接改了这句）'), encoding='utf-8')
+bc5 = api.call('book_clip', {'doc': bdoc})
+check('书籍：直接改了软件写的小节，先问再覆盖', bc5.get('conflict') and bc5['changed'] == ['01、第一章 趋势的起点'] and '（我在 Obsidian 里直接改了这句）' in ch1.read_text(encoding='utf-8'), bc5)
+bc6 = api.call('book_clip', {'doc': bdoc, 'force': True})
+check('书籍：确认后先备份再更新，自己的内容照样保留', bc6['backups'] == 1 and '（我在 Obsidian 里直接改了这句）' not in ch1.read_text(encoding='utf-8')
+      and '## 我的笔记' in ch1.read_text(encoding='utf-8') and any((config.DATA_DIR / 'backups' / '笔记').glob('01、第一章 趋势的起点-*.md')), bc6)
+bdoc['chapters'][0]['md'] = md_orig
+bdoc['clip'] = {'dir': bc6['dir'], 'time': bc6['time'], 'files': bc6['records']}
 check('笔记文件名：前言、目录不编号，正文从 01 开始', book.chapter_files([{'title': '前言与目录'}, {'title': '第一章 甲'}, {'title': '第二章 乙'}]) == ['前言与目录', '01、第一章 甲', '02、第二章 乙'])
 check('只认出一章时按页数分段', [c['title'] for c in book.detect_chapters(dict(info, toc=[], pages=[dict(p, text=p['text'].replace('第二章', '仓位一节')) for p in info['pages']]))] == ['全文'])
 # 同名 Word（WPS 做 OCR 后导出的）当正文参考
