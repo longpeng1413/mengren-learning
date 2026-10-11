@@ -538,7 +538,7 @@
           <dt>ChatGPT 账号</dt><dd>用 ChatGPT Plus / Pro / Business 账号登录，用套餐里的额度，不另花 API 费用。浏览器登录完会自动回来；浏览器显示「无法访问此网站」时，把地址栏里的网址复制粘贴回来。</dd>
           <dt>Claude / Gemini / DeepSeek / 豆包大模型</dt><dd>填 API Key、选模型，「获取模型列表」可以列出能用的模型。豆包大模型（火山方舟）和豆包语音是两个不同的服务。</dd>
           <dt>网络代理</dt><dd>填代理地址（比如 Clash Verge 默认 http://127.0.0.1:7897），只给勾选了「通过网络代理连接」的服务用。</dd>
-          <dt>关于与数据</dt><dd>版本、开源地址；导出 / 导入设置（换电脑用，可以带密钥和 ChatGPT 登录）；缓存和日志放在哪里；打开日志、设置文件夹；清空缓存。</dd>
+          <dt>关于与数据</dt><dd>版本、开源地址；点右上角 × 时收到右下角还是直接退出；导出 / 导入设置（换电脑用，可以带密钥和 ChatGPT 登录）；缓存和日志放在哪里；打开日志、设置文件夹；清空缓存。</dd>
         </dl>
       </section>
 
@@ -814,6 +814,9 @@
       <section data-sec="about" hidden>
         <h3>关于与数据</h3>
         <p>猛人学习（原名猛人字幕）　版本 <b id="aboutVersion"></b>　·　开源项目：<a href="#" id="aboutHome">github.com/longpeng1413/mengren-learning</a></p>
+
+        <div class="label strong">点右上角 × 时</div>
+        <div class="field"><label class="check"><input type="checkbox" data-k="close_to_tray"> 收到屏幕右下角（任务栏通知区域），软件继续运行；单击那里的图标打开，右键「退出」才真正退出。不勾选就是点 × 直接退出。</label></div>
 
         <div class="label strong">换电脑：导出 / 导入设置</div>
         <p class="hint">导出成一个文件，在新电脑的猛人学习里导入，就能直接用原来的设置、各家 API 密钥、ChatGPT 登录、老师和术语表。</p>

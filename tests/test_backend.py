@@ -805,6 +805,14 @@ if lib_good is not None:
     config.LIBRARY_FILE.write_text(lib_good, encoding='utf-8')
 config.save({'book_rules_file': ''})
 
+# 点 × 收到右下角托盘：默认打开；托盘菜单有「打开」「退出」
+check('点 × 收到右下角：默认打开', config.load().get('close_to_tray') is True)
+import tray  # noqa: E402
+_t = tray.Tray(on_open=lambda: None, on_quit=lambda: None)
+check('托盘图标能建起来（菜单：打开、退出）', _t.start() and _t.icon is not None
+      and [str(i) for i in _t.icon.menu.items] == [tray.MENU_OPEN, tray.MENU_QUIT])
+_t.stop()
+
 # 被其他打包应用（Claude 桌面版）转存走的数据：正常启动时搬回来
 from core import appdata
 lib_keep = config.LIBRARY_FILE.read_text(encoding='utf-8') if config.LIBRARY_FILE.exists() else None

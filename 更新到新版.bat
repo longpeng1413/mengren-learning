@@ -9,7 +9,7 @@ if not exist "dist-next\猛人学习\猛人学习.exe" (
 for %%P in (猛人学习.exe 猛人字幕.exe) do (
   tasklist /FI "IMAGENAME eq %%P" 2>nul | find /I "%%P" >nul
   if not errorlevel 1 (
-    echo 猛人学习还开着，请先关闭它，再双击这个文件。
+    echo 猛人学习还开着（点 × 只会收到屏幕右下角）。请在右下角的猛人学习图标上右键「退出」，再双击这个文件。
     pause
     exit /b 1
   )

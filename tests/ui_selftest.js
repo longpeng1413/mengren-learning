@@ -237,6 +237,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('设置：导入导出和存放位置', !!document.querySelector('#btnExportSettings') && await until(() => document.querySelector('#aboutRoot').textContent.length > 3));
     ok('设置：课程重点模板', document.querySelector('#summaryTemplate').value.includes('不要套用固定栏目'));
     ok('关于：开源地址已改名', document.querySelector('#aboutHome').textContent.includes('mengren-learning'));
+    ok('关于：点 × 时收到右下角，默认打开，可以关掉', document.querySelector('[data-k="close_to_tray"]').checked === true);
     document.querySelector('#dlgSettings').close();
 
     // 使用说明

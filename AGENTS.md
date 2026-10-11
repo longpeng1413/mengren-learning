@@ -6,7 +6,8 @@
 
 ## 绝对不要做的事
 
-- **不要强行结束用户正在运行的「猛人学习.exe」**（不要一上来就 taskkill / Stop-Process）。他可能正在看课、改字幕，强关会丢未保存的修改。用户已允许升级时关闭它，但要**正常关闭**（等同点右上角 ×，程序会先保存），见下面「打包和更新」。
+- **不要强行结束用户正在运行的「猛人学习.exe」**（不要一上来就 taskkill / Stop-Process）。他可能正在看课、改字幕，强关会丢未保存的修改。用户已允许升级时关闭它，但要**正常退出**（程序会先保存），见下面「打包和更新」。
+- **点右上角 × 默认不退出，收到右下角托盘**（1.7.13，用户要求；设置「关于与数据 → 点右上角 × 时」可以改成直接退出，`close_to_tray`）。托盘在 `app/tray.py`（pystray，打包要 `--hidden-import pystray._win32`）：单击打开，右键「打开猛人学习」「退出」。所以 `CloseMainWindow()` 只会把窗口收起来；要让它保存后退出，运行 `猛人学习.exe --quit`（命名事件通知正在运行的那个走 `on_closing(force=True)`）。再次双击时 `bring_front` 把收起的窗口显示出来。
 - **不要改回本机 HTTP 服务器**。界面必须用 `index.as_uri()`（`file://`）加载，通过 pywebview 的 `js_api` 和后台通信。用户电脑上的 360 主动防御和 Clash Verge 会干扰 127.0.0.1 回环连接（传输卡在约 64KB 或被重置），以前因此出过「图标只显示一半」「界面卡住」。注意：给 `create_window` 传普通路径时 pywebview 会**悄悄**起一个本地服务器，所以一定要传 `file://` URI。
 - **不要在关闭事件里同步调用 `window.evaluate_js`**。`closing` 事件在界面线程里执行，同步等界面会死锁（以前出过「猛人字幕.exe 未响应」，软件那时还叫猛人字幕）。现在的做法见 `app/main.py` 的 `on_closing`：先返回 False 取消关闭 → 后台线程通知界面 `window.prepareClose()` 保存 → 等 `api._quit`（最多 4 秒）→ `window.destroy()` → `os._exit` 兜底。
 - **改设置只用 `config.update(部分设置)`；`config.save()` 是保存整份设置**。2026-10-11 曾用 `config.save({'book_rules_file': …})` 把用户的密钥、ChatGPT 登录、Obsidian 位置全部冲掉。现在 `save()` 会从现有文件补回没传的项，但仍应该用 `update()`。
@@ -126,7 +127,7 @@ python -m venv .venv
 
 1. `.venv\Scripts\python build.py` → 输出到 `dist-next\`（不碰正在用的 `dist\`）。
 2. `.venv\Scripts\python tests\run_ui_test.py --exe` 测打包版。
-3. 换进 `dist`：用户已允许升级时关闭正在运行的程序。先正常关闭（PowerShell：`Get-Process 猛人学习 | ForEach-Object { $_.CloseMainWindow() }`，等它自己保存退出，最多等 15 秒左右，还不退出才 `Stop-Process`），然后执行「更新到新版.bat」里同样的步骤（把 `dist\猛人字幕` 里的「缓存（可随时删除）」「日志（可随时删除）」移进 `dist-next\猛人字幕`，删掉 `dist`，把 `dist-next` 改名为 `dist`），最后用 `explorer.exe "E:\Claude-猛人字幕\dist\猛人学习\猛人学习.exe"` 启动（不要直接启动，见上面「转存」）并告诉用户。用户也可以自己双击「更新到新版.bat」。
+3. 换进 `dist`：用户已允许升级时关闭正在运行的程序。先正常退出（运行 `& "E:\Claude-猛人字幕\dist\猛人学习\猛人学习.exe" --quit`，等它自己保存退出，最多等 15 秒左右，还不退出才 `Stop-Process`；1.7.12 及以前的版本没有 --quit，用 `CloseMainWindow()`），然后执行「更新到新版.bat」里同样的步骤（把 `dist\猛人字幕` 里的「缓存（可随时删除）」「日志（可随时删除）」移进 `dist-next\猛人字幕`，删掉 `dist`，把 `dist-next` 改名为 `dist`），最后用 `explorer.exe "E:\Claude-猛人字幕\dist\猛人学习\猛人学习.exe"` 启动（不要直接启动，见上面「转存」）并告诉用户。用户也可以自己双击「更新到新版.bat」。
 
 ## 发新版本
 

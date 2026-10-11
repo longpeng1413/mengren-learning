@@ -140,6 +140,7 @@ DEFAULTS = {
                  'book_folder': '猛人学习/书籍', 'book_dir_pattern': '《{title}》{author}'},
     'book_rules_file': '',
     'auto_review': True,
+    'close_to_tray': True,  # 点右上角 × 时收到右下角托盘，不退出
     'recent': [],
 }
 

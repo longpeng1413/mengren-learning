@@ -19,7 +19,7 @@ from webview.dom import DOMEventHandler  # noqa: E402
 
 from bridge import Api  # noqa: E402
 
-VERSION = '1.7.12'
+VERSION = '1.7.13'
 
 
 _instance = None  # 保持互斥锁的句柄，进程退出时自动释放
@@ -32,25 +32,62 @@ def single_instance() -> bool:
     if os.name != 'nt' or '--selftest' in ' '.join(sys.argv):
         return True
     import ctypes
-    import hashlib
     k32, u32 = ctypes.windll.kernel32, ctypes.windll.user32
     k32.CreateMutexW.restype = ctypes.c_void_p
     k32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p]
     k32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
     k32.WaitForSingleObject.restype = ctypes.c_uint32
-    name = 'Local\\MengrenLearning-' + hashlib.md5(str(config.DATA_DIR).lower().encode('utf-8')).hexdigest()[:12]
+    name = 'Local\\MengrenLearning-' + _data_key()
     _instance = k32.CreateMutexW(None, False, name)
     if not _instance:
         return True
     if k32.WaitForSingleObject(_instance, 5000) in (0, 0x80):  # 拿到了（或上一个进程异常退出留下的）
         return True
-    hwnd = u32.FindWindowW(None, config.APP_NAME)
-    if hwnd:
-        u32.ShowWindow(hwnd, 9)  # 还原
-        u32.SetForegroundWindow(hwnd)
-    else:
+    if not bring_front():
         u32.MessageBoxW(None, '猛人学习已经打开了。', config.APP_NAME, 0x40)
     return False
+
+
+def _data_key() -> str:
+    import hashlib
+    return hashlib.md5(str(config.DATA_DIR).lower().encode('utf-8')).hexdigest()[:12]
+
+
+def quit_event(create: bool):
+    """「请退出」信号：运行 猛人学习.exe --quit 时，让正在运行的猛人学习保存后退出（点 × 只会收到托盘）。"""
+    import ctypes
+    k32 = ctypes.windll.kernel32
+    k32.CreateEventW.restype = k32.OpenEventW.restype = ctypes.c_void_p
+    k32.CreateEventW.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_bool, ctypes.c_wchar_p]
+    k32.OpenEventW.argtypes = [ctypes.c_uint32, ctypes.c_bool, ctypes.c_wchar_p]
+    name = 'Local\\MengrenLearningQuit-' + _data_key()
+    return k32.CreateEventW(None, True, False, name) if create else k32.OpenEventW(0x0002, False, name)  # EVENT_MODIFY_STATE
+
+
+def request_quit() -> bool:
+    """通知正在运行的猛人学习退出。没有在运行返回 False。"""
+    import ctypes
+    h = quit_event(False)
+    if not h:
+        return False
+    ctypes.windll.kernel32.SetEvent(ctypes.c_void_p(h))
+    return True
+
+
+def bring_front() -> bool:
+    """把猛人学习的窗口显示到最前面（收在托盘里、最小化的也行）。找不到窗口返回 False。"""
+    if os.name != 'nt':
+        return False
+    import ctypes
+    u32 = ctypes.windll.user32
+    hwnd = u32.FindWindowW(None, config.APP_NAME)
+    if not hwnd:
+        return False
+    u32.ShowWindow(hwnd, 5)  # 显示
+    if u32.IsIconic(hwnd):
+        u32.ShowWindow(hwnd, 9)  # 还原
+    u32.SetForegroundWindow(hwnd)
+    return True
 
 
 def log_data_files():
@@ -73,6 +110,9 @@ def log_data_files():
 
 
 def main():
+    if '--quit' in sys.argv:  # 升级前用：让正在运行的那个保存后退出
+        log.info('收到 --quit：%s', '已通知正在运行的猛人学习退出' if os.name == 'nt' and request_quit() else '猛人学习没有在运行')
+        return
     log.info('==== 猛人学习 %s 启动（%s）====', VERSION, 'exe' if getattr(sys, 'frozen', False) else '源码')
     from core import appdata
     selftest = '--selftest' in ' '.join(sys.argv)
@@ -141,8 +181,8 @@ def main():
                 result = json.loads(raw)
                 break
         Path(path).with_suffix('.result.json').write_text(json.dumps(result or ['TIMEOUT'], ensure_ascii=False, indent=1), encoding='utf-8')
-        if '--selftest-close' in sys.argv:  # 连关闭流程一起测：走一遍和点右上角 × 一样的关闭流程
-            on_closing()
+        if '--selftest-close' in sys.argv:  # 连关闭流程一起测：走一遍和托盘「退出」一样的关闭流程
+            on_closing(force=True)
             return
         if '--keep' not in sys.argv:
             os._exit(0)
@@ -173,10 +213,49 @@ def main():
     # 再在后台让界面保存，保存完（最多等 4 秒）才真正关窗。
     closing = {'started': False, 'done': False}
 
-    def on_closing():
+    # 右下角托盘：点 × 时收进托盘（设置里可以改成直接退出）；自测时不用
+    from tray import Tray
+    tray = Tray(on_open=lambda: show_window(), on_quit=lambda: on_closing(force=True))
+    if '--selftest' not in ' '.join(sys.argv):
+        tray.start()
+        if os.name == 'nt':
+            def wait_quit():
+                import ctypes
+                h = quit_event(True)
+                if h and ctypes.windll.kernel32.WaitForSingleObject(ctypes.c_void_p(h), 0xFFFFFFFF) == 0:
+                    log.info('收到「请退出」信号（猛人学习.exe --quit）')
+                    on_closing(force=True)
+            threading.Thread(target=wait_quit, daemon=True, name='quit-signal').start()
+
+    def show_window():
+        try:
+            window.show()
+        except Exception:
+            log.warning('显示窗口出错', exc_info=True)
+        bring_front()
+
+    def to_tray():
+        try:
+            window.hide()
+        except Exception:
+            log.exception('收到托盘时出错')
+            return
+        log.info('窗口收到右下角托盘')
+        tray.tip()
+
+    def close_to_tray():
+        try:
+            return bool(config.load().get('close_to_tray', True))
+        except Exception:
+            return True
+
+    def on_closing(force=False):
         if closing['done']:
             return True
         if closing['started']:
+            return False
+        if not force and tray.icon and close_to_tray():
+            threading.Thread(target=to_tray, daemon=True, name='to-tray').start()
             return False
         closing['started'] = True
         log.info('收到关闭请求，先保存字幕和播放进度')
@@ -189,6 +268,7 @@ def main():
             if not api._quit.wait(4):
                 log.warning('界面 4 秒内没有保存完，直接关闭')
             closing['done'] = True
+            tray.stop()
             log.info('关闭窗口')
             try:
                 window.destroy()

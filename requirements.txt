@@ -8,3 +8,4 @@ pypdfium2==5.14.0
 pillow==12.3.0
 pyinstaller==6.22.3
 pyflakes==4.0.3
+pystray==0.19.5
