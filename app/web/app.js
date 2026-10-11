@@ -1600,6 +1600,7 @@ function collectSettings() {
 }
 async function saveSettings(close = true) {
   try {
+    if (teacherFormDirty() && !(await saveTeacher())) return false;
     const r = await api('settings', { settings: collectSettings() });
     S.settings = keepLayout(r.settings); S.teachers = r.teachers;
     $$('#dlgSettings [data-secret]').forEach(el => delete el.dataset.cleared);
@@ -1716,16 +1717,28 @@ async function pickTermsFile() {
     toast('已选择术语表文件，记得点「保存这位老师」');
   } catch (e) { fail(e); }
 }
-async function saveTeacher() {
-  const t = { id: editingTeacher, name: $('#tName').value, display: $('#tDisplay').value, terms_file: $('#tFile').dataset.path || '',
+function teacherForm() {
+  return { id: editingTeacher, name: $('#tName').value, display: $('#tDisplay').value, terms_file: $('#tFile').dataset.path || '',
     about: $('#tAbout').value, terms: $('#tTerms').value, notes: $('#tNotes').value, lang: $('#tLang').value,
     folder: $('#tFolder').value, template: $('#tOwnTemplate').checked ? $('#tTemplate').value : '' };
-  if (!t.name.trim()) { $('#tName').focus(); return toast('请填写老师名字', { error: true }); }
+}
+/* 老师档案改了还没点「保存」：点「保存设置」或切换到别的档案时自动保存，免得改了名字却没生效 */
+function teacherFormDirty() {
+  if (!$('#tName')) return false;
+  const f = teacherForm(), t = teacherById(editingTeacher);
+  if (!t) return !!f.name.trim();
+  return ['name', 'display', 'terms_file', 'about', 'terms', 'notes', 'lang', 'folder', 'template']
+    .some(k => String(f[k] || '').trim() !== String(t[k] || '').trim());
+}
+async function saveTeacher() {
+  const t = teacherForm();
+  if (!t.name.trim()) { $('#tName').focus(); toast('请填写名称', { error: true }); return false; }
   try {
     const r = await api('teacher_save', { teacher: t });
     S.teachers = r.teachers; renderTeacherList(r.teacher.id); renderTeacherSelect(); renderLibrary(); markNav();
     $('#tMsg').textContent = '✓ 已保存'; $('#tMsg').className = 'test-result ok';
-  } catch (e) { fail(e); }
+    return true;
+  } catch (e) { fail(e); return false; }
 }
 async function deleteTeacher() {
   const t = teacherById(editingTeacher);
@@ -1979,7 +1992,11 @@ function bind() {
     try { const r = await api('codex_finish', { url: $('#codexUrl').value }); if (r.status === 'done') codexDone(r); else toast('还没有拿到登录结果'); }
     catch (e) { fail(e); }
   };
-  $('#teacherList').onclick = e => { const b = e.target.closest('button'); if (!b) return; editTeacher(b.dataset.tid === '__new' ? null : teacherById(b.dataset.tid)); if (b.dataset.tid === '__new') $('#tName').focus(); };
+  $('#teacherList').onclick = async e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (teacherFormDirty() && !(await saveTeacher())) return;
+    if (b.dataset.tid !== '__new' && !teacherById(b.dataset.tid)) return;
+    editTeacher(b.dataset.tid === '__new' ? null : teacherById(b.dataset.tid)); if (b.dataset.tid === '__new') $('#tName').focus(); };
   $('#tSave').onclick = saveTeacher;
   $('#tFilePick').onclick = pickTermsFile;
   $('#tFileClear').onclick = () => setTermsFile('');

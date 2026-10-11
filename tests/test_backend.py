@@ -327,6 +327,8 @@ check('课程重点：没讲明的标（未讲明），只标一次，不补写'
 check('课程重点：对别人的看法不算自述；没有不一致时不写「老师口述」', '不是自述' in T and '没有不一致时不要写「老师口述：」' in T)
 check('查漏补缺也照这几条写', '「老师自述：」' in llm.REVIEW_SYSTEM and '（未讲明）' in llm.REVIEW_SYSTEM and '口述与课件不一致' in llm.REVIEW_SYSTEM)
 
+check('AI 提示里档案名写成「术语表：」，不当成老师名字（可以是课程体系，例如峰级）', llm.teacher_block({'name': '峰级', 'terms': ''}).startswith('术语表：峰级'))
+
 # 逐课积累术语表
 sp_ = llm.fix_spans([{'t': 3.0, 'before': '这个风机线很重要', 'after': '这个峰级线很重要', 'by': 'ai'},
                      {'t': 9.0, 'before': '甲乙丙丁戊', 'after': '甲乙', 'by': 'manual'}])

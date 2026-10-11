@@ -614,12 +614,12 @@
 
       <section data-sec="teachers" hidden>
         <h3>老师与术语表</h3>
-        <p class="hint">给每位老师建一份术语表。生成字幕时，术语会传给识别服务（豆包、OpenAI），识别完还可以让 AI 按术语表校对；翻译、课程重点和对话也会参考它。</p>
+        <p class="hint">给每位老师（或几位老师共用的一套课程体系，例如「峰级」）建一份术语表。生成字幕时，术语会传给识别服务（豆包、OpenAI），识别完还可以让 AI 按术语表校对；翻译、课程重点和对话也会参考它。</p>
         <div class="teacher-wrap">
           <div class="teacher-list" id="teacherList"></div>
           <div class="teacher-edit" id="teacherEdit">
             <div class="grid2">
-              <div class="field"><div class="label">老师名字</div><input id="tName" placeholder="例如：大聪老师"></div>
+              <div class="field"><div class="label">名称（老师或课程体系）</div><input id="tName" placeholder="例如：大聪老师；几位老师共用一套术语时可以写：峰级"></div>
               <div class="field"><div class="label">课程通常是</div><select id="tLang"><option value="zh">中文</option><option value="en">英文</option></select></div>
             </div>
             <div class="field"><div class="label">笔记里的称呼（可选）</div><input id="tDisplay" placeholder="剪藏笔记里写的老师名字，默认用上面的名字，例如：王老师"></div>

@@ -428,7 +428,8 @@ def teacher_block(teacher, with_notes=True):
     if not teacher:
         return ''
     words, hints, forced = parse_terms(teacher.get('terms'))
-    parts = [f"老师：{teacher.get('name', '')}"]
+    # 档案名可能是老师，也可能是几位老师共用的课程体系（例如「峰级」），不能当成老师的名字
+    parts = [f"术语表：{teacher.get('name', '')}"]
     if teacher.get('about'):
         parts.append('老师和课程背景：' + teacher['about'])
     if words:

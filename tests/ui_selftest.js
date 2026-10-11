@@ -213,6 +213,14 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('设置：ChatGPT 账号登录', document.querySelector('#codexBox').textContent.includes('用 ChatGPT 账号登录'));
     showSection('teachers');
     ok('设置：老师列表', document.querySelectorAll('#teacherList button').length === 2);
+    document.querySelectorAll('#teacherList button')[0].click();
+    const tEdit = teacherById(editingTeacher), tOld = tEdit.name;
+    document.querySelector('#tName').value = tOld + '改名';
+    ok('改了名称还没点「保存这位老师」：认得出有改动', teacherFormDirty());
+    await saveSettings(false);
+    ok('点「保存设置」时把改名一起保存，顶栏下拉框跟着变', teacherById(tEdit.id).name === tOld + '改名'
+       && [...document.querySelectorAll('#teacherSelect option')].some(o => o.textContent.includes(tOld + '改名')) && !teacherFormDirty());
+    document.querySelector('#tName').value = tOld; await saveTeacher();
     ok('设置：可以关联术语表文件、填笔记里的称呼', document.querySelector('#tFile').textContent === '没有关联' && !!document.querySelector('#tFilePick') && !!document.querySelector('#tDisplay'));
     showSection('doubao');
     ok('设置：对象存储写清楚存储桶名称和 AK 从哪里来', document.querySelector('section[data-sec="doubao"] .tos').textContent.includes('小写英文字母') && document.querySelector('[data-k="providers.doubao.tos_ak"]').placeholder === 'AKLT…');
