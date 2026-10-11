@@ -803,6 +803,46 @@ if lib_good is not None:
     config.LIBRARY_FILE.write_text(lib_good, encoding='utf-8')
 config.save({'book_rules_file': ''})
 
+# 被其他打包应用（Claude 桌面版）转存走的数据：正常启动时搬回来
+from core import appdata
+lib_keep = config.LIBRARY_FILE.read_text(encoding='utf-8') if config.LIBRARY_FILE.exists() else None
+vdir = TMP / 'local' / 'Packages' / 'Claude_test' / 'LocalCache' / 'Roaming' / config.APP_NAME
+(vdir / 'backups' / '笔记').mkdir(parents=True, exist_ok=True)
+(vdir / 'library.json').write_text(json.dumps({'folders': [{'path': str(TMP), 'name': '转存的媒体库'}], 'files': []}, ensure_ascii=False), encoding='utf-8')
+(vdir / 'backups' / '笔记' / '旧笔记.md').write_text('x', encoding='utf-8')
+old_set = config.SETTINGS_FILE.read_text(encoding='utf-8')
+(vdir / 'settings.json').write_text('{"theme": "old"}', encoding='utf-8')
+os.utime(vdir / 'settings.json', (1, 1))  # 转存的设置比这边旧：不能覆盖
+check('找到转存的数据文件夹', appdata.virtual_dirs() == [vdir])
+check('测试环境的进程没有被转存', appdata.is_virtualized() is False)
+moved_v = appdata.adopt_virtual()
+check('转存的媒体库搬回来了（这边旧的先备份）', config.load_library()['folders'][0]['name'] == '转存的媒体库'
+      and 'library.json' in moved_v and (lib_keep is None or any((config.DATA_DIR / 'backups' / '数据').glob('搬回前-*/library.json'))), moved_v)
+check('备份等其他文件也搬回来', (config.DATA_DIR / 'backups' / '笔记' / '旧笔记.md').exists())
+check('转存的比这边旧的不覆盖', config.SETTINGS_FILE.read_text(encoding='utf-8') == old_set)
+check('搬完把转存的文件夹改名，下次不再搬', not vdir.exists() and vdir.with_name(config.APP_NAME + appdata.ADOPTED).is_dir()
+      and appdata.virtual_dirs() == [])
+if lib_keep is not None:
+    config.LIBRARY_FILE.write_text(lib_keep, encoding='utf-8')
+else:
+    config.LIBRARY_FILE.unlink()
+
+# 这边从没真正用过（只有一份默认设置，比转存的还新）：整份采用转存的，旧的先备份
+real_keep = config.DATA_DIR
+config.DATA_DIR = TMP / 'appdata2' / config.APP_NAME
+config.DATA_DIR.mkdir(parents=True)
+(config.DATA_DIR / 'settings.json').write_text('{"theme": "默认"}', encoding='utf-8')
+vdir2 = TMP / 'local' / 'Packages' / 'Claude_test2' / 'LocalCache' / 'Roaming' / config.APP_NAME
+vdir2.mkdir(parents=True)
+(vdir2 / 'settings.json').write_text('{"theme": "真的"}', encoding='utf-8')
+(vdir2 / 'library.json').write_text('{"folders": [], "files": []}', encoding='utf-8')
+os.utime(vdir2 / 'settings.json', (1, 1))
+appdata.adopt_virtual()
+check('这边没用过：转存的设置即使更旧也整份采用，这边的先备份',
+      '真的' in (config.DATA_DIR / 'settings.json').read_text(encoding='utf-8')
+      and any('默认' in f.read_text(encoding='utf-8') for f in (config.DATA_DIR / 'backups' / '数据').glob('搬回前-*/settings.json')))
+config.DATA_DIR = real_keep
+
 # 缓存和日志位置
 check('缓存和日志在指定位置，文件夹名写着可随时删除', config.CACHE_DIR == TMP / 'store' / '缓存（可随时删除）' and config.LOG_DIR.name == '日志（可随时删除）')
 r_ = api.call('set_storage', {'path': str(TMP / 'store2')})

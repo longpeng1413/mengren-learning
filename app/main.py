@@ -19,7 +19,7 @@ from webview.dom import DOMEventHandler  # noqa: E402
 
 from bridge import Api  # noqa: E402
 
-VERSION = '1.7.10'
+VERSION = '1.7.11'
 
 
 _instance = None  # 保持互斥锁的句柄，进程退出时自动释放
@@ -53,11 +53,38 @@ def single_instance() -> bool:
     return False
 
 
+def log_data_files():
+    """启动自检：记下这次实际读的数据文件夹和文件（大小、修改时间、媒体库条数），
+    以后再出现「设置 / 媒体库变空」能从日志直接看出读的是哪份。不记内容，不记密钥。"""
+    try:
+        parts = []
+        for f in (config.SETTINGS_FILE, config.LIBRARY_FILE, config.TEACHERS_FILE):
+            if f.exists():
+                st = f.stat()
+                parts.append(f'{f.name} {st.st_size}B {time.strftime("%m-%d %H:%M:%S", time.localtime(st.st_mtime))}')
+            else:
+                parts.append(f'{f.name} 不存在')
+        lib = config.load_library()
+        log.info('数据文件夹：%s（APPDATA=%s）｜%s｜媒体库 %d 个文件夹、%d 个单独文件',
+                 config.DATA_DIR, os.environ.get('APPDATA'), '；'.join(parts),
+                 len(lib.get('folders') or []), len(lib.get('files') or []))
+    except Exception as e:  # 自检本身不能影响启动
+        log.warning('启动自检失败：%r', e)
+
+
 def main():
     log.info('==== 猛人学习 %s 启动（%s）====', VERSION, 'exe' if getattr(sys, 'frozen', False) else '源码')
+    from core import appdata
+    selftest = '--selftest' in ' '.join(sys.argv)
+    # 由其他打包应用（例如 Claude 桌面版）打开时，写设置会被 Windows 转存到那个应用的私有文件夹，
+    # 和从桌面打开的不是同一份数据。这种情况通过资源管理器重新打开自己。
+    if not selftest and appdata.is_virtualized() and appdata.relaunch_outside():
+        return
     if not single_instance():
         log.info('已经有一个猛人学习开着，切到那个窗口后退出')
         return
+    if not selftest and not appdata.is_virtualized():
+        appdata.adopt_virtual()  # 以前被转存走的设置、媒体库搬回来
     from core import cache
     threading.Thread(target=cache.cleanup, daemon=True, name='cache-cleanup').start()
     api = Api()
@@ -71,6 +98,7 @@ def main():
             import ctypes
             ctypes.windll.user32.MessageBoxW(None, str(e), config.APP_NAME, 0x10)
         return
+    log_data_files()
     bg = '#f3f0ea' if s.get('theme') == 'light' else '#0e0e10'
     index = config.resource_dir() / 'web' / 'index.html'
     window = webview.create_window(config.APP_NAME, index.as_uri(), js_api=api, width=1440, height=900, min_size=(960, 600),

@@ -567,7 +567,9 @@ class Api:
 
     # ---------------------------------------------------------- 媒体库 ----
     def do_library(self, b):
-        return {'groups': library.view()}
+        groups = library.view()
+        log.info('媒体库：%d 组、%d 个条目', len(groups), sum(len(g.get('items') or []) for g in groups))
+        return {'groups': groups}
 
     def do_library_add_folder(self, b):
         path = b.get('path')

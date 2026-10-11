@@ -13,6 +13,10 @@
 - **读不出数据文件时不能当成空的**（1.7.10）：`config._read_json` 读失败会重试、再用 `.bak`，都不行就抛 `DataError`，界面显示原因；只有文件本来不存在才用默认值。每次写之前留 `.bak`，每天第一次写留快照到 `%APPDATA%\猛人学习ackups\数据`（保留 30 天）。
 - **同一份数据只开一个窗口**（`main.single_instance`，按数据目录建互斥锁；`--selftest` 不受限）。再双击会切到已开的窗口。
 - **不要把 API 密钥写进日志、报错信息或仓库**。密钥字段见 `config.SECRETS`，发给界面前用 `config.public()` 打码。用户的设置在 `%APPDATA%\猛人学习\`，不在项目里。
+- **从 Claude 桌面版里启动的程序（包括你跑的脚本），写 `%APPDATA%` 会被 Windows 转存**到 `%LOCALAPPDATA%\Packages\Claude_…\LocalCache\Roaming\`，而且只有 Claude 启动的程序看得到。2026-10 因此出过「从桌面打开媒体库空白、设置像没了」：用户好几天都在用我启动的那个窗口，数据全写进了转存文件夹。现在 `app/core/appdata.py` 防住了：被转存时软件通过资源管理器重新打开自己；正常启动时把转存的数据先备份再搬回来。所以：
+  - 给用户打开软件用 `explorer.exe "…\猛人学习.exe"`（或桌面快捷方式），不要直接启动 exe；
+  - 用脚本读写用户的真实设置时，你看到 / 写进的可能是转存的那份。要看真正的文件用 `\\localhost\C$\Users\…\AppData\Roaming\猛人学习`；改设置尽量让用户在软件里改。
+  - 启动日志里有一行「数据文件夹：…｜settings.json 多大…｜媒体库几个文件夹」，再有「数据不见了」先看这一行。
 
 ### 改名（1.6）
 
@@ -122,7 +126,7 @@ python -m venv .venv
 
 1. `.venv\Scripts\python build.py` → 输出到 `dist-next\`（不碰正在用的 `dist\`）。
 2. `.venv\Scripts\python tests\run_ui_test.py --exe` 测打包版。
-3. 换进 `dist`：用户已允许升级时关闭正在运行的程序。先正常关闭（PowerShell：`Get-Process 猛人学习 | ForEach-Object { $_.CloseMainWindow() }`，等它自己保存退出，最多等 15 秒左右，还不退出才 `Stop-Process`），然后执行「更新到新版.bat」里同样的步骤（把 `dist\猛人字幕` 里的「缓存（可随时删除）」「日志（可随时删除）」移进 `dist-next\猛人字幕`，删掉 `dist`，把 `dist-next` 改名为 `dist`），最后启动 `dist\猛人字幕\猛人字幕.exe` 并告诉用户。用户也可以自己双击「更新到新版.bat」。
+3. 换进 `dist`：用户已允许升级时关闭正在运行的程序。先正常关闭（PowerShell：`Get-Process 猛人学习 | ForEach-Object { $_.CloseMainWindow() }`，等它自己保存退出，最多等 15 秒左右，还不退出才 `Stop-Process`），然后执行「更新到新版.bat」里同样的步骤（把 `dist\猛人字幕` 里的「缓存（可随时删除）」「日志（可随时删除）」移进 `dist-next\猛人字幕`，删掉 `dist`，把 `dist-next` 改名为 `dist`），最后用 `explorer.exe "E:\Claude-猛人字幕\dist\猛人学习\猛人学习.exe"` 启动（不要直接启动，见上面「转存」）并告诉用户。用户也可以自己双击「更新到新版.bat」。
 
 ## 发新版本
 
