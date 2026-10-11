@@ -1222,7 +1222,7 @@ async function doClip() {
     let r = await api('clip', { doc: S.doc });
     if (r.conflict) {
       const name = r.path.split(/[\\/]/).pop();
-      if (!confirm(`「${name}」上次剪藏后在 Obsidian 里改过（最后修改 ${r.modified}）。\n\n继续剪藏会用软件里的内容覆盖整篇笔记，你在 Obsidian 里的改动会没掉（属性里的 status 会保留）。旧笔记会先备份到：\n%APPDATA%\\猛人学习\\backups\\笔记\n\n要继续剪藏吗？`)) {
+      if (!confirm(`「${name}」上次剪藏后在 Obsidian 里改过（最后修改 ${r.modified}）。\n\n继续剪藏会用软件里的内容覆盖整篇笔记，你在 Obsidian 里的改动会没掉（属性里的「状态」会保留）。旧笔记会先备份到：\n%APPDATA%\\猛人学习\\backups\\笔记\n\n要继续剪藏吗？`)) {
         toast('没有剪藏，Obsidian 里的笔记保持不变');
         return true;
       }

@@ -106,7 +106,10 @@ c = api.call('clip', {'doc': again})
 note = Path(c['path'])
 check('剪藏生成笔记', c['ok'] and note.exists() and note.parent == vault / '学习' / '猛人字幕', c)
 body = note.read_text(encoding='utf-8')
-check('笔记：上半部分课程重点，下半部分完整字幕', body.index('## 课程重点') < body.index('## 完整字幕') and '[00:00] Edited line' in body and 'reviewed: false' in body)
+check('笔记：上半部分课程重点，下半部分完整字幕', body.index('## 课程重点') < body.index('## 完整字幕') and '[00:00] Edited line' in body and '人工校对: false' in body)
+check('识别服务写成看得懂的中文', docs.asr_label('doubao · flash') == '豆包语音 · 极速版' and docs.asr_label('openai · whisper-1') == 'OpenAI · whisper-1' and docs.asr_label('') == '')
+check('笔记属性用中文（tags 是 Obsidian 固定的，不改）', all(k in body for k in ('标题: ', '老师: ', '视频文件: ', '时长: ', '字幕识别: ', 'AI校对: ', '状态: ', '字幕句数: ', '剪藏时间: '))
+      and 'status:' not in body and 'source:' not in body and '\ntags:\n' in body, body[:700])
 check('obsidian 链接', c['uri'].startswith('obsidian://open?vault='))
 again['clip'] = {'path': c['path']}
 c2 = api.call('clip', {'doc': again})
@@ -161,7 +164,7 @@ again['teacher'] = t['id']
 again['clip'] = None
 c3 = api.call('clip', {'doc': again})
 check('没有剪藏记录时，按视频路径找到已有笔记并更新', c3['path'] == c['path'], c3)
-check('笔记属性里有老师', 'teacher: "大聪老师"' in Path(c3['path']).read_text(encoding='utf-8'))
+check('笔记属性里有老师', '老师: "大聪老师"' in Path(c3['path']).read_text(encoding='utf-8'))
 shutil.rmtree(vault / '学习')
 c3b = api.call('clip', {'doc': again})
 check('按老师分子文件夹', Path(c3b['path']).parent.name == '大聪老师', c3b)
@@ -246,16 +249,17 @@ api.call('settings', {'settings': {'obsidian': {'vault': str(vault), 'folder': '
 c4 = api.call('clip', {'doc': d14})
 n4 = Path(c4['path'])
 b4_ = n4.read_text(encoding='utf-8')
-check('笔记文件名格式、老师称呼', n4.name == '演示视频（猛人字幕）.md' and n4.parent.name == '王老师' and 'teacher: "王老师"' in b4_, c4)
-check('笔记：标题层级、状态、存疑句', '\n### 一、开头' in b4_ and '# 课程重点：演示' not in b4_ and 'status: "待审计"' in b4_ and '〔存疑：疑似识别错误〕' in b4_, b4_[:600])
+check('笔记文件名格式、老师称呼', n4.name == '演示视频（猛人字幕）.md' and n4.parent.name == '王老师' and '老师: "王老师"' in b4_, c4)
+check('笔记：标题层级、状态、存疑句', '\n### 一、开头' in b4_ and '# 课程重点：演示' not in b4_ and '状态: "待审计"' in b4_ and '〔存疑：疑似识别错误〕' in b4_, b4_[:600])
 moved = vault / '别处' / '改了名.md'
 moved.parent.mkdir()
 n4.replace(moved)
-moved.write_text(moved.read_text(encoding='utf-8').replace('status: "待审计"', 'status: "已确认-资料"'), encoding='utf-8')
+# 模拟 1.7.4 以前的笔记：属性是英文（status、source）
+moved.write_text(moved.read_text(encoding='utf-8').replace('状态: "待审计"', 'status: "已确认-资料"').replace('视频文件: ', 'source: '), encoding='utf-8')
 d14['clip'] = {'path': str(n4)}
 c5 = api.call('clip', {'doc': d14})
 check('笔记被移动改名后，再剪藏仍更新原笔记', Path(c5['path']) == moved and not n4.exists(), c5)
-check('再剪藏保留笔记里的 status', 'status: "已确认-资料"' in moved.read_text(encoding='utf-8'))
+check('再剪藏保留笔记里的状态（以前英文的 status 也认得，改写成中文属性）', '状态: "已确认-资料"' in moved.read_text(encoding='utf-8') and 'status:' not in moved.read_text(encoding='utf-8'))
 api.call('teacher_delete', {'id': t2['id']})
 
 # ---------------------------------------------------------------- 1.5 画面 ----
@@ -308,9 +312,9 @@ g0 = api.call('clip', {'doc': cl})
 check('笔记没改过：直接更新', not g0.get('conflict') and g0['file_hash'], g0)
 cl2 = dict(cl, clip={'path': g0['path'], 'time': g0['time'], 'hash': g0['hash'], 'file_hash': g0['file_hash']})
 note = Path(g0['path'])
-note.write_text(re.sub(r'(?m)^status:.*$', 'status: 已审计', note.read_text(encoding='utf-8'), count=1), encoding='utf-8')
+note.write_text(re.sub(r'(?m)^状态:.*$', '状态: 已审计', note.read_text(encoding='utf-8'), count=1), encoding='utf-8')
 g1 = api.call('clip', {'doc': cl2})
-check('只在 Obsidian 里改了 status：不算改动，照常更新并保留 status', not g1.get('conflict') and 'status: "已审计"' in note.read_text(encoding='utf-8'), g1)
+check('只在 Obsidian 里改了 status：不算改动，照常更新并保留 status', not g1.get('conflict') and '状态: "已审计"' in note.read_text(encoding='utf-8'), g1)
 cl3 = dict(cl, clip={'path': g1['path'], 'time': g1['time'], 'hash': g1['hash'], 'file_hash': g1['file_hash']})
 note.write_text(note.read_text(encoding='utf-8') + '\n我在 Obsidian 里加的一句 [[另一篇笔记]]\n', encoding='utf-8')
 g2 = api.call('clip', {'doc': cl3})
@@ -318,7 +322,7 @@ check('在 Obsidian 里改过正文：不覆盖，先问用户', g2.get('conflic
 g3 = api.call('clip', {'doc': cl3, 'force': True})
 bk = Path(g3['backup'])
 check('确认后覆盖，覆盖前把旧笔记备份到软件数据文件夹（不放进知识库）', not g3.get('conflict') and bk.is_file() and '我在 Obsidian 里加的一句' in bk.read_text(encoding='utf-8')
-      and '我在 Obsidian 里加的一句' not in note.read_text(encoding='utf-8') and config.DATA_DIR in bk.parents and 'status: "已审计"' in note.read_text(encoding='utf-8'), g3)
+      and '我在 Obsidian 里加的一句' not in note.read_text(encoding='utf-8') and config.DATA_DIR in bk.parents and '状态: "已审计"' in note.read_text(encoding='utf-8'), g3)
 old_clip = dict(cl, clip={'path': g3['path'], 'time': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time() - 120))})
 check('以前剪藏的（没有文件指纹）：文件比剪藏时间新就先问', api.call('clip', {'doc': old_clip}).get('conflict'))
 os.utime(note, (time.time() - 600, time.time() - 600))
@@ -513,15 +517,15 @@ bdir = vault / '资料' / '书籍' / '《测试书籍》测试作者'
 ch1 = bdir / '01、第一章 趋势的起点.md'
 check('剪藏书籍：总览 + 章节文件', bc['ok'] and (bdir / '00、全书总览.md').exists() and ch1.exists() and not (bdir / '02、第二章 仓位的分配.md').exists(), bc)
 cb = ch1.read_text(encoding='utf-8')
-check('章节笔记：属性、来源说明、页码范围', 'type: 书籍章节整理' in cb and 'page_range: "P1-P3"' in cb and '整理范围：P1-P3（PDF 第 3-5 页）' in cb and 'status: "待审计"' in cb, cb[:500])
+check('章节笔记：属性、来源说明、页码范围', '类型: 书籍章节整理' in cb and '页码范围: "P1-P3"' in cb and '整理范围：P1-P3（PDF 第 3-5 页）' in cb and '状态: "待审计"' in cb, cb[:500])
 figp = bdir / 'image' / '原书图示-图1-1-三段结构.jpg'
 check('原书图示按位置裁剪、压缩', '![[image/原书图示-图1-1-三段结构.jpg]]' in cb and figp.exists() and figp.stat().st_size < 60000, cb[-300:])
 from PIL import Image  # noqa: E402
 with Image.open(figp) as im:
     check('裁剪后的图比整页小', im.width <= 960 and im.height < im.width, im.size)
-ch1.write_text(cb.replace('status: "待审计"', 'status: "已确认-资料"'), encoding='utf-8')
+ch1.write_text(cb.replace('状态: "待审计"', 'status: "已确认-资料"'), encoding='utf-8')  # 以前的英文属性
 api.call('book_clip', {'doc': bdoc})
-check('再次剪藏书籍保留 status', 'status: "已确认-资料"' in ch1.read_text(encoding='utf-8'))
+check('再次剪藏书籍保留状态（以前英文的 status 也认得）', '状态: "已确认-资料"' in ch1.read_text(encoding='utf-8'))
 check('笔记文件名：前言、目录不编号，正文从 01 开始', book.chapter_files([{'title': '前言与目录'}, {'title': '第一章 甲'}, {'title': '第二章 乙'}]) == ['前言与目录', '01、第一章 甲', '02、第二章 乙'])
 check('只认出一章时按页数分段', [c['title'] for c in book.detect_chapters(dict(info, toc=[], pages=[dict(p, text=p['text'].replace('第二章', '仓位一节')) for p in info['pages']]))] == ['全文'])
 # 同名 Word（WPS 做 OCR 后导出的）当正文参考

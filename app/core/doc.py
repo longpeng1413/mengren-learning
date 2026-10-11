@@ -9,7 +9,7 @@ import shutil
 import time
 from pathlib import Path
 
-from .config import DATA_DIR
+from .config import DATA_DIR, PROVIDER_NAMES
 from .llm import fmt
 
 SUFFIX = '.猛人学习.json'
@@ -230,6 +230,19 @@ def doubt_map(doc):
     return out
 
 
+DOUBAO_SHORT = {'flash': '极速版', 'stream2': '流式 2.0', 'stream2c': '流式 2.0 并发版', 'stream1': '流式 1.0', 'stream1c': '流式 1.0 并发版',
+                'std2': '标准版 2.0', 'std1': '标准版 1.0', 'idle': '闲时版'}
+
+
+def asr_label(v):
+    """字幕文件里记的识别服务（例如「doubao · flash」）→ 笔记里看得懂的写法（「豆包语音 · 极速版」）。"""
+    name, _, model = str(v or '').partition(' · ')
+    shown = re.sub(r'（.*?）', '', PROVIDER_NAMES.get(name.strip(), name.strip()))
+    if model:
+        shown += ' · ' + (DOUBAO_SHORT.get(model.strip(), model.strip()) if name.strip() == 'doubao' else model.strip())
+    return shown
+
+
 def to_markdown(doc, teacher=None, series='', status='待审计', boundary=''):
     """蒸馏用的笔记：上半部分课程重点（含必要的插图），下半部分完整带时间戳的字幕（审核校验用的原始数据）。
     画面记录不写进笔记（用户 2026-10 要求：笔记只要课程重点和完整字幕）。"""
@@ -243,20 +256,21 @@ def to_markdown(doc, teacher=None, series='', status='待审计', boundary=''):
     segs = doc.get('segments', [])
     lines = [
         '---',
-        f'title: {_yaml(doc.get("title"))}',
-        f'teacher: {_yaml(tname)}',
-        f'series: {_yaml(series)}',
-        f'lesson_date: {lesson_date}',
-        f'source: {_yaml(media)}',
-        f'duration: "{fmt(doc.get("duration") or 0)}"',
-        f'language: {doc.get("lang") or ""}',
-        f'asr: {_yaml(doc.get("provider"))}',
-        f'glossary: {_yaml((teacher or {}).get("name", "") if teacher and teacher.get("terms") else "")}',
-        f'corrected: {"true" if doc.get("corrected") else "false"}',
-        f'reviewed: {"true" if doc.get("reviewed") else "false"}',
-        f'status: {_yaml(status)}',
-        f'segments: {len(segs)}',
-        f'clipped: {time.strftime("%Y-%m-%d %H:%M")}',
+        # 属性名用中文（用户 2026-10 要求）；tags 是 Obsidian 固定的属性名，不能改
+        f'标题: {_yaml(doc.get("title"))}',
+        f'老师: {_yaml(tname)}',
+        f'系列: {_yaml(series)}',
+        f'视频日期: {lesson_date}',
+        f'视频文件: {_yaml(media)}',
+        f'时长: "{fmt(doc.get("duration") or 0)}"',
+        f'语言: {_yaml({"zh": "中文", "en": "英文"}.get(doc.get("lang") or "", doc.get("lang") or ""))}',
+        f'字幕识别: {_yaml(asr_label(doc.get("provider")))}',
+        f'术语表: {_yaml((teacher or {}).get("name", "") if teacher and teacher.get("terms") else "")}',
+        f'AI校对: {"true" if doc.get("corrected") else "false"}',
+        f'人工校对: {"true" if doc.get("reviewed") else "false"}',
+        f'状态: {_yaml(status)}',
+        f'字幕句数: {len(segs)}',
+        f'剪藏时间: {time.strftime("%Y-%m-%d %H:%M")}',
         'tags:',
         '  - 猛人学习',
     ]
@@ -306,7 +320,7 @@ def find_note(vault: Path, media: str, prefer: Path = None):
                 continue
             if not head.startswith('---') or ('猛人学习' not in head and '猛人字幕' not in head):
                 continue
-            m = re.search(r'(?m)^source:\s*"?(.*?)"?\s*$', head)
+            m = re.search(r'(?m)^(?:视频文件|source):\s*"?(.*?)"?\s*$', head)  # 1.7.4 以前的笔记属性是英文
             if m and _same_media(m.group(1), media):
                 return p
     return None
@@ -317,7 +331,7 @@ def _old_status(path: Path):
         head = path.read_text(encoding='utf-8', errors='replace')[:3000]
     except OSError:
         return None
-    m = re.search(r'(?m)^status:\s*"?(.*?)"?\s*$', head.split('\n---', 1)[0])
+    m = re.search(r'(?m)^(?:状态|status):\s*"?(.*?)"?\s*$', head.split('\n---', 1)[0])  # 1.7.4 以前叫 status
     return m.group(1).strip() if m and m.group(1).strip() else None
 
 
@@ -325,7 +339,7 @@ def note_fingerprint(text: str) -> str:
     """笔记文件的指纹，用来判断剪藏后有没有在 Obsidian 里改过。属性里的 status 是用户自己改的，重新剪藏会保留，不算。"""
     text = (text or '').replace('\r\n', '\n')
     head, sep, body = text.partition('\n---\n') if text.startswith('---\n') else ('', '', text)
-    head = re.sub(r'(?m)^status:.*$', '', head)
+    head = re.sub(r'(?m)^(?:状态|status):.*$', '', head)
     return hashlib.sha1((head + sep + body).encode('utf-8')).hexdigest()[:16]
 
 

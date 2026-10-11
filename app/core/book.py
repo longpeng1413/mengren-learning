@@ -810,7 +810,7 @@ def _old_status(p: Path):
         head = p.read_text(encoding='utf-8', errors='replace')[:3000]
     except OSError:
         return None
-    m = re.search(r'(?m)^status:\s*"?(.*?)"?\s*$', head.split('\n---', 1)[0])
+    m = re.search(r'(?m)^(?:状态|status):\s*"?(.*?)"?\s*$', head.split('\n---', 1)[0])  # 1.7.4 以前叫 status
     return m.group(1).strip() if m and m.group(1).strip() else None
 
 
@@ -856,9 +856,9 @@ def clip_book(doc, info, vault, folder, dir_pattern='《{title}》{author}'):
         rng = range_ref(c['start'], c['end'], shift)
         status = _old_status(path) or '待审计'
         body = place_figures(c['md'], doc['media'], info, base)
-        lines = ['---', f'title: {_yaml(c["title"])}', 'type: 书籍章节整理', f'status: {_yaml(status)}', f'book: {_yaml(title)}',
-                 f'author: {_yaml(author)}', f'chapter: {_yaml(c["title"])}', f'page_range: {_yaml(rng)}',
-                 f'source_type: {_yaml(src_type)}', f'source: {_yaml(doc["media"])}', f'organized: {time.strftime("%Y-%m-%d %H:%M")}',
+        lines = ['---', f'标题: {_yaml(c["title"])}', '类型: 书籍章节整理', f'状态: {_yaml(status)}', f'书名: {_yaml(title)}',
+                 f'作者: {_yaml(author)}', f'章节: {_yaml(c["title"])}', f'页码范围: {_yaml(rng)}',
+                 f'来源类型: {_yaml(src_type)}', f'来源文件: {_yaml(doc["media"])}', f'整理时间: {time.strftime("%Y-%m-%d %H:%M")}',
                  'tags:', '  - 外部原始资料', '  - 书籍', '  - 猛人学习', f'  - {safe_name(title).replace(" ", "_")}', '---', '',
                  f'# {c["title"]}', '',
                  f'> 来源：《{title}》' + (f'，{author}' if author else '') + '。', '>',
@@ -870,9 +870,9 @@ def clip_book(doc, info, vault, folder, dir_pattern='《{title}》{author}'):
         path = base / '00、全书总览.md'
         status = _old_status(path) or '待审计'
         done = [c['title'] for c in chapters if (c.get('md') or '').strip()]
-        lines = ['---', f'title: {_yaml(title + " 全书总览")}', 'type: 书籍总览', f'status: {_yaml(status)}', f'book: {_yaml(title)}',
-                 f'author: {_yaml(author)}', f'source_type: {_yaml(src_type)}', f'source: {_yaml(doc["media"])}',
-                 f'completed_scope: {_yaml("、".join(done) if len(done) < len(chapters) else "全书")}',
+        lines = ['---', f'标题: {_yaml(title + " 全书总览")}', '类型: 书籍总览', f'状态: {_yaml(status)}', f'书名: {_yaml(title)}',
+                 f'作者: {_yaml(author)}', f'来源类型: {_yaml(src_type)}', f'来源文件: {_yaml(doc["media"])}',
+                 f'已整理范围: {_yaml("、".join(done) if len(done) < len(chapters) else "全书")}',
                  'tags:', '  - 外部原始资料', '  - 书籍', '  - 猛人学习', f'  - {safe_name(title).replace(" ", "_")}', '---', '',
                  f'# 《{title}》全书总览', '', doc['overview'].strip(), '']
         path.write_text('\n'.join(lines), encoding='utf-8')
