@@ -317,7 +317,7 @@ class Api:
         boundary = docs.source_boundary(d, media.tail_problem(mp) if mp and os.path.isfile(mp) else '')
         shot = (lambda t: frames.grab(mp, t)) if mp and os.path.isfile(mp) else None
         return docs.clip(d, ob.get('vault'), ob.get('folder'), teacher, series, ob.get('teacher_subfolder', True),
-                         ob.get('name_pattern') or '{title}', boundary, shot)
+                         ob.get('name_pattern') or '{title}', boundary, shot, bool(b.get('force')))
 
     def do_reveal(self, b):
         """在资源管理器里显示文件，或用 Obsidian 打开笔记。"""

@@ -1,6 +1,7 @@
 """后台自测（不联网、不需要 API Key）。运行：.venv\\Scripts\\python tests\\test_backend.py
 会把设置和缓存放到临时目录，不影响真实数据。"""
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -301,6 +302,27 @@ check('剪藏后改了课程重点：提示待更新剪藏', docs.clip_stale(dic
 check('剪藏后改了字幕：提示待更新剪藏', docs.clip_stale(dict(cl, segments=[dict(x, text=x['text'] + '改') if k == 0 else x for k, x in enumerate(cl['segments'])])))
 check('对话、画面这类不进笔记的改动：不提示', not docs.clip_stale(dict(cl, chat=[{'role': 'user', 'content': '问'}], frames=[])))
 check('以前剪藏的没有指纹：不提示', not docs.clip_stale(dict(cl, clip={'path': c6['path']}, summary='变了')))
+
+# 剪藏前检查：笔记在 Obsidian 里改过，先问再覆盖，覆盖前备份
+g0 = api.call('clip', {'doc': cl})
+check('笔记没改过：直接更新', not g0.get('conflict') and g0['file_hash'], g0)
+cl2 = dict(cl, clip={'path': g0['path'], 'time': g0['time'], 'hash': g0['hash'], 'file_hash': g0['file_hash']})
+note = Path(g0['path'])
+note.write_text(re.sub(r'(?m)^status:.*$', 'status: 已审计', note.read_text(encoding='utf-8'), count=1), encoding='utf-8')
+g1 = api.call('clip', {'doc': cl2})
+check('只在 Obsidian 里改了 status：不算改动，照常更新并保留 status', not g1.get('conflict') and 'status: "已审计"' in note.read_text(encoding='utf-8'), g1)
+cl3 = dict(cl, clip={'path': g1['path'], 'time': g1['time'], 'hash': g1['hash'], 'file_hash': g1['file_hash']})
+note.write_text(note.read_text(encoding='utf-8') + '\n我在 Obsidian 里加的一句 [[另一篇笔记]]\n', encoding='utf-8')
+g2 = api.call('clip', {'doc': cl3})
+check('在 Obsidian 里改过正文：不覆盖，先问用户', g2.get('conflict') and g2['path'] == str(note) and '我在 Obsidian 里加的一句' in note.read_text(encoding='utf-8'), g2)
+g3 = api.call('clip', {'doc': cl3, 'force': True})
+bk = Path(g3['backup'])
+check('确认后覆盖，覆盖前把旧笔记备份到软件数据文件夹（不放进知识库）', not g3.get('conflict') and bk.is_file() and '我在 Obsidian 里加的一句' in bk.read_text(encoding='utf-8')
+      and '我在 Obsidian 里加的一句' not in note.read_text(encoding='utf-8') and config.DATA_DIR in bk.parents and 'status: "已审计"' in note.read_text(encoding='utf-8'), g3)
+old_clip = dict(cl, clip={'path': g3['path'], 'time': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time() - 120))})
+check('以前剪藏的（没有文件指纹）：文件比剪藏时间新就先问', api.call('clip', {'doc': old_clip}).get('conflict'))
+os.utime(note, (time.time() - 600, time.time() - 600))
+check('以前剪藏的：文件没比剪藏时间新就直接更新', not api.call('clip', {'doc': old_clip}).get('conflict'))
 check('插图非必要不用：最多 3 张，纯文字课件不插', '最多 3 张' in llm.DEFAULT_TEMPLATE and '纯文字课件' in frames.DESCRIBE_PROMPT
       and '纯文字的课件页' in frames.SCREEN_PROMPT and '不要照抄课件上的文字' in frames.DESCRIBE_PROMPT)
 

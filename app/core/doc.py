@@ -321,6 +321,38 @@ def _old_status(path: Path):
     return m.group(1).strip() if m and m.group(1).strip() else None
 
 
+def note_fingerprint(text: str) -> str:
+    """笔记文件的指纹，用来判断剪藏后有没有在 Obsidian 里改过。属性里的 status 是用户自己改的，重新剪藏会保留，不算。"""
+    text = (text or '').replace('\r\n', '\n')
+    head, sep, body = text.partition('\n---\n') if text.startswith('---\n') else ('', '', text)
+    head = re.sub(r'(?m)^status:.*$', '', head)
+    return hashlib.sha1((head + sep + body).encode('utf-8')).hexdigest()[:16]
+
+
+def note_changed(path: Path, clip) -> bool:
+    """上次剪藏后，笔记在 Obsidian 里被改过。
+    有指纹（1.7.3 起）就比指纹；以前剪藏的没有指纹，看文件修改时间是不是比剪藏时间晚。"""
+    clip = clip if isinstance(clip, dict) else {}
+    try:
+        if not path.is_file():
+            return False
+        if clip.get('file_hash'):
+            return note_fingerprint(path.read_text(encoding='utf-8', errors='replace')) != clip['file_hash']
+        t = time.mktime(time.strptime(str(clip.get('time') or ''), '%Y-%m-%d %H:%M:%S'))
+    except (OSError, ValueError, OverflowError):
+        return False
+    return path.stat().st_mtime > t + 10
+
+
+def backup_note(path: Path) -> Path:
+    """覆盖在 Obsidian 里改过的笔记前，先备份到软件的数据文件夹（不放进知识库，免得多出一篇重复笔记）。"""
+    folder = DATA_DIR / 'backups' / '笔记'
+    folder.mkdir(parents=True, exist_ok=True)
+    dest = folder / f'{path.stem}-{time.strftime("%Y%m%d-%H%M%S")}{path.suffix}'
+    shutil.copy2(path, dest)
+    return dest
+
+
 def note_name(pattern, doc, teacher=None, series=''):
     name = (pattern or '{title}')
     for k, v in (('{title}', doc.get('title') or '字幕'), ('{teacher}', (teacher or {}).get('display') or (teacher or {}).get('name', '')),
@@ -378,7 +410,10 @@ def place_figures(summary, frames_list, note_dir: Path, title, shot):
     return _FIG.sub(repl, summary)
 
 
-def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolder=True, name_pattern='{title}', boundary='', shot=None):
+def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolder=True, name_pattern='{title}', boundary='', shot=None,
+         force=False):
+    """剪藏到 Obsidian。笔记在上次剪藏后被改过、又没有 force 时，不写，返回 {'conflict': True, …} 让用户确认；
+    确认后（force）先备份旧笔记再覆盖。"""
     if not vault or not Path(vault).is_dir():
         raise OSError('找不到 Obsidian 库文件夹，请到「设置 → Obsidian」检查库的位置')
     target_dir = Path(vault) / (folder or '')
@@ -398,12 +433,20 @@ def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolde
         while path.exists():
             path = target_dir / f'{base} ({n}).md'
             n += 1
+    backup = None
+    if path.exists() and note_changed(path, doc.get('clip')):
+        if not force:
+            return {'conflict': True, 'path': str(path),
+                    'modified': time.strftime('%Y-%m-%d %H:%M', time.localtime(path.stat().st_mtime))}
+        backup = backup_note(path)
     status = (_old_status(path) if path.exists() else None) or '待审计'
     path.parent.mkdir(parents=True, exist_ok=True)
     out = dict(doc, summary=place_figures(doc.get('summary') or '', doc.get('frames'), path.parent, doc.get('title') or '字幕', shot))
-    path.write_text(to_markdown(out, teacher, series, status, boundary), encoding='utf-8')
+    text = to_markdown(out, teacher, series, status, boundary)
+    path.write_text(text, encoding='utf-8')
     vault_name = Path(vault).name
     rel = path.relative_to(Path(vault)).as_posix()
     from urllib.parse import quote
     return {'path': str(path), 'uri': f'obsidian://open?vault={quote(vault_name)}&file={quote(rel)}',
-            'time': time.strftime('%Y-%m-%d %H:%M:%S'), 'hash': note_hash(doc)}
+            'time': time.strftime('%Y-%m-%d %H:%M:%S'), 'hash': note_hash(doc), 'file_hash': note_fingerprint(text),
+            'backup': str(backup) if backup else ''}

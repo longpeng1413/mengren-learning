@@ -1219,9 +1219,17 @@ async function addTerms() {
 async function doClip() {
   try {
     await flushSave();
-    const r = await api('clip', { doc: S.doc });
-    S.doc.clip = { path: r.path, time: r.time, hash: r.hash }; S.docStale = false; markDirty(); save();
-    toast(S.doc.reviewed ? '已剪藏到 Obsidian' : '已剪藏到 Obsidian（字幕还没标记为已校对）',
+    let r = await api('clip', { doc: S.doc });
+    if (r.conflict) {
+      const name = r.path.split(/[\\/]/).pop();
+      if (!confirm(`「${name}」上次剪藏后在 Obsidian 里改过（最后修改 ${r.modified}）。\n\n继续剪藏会用软件里的内容覆盖整篇笔记，你在 Obsidian 里的改动会没掉（属性里的 status 会保留）。旧笔记会先备份到：\n%APPDATA%\\猛人学习\\backups\\笔记\n\n要继续剪藏吗？`)) {
+        toast('没有剪藏，Obsidian 里的笔记保持不变');
+        return true;
+      }
+      r = await api('clip', { doc: S.doc, force: true });
+    }
+    S.doc.clip = { path: r.path, time: r.time, hash: r.hash, file_hash: r.file_hash }; S.docStale = false; markDirty(); save();
+    toast((S.doc.reviewed ? '已剪藏到 Obsidian' : '已剪藏到 Obsidian（字幕还没标记为已校对）') + (r.backup ? '。覆盖前的旧笔记已备份' : ''),
       { action: { label: '在 Obsidian 中打开', run: () => api('reveal', { target: r.uri }) }, ms: 7000 });
     return true;
   } catch (e) { fail(e); return false; }

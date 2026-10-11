@@ -291,6 +291,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('字幕标签写明是几句', /字幕 \d+ 句/.test(libTag()), libTag());
     await doClip();
     ok('重新剪藏后恢复「已剪藏」', await until(() => libTag().includes('已剪藏') && !libTag().includes('待更新')), libTag());
+    ok('剪藏记下笔记文件的指纹（用来判断 Obsidian 里改过没有）', !!S.doc.clip.file_hash, S.doc.clip);
 
     await api('teacher_delete', { id: tr.teacher.id });
 
