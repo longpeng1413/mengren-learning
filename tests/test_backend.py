@@ -10,6 +10,8 @@ import threading
 import time
 from pathlib import Path
 
+for _old in Path(tempfile.gettempdir()).glob('mengren-test-*'):  # 以前没删干净的（日志文件开着时删不掉）
+    shutil.rmtree(_old, ignore_errors=True)
 TMP = Path(tempfile.mkdtemp(prefix='mengren-test-'))
 os.environ['APPDATA'] = str(TMP / 'appdata')
 os.environ['LOCALAPPDATA'] = str(TMP / 'local')
@@ -849,4 +851,6 @@ r_ = api.call('set_storage', {'path': str(TMP / 'store2')})
 check('更改缓存位置', r_['changed'] and config.load()['storage_dir'] == str(TMP / 'store2'))
 
 print(f'\n全部通过：{passed} 项')
+import logging  # noqa: E402
+logging.shutdown()  # 先关掉日志文件，否则临时文件夹删不干净
 shutil.rmtree(TMP, ignore_errors=True)
