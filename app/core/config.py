@@ -4,6 +4,7 @@
   「缓存（可随时删除）」和「日志（可随时删除）」；也可以在设置里换到别的位置（重启后生效）。"""
 import copy
 import json
+import logging
 import os
 import shutil
 import sys
@@ -159,17 +160,72 @@ def _merge(base, extra):
     return out
 
 
+class DataError(Exception):
+    """设置、老师档案、媒体库文件读不出来。不能当成空的继续用，否则一保存就把真数据冲掉。"""
+
+
+_log = logging.getLogger('mengren')
+SNAPSHOT_DIR = DATA_DIR / 'backups' / '数据'
+SNAPSHOT_KEEP = 30  # 每个文件留最近 30 天的每日快照
+
+
 def _read_json(path, default):
+    """文件不存在才返回 default。读失败（被杀毒软件或另一个窗口占用、写到一半）先重试，再用上一版副本 .bak，
+    都不行就报错，绝不悄悄当成空的。"""
+    path = Path(path)
+    bak = path.with_name(path.name + '.bak')
+    if not path.exists():
+        if bak.exists():
+            _log.warning('%s 不见了，改用上一版副本', path.name)
+            path = bak
+        else:
+            return default
+    err = None
+    for i in range(8):
+        try:
+            return json.loads(path.read_text(encoding='utf-8'))
+        except (OSError, ValueError) as e:
+            err = e
+            time.sleep(0.15 * (i + 1))
+    _log.warning('读不出 %s：%r，改用上一版副本', path.name, err)
     try:
-        return json.loads(path.read_text(encoding='utf-8'))
+        return json.loads(bak.read_text(encoding='utf-8'))
     except (OSError, ValueError):
-        return default
+        pass
+    raise DataError(f'读不出「{path.name}」（{err}）。请关闭其他打开的猛人学习后重试；数据没有丢，每日备份在 {SNAPSHOT_DIR}')
+
+
+def _snapshot(path: Path):
+    """每天第一次写某个文件前，把旧内容另存一份快照。"""
+    try:
+        SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+        dest = SNAPSHOT_DIR / f'{path.stem}-{time.strftime("%Y%m%d")}{path.suffix}'
+        if not dest.exists():
+            shutil.copy2(path, dest)
+            for old in sorted(SNAPSHOT_DIR.glob(f'{path.stem}-*{path.suffix}'))[:-SNAPSHOT_KEEP]:
+                old.unlink(missing_ok=True)
+    except OSError:
+        _log.warning('保存 %s 的每日快照失败', path.name, exc_info=True)
 
 
 def _write_json(path, data, indent=2):
+    """先写临时文件再替换；替换前把上一版留成 .bak，并留每日快照。被占用时重试。"""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    path = Path(path)
     tmp = path.with_suffix('.tmp')
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=indent), encoding='utf-8')
+    if path.exists() and path != POSITIONS_FILE:  # 播放进度写得很频繁，不留副本
+        _snapshot(path)
+        try:
+            shutil.copy2(path, path.with_name(path.name + '.bak'))
+        except OSError:
+            pass
+    for i in range(8):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            time.sleep(0.15 * (i + 1))
     os.replace(tmp, path)
 
 
@@ -179,8 +235,19 @@ def load() -> dict:
 
 
 def save(settings: dict) -> None:
+    """保存整份设置。只想改几项请用 update()。
+    保险：传进来的设置里没有的项，从现有文件补回（两层），防止只存一项就把密钥、登录、Obsidian 位置全部冲掉。"""
     with _lock:
-        _write_json(SETTINGS_FILE, settings)
+        out = copy.deepcopy(settings)
+        cur = _read_json(SETTINGS_FILE, {})
+        if isinstance(cur, dict):
+            for k, v in cur.items():
+                if k not in out:
+                    out[k] = v
+                elif isinstance(v, dict) and isinstance(out[k], dict):
+                    for kk, vv in v.items():
+                        out[k].setdefault(kk, vv)
+        _write_json(SETTINGS_FILE, out)
 
 
 def mask(key: str) -> str:

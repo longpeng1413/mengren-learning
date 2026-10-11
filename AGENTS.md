@@ -9,6 +9,9 @@
 - **不要强行结束用户正在运行的「猛人学习.exe」**（不要一上来就 taskkill / Stop-Process）。他可能正在看课、改字幕，强关会丢未保存的修改。用户已允许升级时关闭它，但要**正常关闭**（等同点右上角 ×，程序会先保存），见下面「打包和更新」。
 - **不要改回本机 HTTP 服务器**。界面必须用 `index.as_uri()`（`file://`）加载，通过 pywebview 的 `js_api` 和后台通信。用户电脑上的 360 主动防御和 Clash Verge 会干扰 127.0.0.1 回环连接（传输卡在约 64KB 或被重置），以前因此出过「图标只显示一半」「界面卡住」。注意：给 `create_window` 传普通路径时 pywebview 会**悄悄**起一个本地服务器，所以一定要传 `file://` URI。
 - **不要在关闭事件里同步调用 `window.evaluate_js`**。`closing` 事件在界面线程里执行，同步等界面会死锁（以前出过「猛人字幕.exe 未响应」，软件那时还叫猛人字幕）。现在的做法见 `app/main.py` 的 `on_closing`：先返回 False 取消关闭 → 后台线程通知界面 `window.prepareClose()` 保存 → 等 `api._quit`（最多 4 秒）→ `window.destroy()` → `os._exit` 兜底。
+- **改设置只用 `config.update(部分设置)`；`config.save()` 是保存整份设置**。2026-10-11 曾用 `config.save({'book_rules_file': …})` 把用户的密钥、ChatGPT 登录、Obsidian 位置全部冲掉。现在 `save()` 会从现有文件补回没传的项，但仍应该用 `update()`。
+- **读不出数据文件时不能当成空的**（1.7.10）：`config._read_json` 读失败会重试、再用 `.bak`，都不行就抛 `DataError`，界面显示原因；只有文件本来不存在才用默认值。每次写之前留 `.bak`，每天第一次写留快照到 `%APPDATA%\猛人学习ackups\数据`（保留 30 天）。
+- **同一份数据只开一个窗口**（`main.single_instance`，按数据目录建互斥锁；`--selftest` 不受限）。再双击会切到已开的窗口。
 - **不要把 API 密钥写进日志、报错信息或仓库**。密钥字段见 `config.SECRETS`，发给界面前用 `config.public()` 打码。用户的设置在 `%APPDATA%\猛人学习\`，不在项目里。
 
 ### 改名（1.6）

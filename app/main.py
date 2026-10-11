@@ -19,17 +19,58 @@ from webview.dom import DOMEventHandler  # noqa: E402
 
 from bridge import Api  # noqa: E402
 
-VERSION = '1.7.9'
+VERSION = '1.7.10'
+
+
+_instance = None  # 保持互斥锁的句柄，进程退出时自动释放
+
+
+def single_instance() -> bool:
+    """同一份数据（%APPDATA%\\猛人学习）只允许开一个窗口。已经开着时切到那个窗口并返回 False。
+    刚关掉又马上打开时，旧进程可能还没退完，最多等 5 秒。"""
+    global _instance
+    if os.name != 'nt' or '--selftest' in ' '.join(sys.argv):
+        return True
+    import ctypes
+    import hashlib
+    k32, u32 = ctypes.windll.kernel32, ctypes.windll.user32
+    k32.CreateMutexW.restype = ctypes.c_void_p
+    k32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p]
+    k32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    k32.WaitForSingleObject.restype = ctypes.c_uint32
+    name = 'Local\\MengrenLearning-' + hashlib.md5(str(config.DATA_DIR).lower().encode('utf-8')).hexdigest()[:12]
+    _instance = k32.CreateMutexW(None, False, name)
+    if not _instance:
+        return True
+    if k32.WaitForSingleObject(_instance, 5000) in (0, 0x80):  # 拿到了（或上一个进程异常退出留下的）
+        return True
+    hwnd = u32.FindWindowW(None, config.APP_NAME)
+    if hwnd:
+        u32.ShowWindow(hwnd, 9)  # 还原
+        u32.SetForegroundWindow(hwnd)
+    else:
+        u32.MessageBoxW(None, '猛人学习已经打开了。', config.APP_NAME, 0x40)
+    return False
 
 
 def main():
     log.info('==== 猛人学习 %s 启动（%s）====', VERSION, 'exe' if getattr(sys, 'frozen', False) else '源码')
+    if not single_instance():
+        log.info('已经有一个猛人学习开着，切到那个窗口后退出')
+        return
     from core import cache
     threading.Thread(target=cache.cleanup, daemon=True, name='cache-cleanup').start()
     api = Api()
     from core import portable
     api._bundled = portable.import_bundled(api)  # 解压即用：软件文件夹里附带的设置，第一次启动时自动导入
-    s = config.load()
+    try:
+        s = config.load()
+    except config.DataError as e:  # 设置文件读不出来：说明原因后退出，不带着空设置继续用（一保存就会冲掉真数据）
+        log.error('启动时读不出设置：%s', e)
+        if os.name == 'nt':
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, str(e), config.APP_NAME, 0x10)
+        return
     bg = '#f3f0ea' if s.get('theme') == 'light' else '#0e0e10'
     index = config.resource_dir() / 'web' / 'index.html'
     window = webview.create_window(config.APP_NAME, index.as_uri(), js_api=api, width=1440, height=900, min_size=(960, 600),

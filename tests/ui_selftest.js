@@ -199,6 +199,10 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     const tTerms = (teacherById(S.doc.teacher) || {}).terms || '';
     ok('勾选的加进老师术语表，没勾的不加', tTerms.includes('测试新术语') && !tTerms.includes('不要的词') && tTerms.includes('风机 => 峰级') && !S.doc.terms_pending, tTerms);
 
+    // 媒体库读不出来时显示原因，不显示“还没有添加文件”
+    const libSaved = S.lib; S.lib = []; S.libError = '读不出「library.json」'; renderLibrary();
+    ok('媒体库读不出来：显示原因和重试，不显示“还没有添加文件”', $('#libBody').textContent.includes('读不出') && !$('#libBody').textContent.includes('还没有添加文件'));
+    S.lib = libSaved; S.libError = ''; renderLibrary();
     // 收起媒体库
     document.querySelector('#btnLibrary').click();
     ok('收起媒体库', document.querySelector('#library').hidden);

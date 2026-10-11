@@ -197,7 +197,7 @@ function renderTeacherSelect() {
 
 /* ------------------------------------------------------------ 媒体库 ---- */
 async function loadLibrary(groups) {
-  try { S.lib = groups || (await api('library')).groups; } catch (e) { fail(e); }
+  try { S.lib = groups || (await api('library')).groups; S.libError = ''; } catch (e) { S.libError = e.message || String(e); fail(e); }
   renderLibrary();
 }
 function itemHTML(it) {
@@ -219,6 +219,10 @@ function itemHTML(it) {
 function renderLibrary() {
   const q = $('#libSearch').value.trim().toLowerCase();
   const body = $('#libBody');
+  if (S.libError && !S.lib.length) {
+    body.innerHTML = `<div class="lib-empty">媒体库暂时读不出来：<br>${esc(S.libError)}<br>点上面的「刷新」重试。</div>`;
+    return;
+  }
   if (!S.lib.length) {
     body.innerHTML = '<div class="lib-empty">还没有添加文件。<br>点上面的 <b>＋文件夹</b> 一次加入整个文件夹的视频和音频，以后点哪个看哪个。</div>';
     return;

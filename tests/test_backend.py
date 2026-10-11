@@ -776,6 +776,33 @@ if importlib.util.find_spec('pyflakes'):
 else:
     print('（没装 pyflakes，跳过变量名检查：pip install pyflakes）')
 
+# 数据文件安全：只存一项不能冲掉整份设置；读不出时不能当成空的
+api.call('settings', {'settings': {'providers': {'deepseek': {'key': 'sk-safe-test-1234567'}}, 'obsidian': {'vault': str(TMP)}}})
+config.save({'book_rules_file': 'x.md'})
+s_safe = config.load()
+check('config.save 只传一项：其他设置（密钥、Obsidian 位置）不会被冲掉', s_safe['book_rules_file'] == 'x.md'
+      and s_safe['providers']['deepseek']['key'] == 'sk-safe-test-1234567' and s_safe['obsidian']['vault'] == str(TMP))
+check('写设置时留上一版副本和每日快照', config.SETTINGS_FILE.with_name('settings.json.bak').exists()
+      and any(config.SNAPSHOT_DIR.glob('settings-*.json')))
+lib_good = config.LIBRARY_FILE.read_text(encoding='utf-8') if config.LIBRARY_FILE.exists() else None
+config.save_library({'folders': [{'path': str(TMP), 'name': '安全测试'}], 'files': []})
+config.save_library({'folders': [{'path': str(TMP), 'name': '安全测试2'}], 'files': []})
+config.LIBRARY_FILE.write_text('{坏掉的文件', encoding='utf-8')
+check('媒体库文件坏了：改用上一版副本，不当成空的', config.load_library()['folders'][0]['name'] == '安全测试')
+config.LIBRARY_FILE.with_name('library.json.bak').unlink()
+try:
+    config.load_library(); e_safe = ''
+except config.DataError as e:
+    e_safe = str(e)
+check('媒体库文件坏了又没有副本：明确报错，不悄悄当成空的', '读不出' in e_safe, e_safe)
+r_safe = api.call('library', {})
+check('界面拿到的是错误，不是空列表', r_safe.get('ok') is False and '读不出' in r_safe.get('error', ''), r_safe)
+config.LIBRARY_FILE.unlink()
+check('文件本来就不存在：才当成空的', config.load_library() == {'folders': [], 'files': []})
+if lib_good is not None:
+    config.LIBRARY_FILE.write_text(lib_good, encoding='utf-8')
+config.save({'book_rules_file': ''})
+
 # 缓存和日志位置
 check('缓存和日志在指定位置，文件夹名写着可随时删除', config.CACHE_DIR == TMP / 'store' / '缓存（可随时删除）' and config.LOG_DIR.name == '日志（可随时删除）')
 r_ = api.call('set_storage', {'path': str(TMP / 'store2')})
