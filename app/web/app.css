@@ -163,6 +163,8 @@ body.dragging-row, body.dragging-row * { cursor: row-resize !important; user-sel
 .switch input:checked + span { background: var(--accent-line); }
 .switch input:checked + span::after { transform: translateX(13px); background: var(--accent); }
 .switch:has(input:checked) { color: var(--text); }
+.loop-hint { border: 1px solid var(--accent-line); background: var(--accent-weak); color: var(--accent); border-radius: 10px; padding: 1px 9px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.loop-hint:hover { border-color: var(--accent); }
 select { height: 30px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--panel2); padding: 0 8px; }
 
 /* ---------- 媒体库 ---------- */

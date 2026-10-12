@@ -334,7 +334,9 @@ window.openPath = async function (path) {
     if (d.kind === 'book') { openBook(d); return; }
     setMode('media');
     S.resumeAt = d.position || 0;
-    S.path = d.path; S.doc = d.doc; S.info = d.info; S.undo = []; S.active = -1; S.dirty = false; S.loopIdx = null;
+    S.path = d.path; S.doc = d.doc; S.info = d.info; S.undo = []; S.active = -1; S.dirty = false;
+    // 换课时关掉单句循环：「存疑 / 回听」会自动打开它，以前一直开着，换到别的课就一直循环同一句
+    $('#optLoop').checked = false; S.loopIdx = null; updateLoopHint();
     S.docStale = (S.lib || []).some(g => g.items.some(it => it.stale && it.path.toLowerCase() === d.path.toLowerCase()));
     S.lastSaved = d.doc.updated || null;
     $('#btnUndo').disabled = true;
@@ -667,11 +669,21 @@ function updateActive(force) {
       if (S.settings.follow && !S.editing && !recentlyScrolled && !v.paused) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
   }
+  updateLoopHint();
   if (S.settings.overlay) {
     const seg = segs[i];
     const show = seg && t <= seg.end + 0.6;
     $('#overlay').innerHTML = show ? esc(seg.text) + (S.settings.show_tr && seg.tr ? `<span class="o-tr">${esc(seg.tr)}</span>` : '') : '';
   }
+}
+// 单句循环开着时，开关旁边写明在循环哪一句，点一下关掉
+function updateLoopHint() {
+  const on = $('#optLoop').checked;
+  const seg = on && S.doc && S.loopIdx != null ? S.doc.segments[S.loopIdx] : null;
+  const text = !on ? '' : seg ? `正在循环 ${fmt(seg.start)} 这一句` : '单句循环已打开';
+  const h = $('#loopHint');
+  if (h.textContent !== text) h.textContent = text;
+  h.hidden = !on;
 }
 function seek(t, play) {
   const v = $('#video');
@@ -1886,7 +1898,8 @@ function bind() {
   $('#optFollow').onchange = e => savePrefs({ follow: e.target.checked });
   $('#optTr').onchange = e => savePrefs({ show_tr: e.target.checked });
   $('#optOverlay').onchange = e => { savePrefs({ overlay: e.target.checked }); updateActive(true); };
-  $('#optLoop').onchange = e => { S.loopIdx = e.target.checked ? (S.active >= 0 ? S.active : null) : null; };
+  $('#optLoop').onchange = e => { S.loopIdx = e.target.checked ? (S.active >= 0 ? S.active : null) : null; updateLoopHint(); };
+  $('#loopHint').onclick = () => { $('#optLoop').checked = false; S.loopIdx = null; updateLoopHint(); };
   $('#playerWrap').addEventListener('dblclick', e => {
     if (e.target === v && S.settings.overlay) { e.preventDefault(); document.fullscreenElement ? document.exitFullscreen() : $('#playerWrap').requestFullscreen(); }
   });

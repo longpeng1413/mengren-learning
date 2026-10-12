@@ -157,10 +157,13 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('字幕栏上方显示存疑数量',!document.querySelector('#btnDoubts').hidden && document.querySelector('#btnDoubts').textContent === '存疑 1');
     document.querySelector('#btnDoubts').click();
     ok('点「存疑」跳到那一句并单句循环', S.loopIdx === 2 && document.querySelector('#optLoop').checked);
+    const loopHint = document.querySelector('#loopHint');
+    ok('单句循环时开关旁边写明在循环哪一句', await until(() => !loopHint.hidden && loopHint.textContent === `正在循环 ${fmt(S.doc.segments[2].start)} 这一句`), loopHint.textContent);
     v.pause();
     document.querySelector('.cue.doubt [data-doubt="ok"]').click();
     ok('「已确认」去掉存疑标记', !S.doc.doubts.length && !document.querySelector('.cue.doubt') && document.querySelector('#btnDoubts').hidden);
-    document.querySelector('#optLoop').checked = false; S.loopIdx = null;
+    loopHint.click();
+    ok('点循环提示关掉单句循环', !document.querySelector('#optLoop').checked && S.loopIdx === null && loopHint.hidden);
 
     // 画面：关键帧和画面记录、课程重点里的插图
     S.doc.frames = [{ t: 5, note: '课件标题：交易心理学', caption: '欢迎来到', figure: true }, { t: 20, note: '' }];
@@ -279,7 +282,10 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     // 播放进度续播
     v.currentTime = 21.3; await wait(300);
     await flushSave();
+    document.querySelector('#optLoop').click();
+    ok('打开单句循环开关时显示提示', document.querySelector('#optLoop').checked && !document.querySelector('#loopHint').hidden);
     await window.openPath(base + '旧格式.avi');
+    ok('换一节课时自动关掉单句循环', !document.querySelector('#optLoop').checked && S.loopIdx === null && document.querySelector('#loopHint').hidden);
     ok('avi 自动转换后可播放', await until(() => v.readyState >= 1 && v.duration > 19, 60000));
     ok('打开 avi 时自动用文件夹没有绑定的老师（空）', S.doc.teacher === '');
     await window.openPath(base + '演示视频.mp4');
