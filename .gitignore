@@ -35,3 +35,9 @@ _t.py
 # 发布用的压缩包
 release/
 test-media/ui-ai/
+test-media/ui-lib/
+test-media/*.epub
+test-media/*.mobi
+test-media/*.doc
+test-media/*.ppt
+test-media/*.pptx

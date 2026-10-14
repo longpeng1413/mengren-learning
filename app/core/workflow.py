@@ -77,7 +77,7 @@ def _todo(it, kind):
 def library_items():
     """媒体库里所有的视频、音频和书（和软件左边列表一样的顺序）。index 是在这个课程文件夹里的第几个（从 1 开始）。"""
     out = []
-    for g in library.view():
+    for g in library.flat_groups():
         for n, it in enumerate(g.get('items') or [], 1):
             kind = kind_of(it['path'])
             out.append({

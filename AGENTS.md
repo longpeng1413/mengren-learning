@@ -83,6 +83,19 @@
 
 每句字幕的改动记在 `doc.fixes`（`[{t, before, after, by: ai|frames|manual}]`）：AI 校对、画面复核的由 `workflow.record_fix` 记，手动修改的由 app.js 的 `recordFix` 记（两边写法相同）。「新术语」：`llm.fix_spans` 取出换掉的几个字，连同完整字幕交给 AI，找术语表没有的新术语和识别错误，程序再去掉已有的；**用户勾选确认后**才写（用户术语表的「新术语加入规则」要求人工确认，只记名称，不写定义）。关联了文件时写进文件末尾的「逐课补充（猛人学习）」一节（`| 术语 | 首次出现 | 老师原话 |` 和 `| ASR常见识别 | 正确术语 | 出处 |` 两张表，`terms_from_markdown` 认得），文件其他部分不动，写前备份到 `%APPDATA%\猛人学习\backups\术语表`（留 30 份）。没关联文件时加进老师档案的术语。
 
+## 媒体库（2026-10-14 改成树形，用户定的规则）
+
+`app/core/library.py`，数据在 `%APPDATA%\猛人学习\library.json`：`folders`（最上层文件夹）、`files`（单个文件）、`order`（最上层顺序）、`dirs`（下层文件夹的老师和收起状态，键是小写路径）、`orders`（用户拖出来的顺序）。旧格式读的时候自动补齐。
+
+- **按实际层级显示**；`_` 或 `.` 开头的文件夹、没有可列文件的空文件夹不显示。
+- **排列**：最上层按加入先后（`order`）；文件夹里同一层，带序号的（`number_key`：1、 01. 1.2 第3讲 三、）按序号在前，没序号的按创建（下载）时间在后。没序号的可以拖到任意位置（`orders`），带序号的之间永远按序号（`arrange` 把序号的位置重新填好）；界面上拖乱了序号会提示改名，不改名就不动。
+- **先加子文件夹再加上层**：`add_folder` 返回 `need_merge`，界面问用户；合并时子文件夹的老师、收起状态搬进 `dirs`，原来单独加的文件夹和文件从最上层去掉；不合并就重复加入（出现两次）。上层已经在了再加子文件夹返回 `inside`，不加。单个文件已经在某个文件夹里的不重复加。
+- **老师**：每一层都能绑定；`folder_teacher` 从文件所在文件夹往上找最近一层绑定的（用户选的「沿用上层」）。
+- **重命名**（`rename`）：电脑上的文件 / 文件夹、旁边的字幕文件和 `.bak`、PDF 同名的 Word、标题（等于旧文件名的才改）、播放进度和最近打开（`config.move_paths`）、`dirs` / `orders` 里的路径和名字一起改；字幕文件里记下 `media_history`（以前的路径）。正在被 Agent 整理的不能改；正在播放的，界面先放开文件再改。
+- **Obsidian 不改名**（用户决定）：在软件里改了名，重新剪藏时仍更新原来那篇笔记、文件名不变（`clip.path`；笔记被用户挪了地方时 `find_note` 也认 `media_history` 里的旧路径）；插图文件名沿用第一次剪藏时的（`clip.img_base`）；书沿用原来的文件夹（`clip.dir`）。软件不改 Obsidian 里其他笔记的链接。
+- 移除最上层文件夹时，它下面的 `dirs` / `orders` 设置一起清掉（没有别的最上层文件夹还包含它们时）。
+- Agent 用的 `workflow.find` 通过 `library.flat_groups()` 拿到旧格式（每个最上层文件夹一组、按显示顺序摊平）。
+
 ## Agent 自动整理（命令行，2026-10-14）
 
 让 Claude Code、Codex（以后 ChatGPT Dots）不点界面就能整理课程。用法见 `docs/命令行.md`。用户定的范围：
@@ -131,7 +144,8 @@
   - `cache.py`：清理。音频保留 3 天，转换后的视频最多 5GB，截图 30 天没用就删；`clean_marks` 删掉 `locks\` 里一天没用的锁文件、程序已经不在的「正在整理」标记。软件启动时清一次，命令行的 process / run / resume 开始前也清一次（命令行从源码跑，缓存在项目文件夹里，以前没人清）。
   - `log.py`：日志最多 2MB × 4 个文件。打包后 stdout/stderr 是 None，已重定向到日志。
   - `workflow.py`：任务层，所有整理步骤的规则（见上面「Agent 自动整理」）；`tasks.py`：任务记录、错误码、重试、「正在整理」标记、取消；`fake_ai.py`：界面自测用的假 AI。
-  - `doc.py`、`library.py`、`jobs.py`。
+  - `library.py`：媒体库（见上面「媒体库」）；`ebook.py`：电子书、老版 Word、演示文稿的读取。
+  - `doc.py`、`jobs.py`。
 - `app/cli.py`：命令行（给 Agent 用），只是一层薄入口，调 `workflow`。
 - `app/web/`：纯 HTML/CSS/JS，没有构建步骤，没有框架。
 
@@ -145,12 +159,13 @@ python -m venv .venv
 .venv\Scripts\python app\main.py                    rem 运行（加 --debug 打开开发者工具）
 .venv\Scripts\python tests\test_backend.py          rem 后台测试，不联网
 .venv\Scripts\python tests\test_agent.py            rem Agent 自动整理和命令行的测试，不联网（识别和 AI 用假的）
+.venv\Scripts\python tests\test_library.py          rem 媒体库树形、排列、合并、改名，电子书 / DOC / PPT 读取
 .venv\Scripts\python tests\run_ui_test.py           rem 界面测试：弹出真实窗口自动操作，最后连关闭流程一起测
 .venv\Scripts\python tests\run_ui_test.py --exe     rem 同上，测 dist-next 里打包好的 exe
 ```
 
 - 后台测试最后会用 pyflakes 查「用了没定义的变量」（1.6.1 出过 `bridge.do_correct` 里变量名写错、AI 校对一用就报错，界面测试没覆盖到）。
-- 改完至少跑后台测试、Agent 测试和界面测试，全部通过才算完成；改了界面就在 `tests/ui_selftest.js` 里补检查，改了后台就在 `tests/test_backend.py` 里补，改了整理步骤或命令行就在 `tests/test_agent.py` 里补。
+- 改完至少跑后台测试、Agent 测试、媒体库测试和界面测试，全部通过才算完成；改了界面就在 `tests/ui_selftest.js` 里补检查，改了后台就在 `tests/test_backend.py` 里补，改了整理步骤或命令行就在 `tests/test_agent.py` 里补。
 - 界面测试要弹出真实窗口，**在沙盒里通常跑不了**，需要无沙盒权限。测试数据放在项目里的 `.testdata/`（已忽略），不会碰用户的真实设置。
 - 测试视频由 `tests/make_test_media.py` 用 ffmpeg 自动生成，不进仓库。
 - 需要 ffmpeg / ffprobe 在 PATH 里（`winget install Gyan.FFmpeg`）。
@@ -182,7 +197,8 @@ python -m venv .venv
 
 ## 书籍和文档（1.6）
 
-- `app/core/book.py`：PDF 用 pypdfium2 读文字层、认图片 / 矢量图、渲染页面（需要 Pillow）；Word 直接解析 docx 的 XML；TXT / MD 按标题切。书上页码 = PDF 页序 − `shift`，自动从页面上下单独的数字认，用户可以改。
+- `app/core/book.py`：PDF 用 pypdfium2 读文字层、认图片 / 矢量图、渲染页面（需要 Pillow）；Word 直接解析 docx 的 XML；TXT / MD 按标题切。
+- `app/core/ebook.py`（2026-10-14，用户要求按微信读书能导入的格式补齐，TXT 除外，加上 PPT）：EPUB（按 spine 读 XHTML，目录当章名）、MOBI / AZW3 / AZW（自己解 PalmDB + PalmDOC；DRM 加密和 HUFF/CDIC 压缩的读不了，明确提示）、DOC（`olefile` 读 WordDocument 流的 piece table，没有标题层级，分章靠「第X章」）、PPTX / PPT（一张幻灯片一「页」，PPT 用 `olefile` 读文字记录）。都转成「块」交给 `book._pseudo_pages`，`book.LIB_EXT` 是媒体库列出的格式。文档属性里「Administrator」「空白演示」这类模板值不用（`clean_meta`）。不要引入 GPL 的电子书库（项目是 MIT）；`olefile` 是 BSD。测试文件由 `tests/make_test_ebooks.py` 生成（.doc / .ppt 借本机 WPS 另存，没有 WPS 就跳过）。书上页码 = PDF 页序 − `shift`，自动从页面上下单独的数字认，用户可以改。
 - 书籍的整理结果也存在旁边的 `.猛人学习.json`，`kind: 'book'`，字段：`title, author, shift, chapters[{title, start, end, md}], overview, clip`，`segments` 留空列表（兼容）。
 - 整理一章时一次最多 18 页 / 36000 字 / 10 张页面图，超了先分段写笔记再合成；整理完按「没被引用的页」查漏（`review_chapter`）。用户在设置里关联了知识库的整理规范（`book_rules_file`）时，整份规范交给 AI，以它为准。
 - PDF 旁边同名的 .docx（WPS OCR 导出）自动当正文参考（`companion_docx` / `companion_slice`：按章名在 Word 全文里找这一章，跳过目录）；媒体库不单独列这份 Word。

@@ -312,6 +312,17 @@ def busy(key):
     return None
 
 
+def busy_under(folder):
+    """这个文件夹（含子文件夹）里有没有课正在被整理：有就返回其中一个的标记。"""
+    base = os.path.normcase(os.path.abspath(folder)).rstrip('\\/') + os.sep
+    for f in BUSY_DIR.glob('*.busy') if BUSY_DIR.is_dir() else []:
+        d = busy(f.stem)
+        t = load(d.get('task_id')) if d else None
+        if t and os.path.normcase(os.path.abspath(t.get('path') or '')).startswith(base):
+            return d
+    return None
+
+
 def claim(key, task_id):
     """占住这节课。已经有别的任务在整理就报错。"""
     BUSY_DIR.mkdir(parents=True, exist_ok=True)

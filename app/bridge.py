@@ -10,8 +10,8 @@ from core import asr, book, cache, codex_auth, config, doc as docs, frames, glos
 from core.log import LOG_DIR, log
 
 MEDIA_FILTER = ('音视频和文档 (*.mp4;*.m4v;*.mov;*.mkv;*.webm;*.avi;*.flv;*.ts;*.wmv;*.3gp;*.mpg;*.mpeg;'
-                '*.mp3;*.m4a;*.aac;*.wav;*.flac;*.ogg;*.opus;*.wma;*.amr;*.ape;*.pdf;*.docx;*.txt;*.md)',
-                '书籍和文档 (*.pdf;*.docx;*.txt;*.md)', '所有文件 (*.*)')
+                '*.mp3;*.m4a;*.aac;*.wav;*.flac;*.ogg;*.opus;*.wma;*.amr;*.ape;*.pdf;*.docx;*.doc;*.epub;*.mobi;*.azw3;*.azw;*.pptx;*.ppt;*.txt;*.md)',
+                '书籍和文档 (*.pdf;*.docx;*.doc;*.epub;*.mobi;*.azw3;*.azw;*.pptx;*.ppt;*.txt;*.md)', '所有文件 (*.*)')
 
 
 def file_url(path) -> str:
@@ -291,7 +291,8 @@ class Api:
     @staticmethod
     def _book_info(info, d=None):
         shift = (d or {}).get('shift', info.get('shift')) if d and 'shift' in d else info.get('shift')
-        return {'kind': info['kind'], 'pages': len(info['pages']), 'scan': info['scan'], 'shift': shift, 'detected_shift': info.get('shift'),
+        return {'kind': info['kind'], 'kind_name': book.source_type(info), 'unit': {'pdf': '页', 'pptx': '张', 'ppt': '张'}.get(info['kind'], '段'),
+                'pages': len(info['pages']), 'scan': info['scan'], 'shift': shift, 'detected_shift': info.get('shift'),
                 'chars': info['chars'], 'toc': len(info.get('toc') or []), 'figures': sum(1 for p in info['pages'] if p['figure']),
                 'companion': Path(info['companion']).name if info.get('companion') else ''}
 
@@ -399,27 +400,38 @@ class Api:
 
     # ---------------------------------------------------------- 媒体库 ----
     def do_library(self, b):
-        groups = library.view()
-        log.info('媒体库：%d 组、%d 个条目', len(groups), sum(len(g.get('items') or []) for g in groups))
-        return {'groups': groups}
+        tree = library.view()
+        log.info('媒体库：最上层 %d 项、%d 个文件', len(tree), sum(n['count'] if n['type'] == 'folder' else 1 for n in tree))
+        return {'groups': tree}
 
     def do_library_add_folder(self, b):
+        """加文件夹。媒体库里已经有它下面的文件夹时返回 need_merge，界面问用户后带 merge=true/false 再调一次。"""
         path = b.get('path')
         if not path:
             import webview
             r = self._window.create_file_dialog(webview.FileDialog.FOLDER)
             path = r[0] if r else None
         if not path:
-            return {'added': 0, 'groups': None}
-        n = library.add_folder(path)
-        return {'added': n, 'groups': library.view()}
+            return {'status': 'cancel', 'groups': None}
+        r = library.add_folder(path, b.get('merge'))
+        return dict(r, groups=library.view() if r['status'] == 'added' else None)
 
     def do_library_add_files(self, b):
         paths = b.get('paths')
         if not paths:
             paths = self.do_pick_media_multi({})['paths']
-        n = library.add_files(paths or [])
-        return {'added': n, 'groups': library.view()}
+        r = library.add_files(paths or [])
+        return dict(r, groups=library.view())
+
+    def do_library_reorder(self, b):
+        """拖动排序后记住顺序。parent 为空是最上层（names 是路径），否则是那个文件夹里的名字。"""
+        library.reorder(b.get('parent') or '', [str(x) for x in b.get('names') or []])
+        return {'groups': library.view()}
+
+    def do_rename(self, b):
+        """改文件或文件夹的名字（电脑上的文件、字幕文件、播放进度、媒体库一起改；Obsidian 里的笔记不改名）。"""
+        new = library.rename(b.get('path') or '', b.get('name') or '')
+        return {'path': new, 'groups': library.view()}
 
     def do_library_remove(self, b):
         library.remove(b.get('kind'), b.get('path') or '')

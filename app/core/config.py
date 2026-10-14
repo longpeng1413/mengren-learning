@@ -335,6 +335,35 @@ def set_position(path: str, t: float, duration: float = 0) -> None:
         _write_json(POSITIONS_FILE, data, indent=None)
 
 
+def move_paths(old: str, new: str) -> None:
+    """文件或文件夹在软件里改了名：播放进度、最近打开里的路径跟着改（文件夹的话，里面所有文件都改）。"""
+    o, n = os.path.abspath(old), os.path.abspath(new)
+    ol = o.lower()
+
+    def moved(p):
+        pl = os.path.abspath(p).lower()
+        if pl == ol:
+            return n
+        if pl.startswith(ol.rstrip('\\/') + os.sep):
+            return n + os.path.abspath(p)[len(o):]
+        return None
+    with _lock:
+        data = get_positions()
+        changed = {}
+        for k, v in list(data.items()):
+            m = moved(k)
+            if m:
+                changed[m.lower()] = v
+                del data[k]
+        if changed:
+            data.update(changed)
+            _write_json(POSITIONS_FILE, data, indent=None)
+    s = load()
+    items = s.get('recent', [])
+    if any(moved(r.get('path') or '') for r in items):
+        update({'recent': [dict(r, path=moved(r.get('path') or '') or r.get('path')) for r in items]})
+
+
 # ------------------------------------------------------------------ 老师档案 ----
 def load_teachers() -> list:
     data = _read_json(TEACHERS_FILE, [])

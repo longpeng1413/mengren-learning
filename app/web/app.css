@@ -177,7 +177,8 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .lib-body { flex: 1; overflow-y: auto; padding: 0 6px 20px; }
 .lib-empty { color: var(--muted); font-size: 13px; padding: 20px 10px; line-height: 1.8; text-align: center; }
 .lib-group { margin-bottom: 6px; }
-.lib-ghead { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 7px; cursor: pointer; user-select: none; }
+.lib-ghead { display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px calc(8px + var(--depth, 0) * 14px); border-radius: 7px; cursor: pointer; user-select: none; }
+.lib-group:not(.top) > .lib-ghead .lib-gname { font-weight: 500; }
 .lib-ghead:hover { background: var(--hover); }
 .lib-ghead .caret { transition: transform .15s; color: var(--muted); }
 .lib-group.collapsed .caret { transform: rotate(-90deg); }
@@ -188,7 +189,11 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .lib-more { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 0 4px; border-radius: 5px; height: 22px; }
 .lib-more:hover { color: var(--text); background: var(--panel2); }
 .lib-sub { font-size: 11px; color: var(--muted); padding: 6px 10px 2px 26px; }
-.lib-item { display: block; position: relative; padding: 6px 8px 7px 26px; border-radius: 7px; cursor: pointer; }
+.lib-item { display: block; position: relative; padding: 6px 8px 7px calc(26px + var(--depth, 0) * 14px); border-radius: 7px; cursor: pointer; }
+.lib-item .dot { left: calc(10px + var(--depth, 0) * 14px) !important; }
+.lib-body .drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.lib-body .drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+.lib-body [draggable=true]:active { cursor: grabbing; }
 .lib-item:hover { background: var(--hover); }
 .lib-item.active { background: var(--accent-weak); }
 .lib-item.active .lib-name { color: var(--text); font-weight: 600; }
@@ -202,7 +207,7 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .lib-meta .tag.acc { color: var(--accent); border-color: var(--accent-line); }
 .lib-prog { height: 2px; background: var(--line); border-radius: 2px; margin-top: 4px; overflow: hidden; }
 .lib-prog i { display: block; height: 100%; background: var(--accent); }
-.lib-missing { color: var(--danger); font-size: 12px; padding: 2px 10px 6px 26px; }
+.lib-missing { color: var(--danger); font-size: 12px; padding: 2px 10px 6px calc(26px + var(--depth, 0) * 14px); }
 
 /* ---------- AI 面板 ---------- */
 .ai-panel { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }

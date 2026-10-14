@@ -1,5 +1,5 @@
 """文档和书籍的来源级整理（对应知识库《外部书籍与文档整理规范》）：
-- 支持原生 PDF、OCR 过的扫描 PDF、Word（.docx）、TXT / Markdown；
+- 支持原生 PDF、OCR 过的扫描 PDF、Word（.docx / 老版 .doc）、电子书（EPUB、MOBI、AZW3）、演示文稿（PPTX / PPT）、TXT / Markdown（新格式的读取在 ebook.py）；
 - 文字层负责读正文，原页面负责看图表：有图、表、公式的页面截成图片一起交给能看图的 AI；
 - 以书上印的页码（P42）作为回溯锚点；书上没有页码时写「PDF 第 X 页」；
 - 一章一章整理：章节 MD 按规范的固定栏目；最后生成「00、全书总览」；
@@ -15,11 +15,15 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
 
+from . import ebook
 from .config import CACHE_DIR
 from .media import cache_key
 
-DOC_EXT = {'.pdf', '.docx', '.txt', '.md'}
-LIB_EXT = {'.pdf', '.docx'}           # 媒体库里列出的文档（txt / md 用「打开」）
+# 媒体库里列出的文档：微信读书能导入的格式（TXT 除外：课程文件夹里的 txt 一般是说明文件），加上 PPT。txt / md 用「打开」
+LIB_EXT = {'.pdf', '.docx', '.doc', '.epub', '.mobi', '.azw3', '.azw', '.pptx', '.ppt'}
+DOC_EXT = LIB_EXT | {'.txt', '.md'}
+KIND_NAMES = {'pdf': 'PDF', 'docx': 'Word 文档', 'doc': 'Word 文档（老版 .doc）', 'epub': '电子书（EPUB）',
+              'mobi': 'Kindle 电子书（MOBI / AZW3）', 'pptx': '演示文稿（PPTX）', 'ppt': '演示文稿（老版 .ppt）', 'text': '文本文档'}
 PART_PAGES = 18                       # 一次交给 AI 的最多页数
 PART_CHARS = 36000                    # 一次交给 AI 的最多字数
 PART_IMAGES = 10                      # 一次交给 AI 的最多页面图
@@ -218,6 +222,39 @@ def _read_text(path):
     return {'kind': 'text', 'pages': pages, 'toc': toc, 'title': '', 'author': ''}
 
 
+def _read_ebook(path, ext):
+    """电子书、老版 Word：按块切成「页」；演示文稿：一张幻灯片一「页」。"""
+    img_dir = CACHE_DIR / 'pages' / cache_key(path)
+    if ext in ('.pptx', '.ppt'):
+        slides, meta = ebook.read_pptx(path, img_dir) if ext == '.pptx' else ebook.read_ppt(path)
+        pages, toc = [], []
+        for k, (title, body, pics) in enumerate(slides, 1):
+            text = (f'【第 {k} 张幻灯片】' + (title or '')).strip() + ('\n' + body if body else '')
+            if title and CHAPTER_RE.match(title) and len(title) < 40:
+                toc.append({'level': 1, 'title': title, 'n': k})
+            pages.append({'n': k, 'text': text, 'label': None, 'scan': False, 'images': pics,
+                          'figure': bool(pics) or bool(FIG_WORDS.search(text))})
+        if not pages:
+            raise BookError('这个演示文稿里没有读到文字')
+        return {'kind': ext[1:], 'pages': pages, 'toc': toc, 'title': meta['title'], 'author': meta['author']}
+    if ext == '.epub':
+        blocks, meta = ebook.read_epub(path, img_dir)
+        kind = 'epub'
+    elif ext == '.doc':
+        blocks, meta = ebook.read_doc(path)
+        kind = 'doc'
+    else:
+        blocks, meta = ebook.read_mobi(path, img_dir)
+        kind = 'mobi'
+    if not any(b[0].strip() for b in blocks):
+        raise BookError('这个文档里没有读到文字（可能是扫描成图片的电子书）')
+    top = min((b[2] for b in blocks if b[1]), default=1)
+    if top > 1:  # 章名用的是 h2 / h3（Kindle 书常见）：最高一级当章，才分得开
+        blocks = [(t, h, lv - top + 1 if h else lv, p) for t, h, lv, p in blocks]
+    pages, toc = _pseudo_pages(blocks)
+    return {'kind': kind, 'pages': pages, 'toc': toc, 'title': meta['title'], 'author': meta['author']}
+
+
 def read(path):
     """读取文档（按文件修改时间缓存）。返回 {kind, pages:[{n, text, label, scan, figure}], toc, title, author, shift}。"""
     path = os.path.abspath(path)
@@ -236,10 +273,14 @@ def read(path):
             info = _read_docx(path)
         elif ext in ('.txt', '.md'):
             info = _read_text(path)
+        elif ext in ('.epub', '.mobi', '.azw3', '.azw', '.doc', '.pptx', '.ppt'):
+            info = _read_ebook(path, ext)
         else:
-            raise BookError('不支持这种文档。支持 PDF、Word（.docx）、TXT 和 Markdown')
+            raise BookError('不支持这种文档。支持 PDF、Word（.docx / .doc）、电子书（EPUB、MOBI、AZW3）、演示文稿（PPTX / PPT）、TXT 和 Markdown')
     except BookError:
         raise
+    except ebook.EbookError as e:
+        raise BookError(str(e))
     except Exception as e:
         raise BookError(f'读不出这个文档：{e}')
     info['shift'] = detect_shift(info['pages'])
@@ -520,13 +561,18 @@ def _rules(settings):
     return DEFAULT_RULES
 
 
+def source_type(info):
+    if info['kind'] == 'pdf':
+        return '扫描 PDF（OCR 文字层 + 原页面图）' if info.get('scan') else 'PDF（文字层 + 原页面图）'
+    return KIND_NAMES.get(info['kind'], '文档')
+
+
 def _book_head(meta, chapter, info, teacher):  # noqa: C901
     from . import llm
     lines = [f'书名：{meta.get("title") or ""}', f'作者：{meta.get("author") or "（未填写）"}',
              f'本次整理：{chapter["title"]}，{range_ref(chapter["start"], chapter["end"], info.get("shift"))}'
              + (f'（PDF 第 {chapter["start"]}-{chapter["end"]} 页）' if info['kind'] == 'pdf' else ''),
-             '来源类型：' + {'pdf': '扫描 PDF（OCR 文字层 + 原页面图）' if info.get('scan') else 'PDF（文字层 + 原页面图）',
-                         'docx': 'Word 文档', 'text': '文本文档'}[info['kind']]]
+             '来源类型：' + source_type(info)]
     tb = llm.teacher_block(teacher) if teacher else ''
     if tb:
         lines.append('作者 / 来源的术语说明（只用来识别术语、校正 OCR，不能当成本章讲过的内容）：\n' + tb)
@@ -839,8 +885,11 @@ def clip_book(doc, info, vault, folder, dir_pattern='《{title}》{author}', for
     author = (doc.get('author') or '').strip()
     dname = safe_name((dir_pattern or '《{title}》{author}').replace('{title}', title).replace('{author}', author).strip())
     base = Path(vault) / (folder or '') / dname
+    old = (doc.get('clip') or {}).get('dir') if isinstance(doc.get('clip'), dict) else None
+    if old and Path(old).is_dir():  # 剪藏过：沿用原来的文件夹（在软件里改了书名也不改 Obsidian 里的名字，用户在 Obsidian 里移动过也能找到）
+        base = Path(old)
     shift = doc.get('shift') if doc.get('shift') is not None else info.get('shift')
-    src_type = {'pdf': '扫描 PDF（OCR 文字层 + 原页面图）' if info.get('scan') else 'PDF（文字层 + 原页面图）', 'docx': 'Word 文档', 'text': '文本文档'}[info['kind']]
+    src_type = source_type(info)
     chapters = doc.get('chapters') or []
     clip = doc.get('clip') if isinstance(doc.get('clip'), dict) else {}
     prev = clip.get('files') if isinstance(clip.get('files'), dict) else {}

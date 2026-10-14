@@ -290,6 +290,41 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     await window.openPath(keepPath);
     ok('回到原来的视频', await until(() => S.path === keepPath && S.mode === 'media'));
 
+    // 媒体库树形显示、展开收起、拖动排序、改名、新格式（test-media\ui-lib：1、第一讲\{2、乙,1、甲}.avi、资料\补充.epub、预告.avi）
+    const libBase = base.replace(/ui\\$/, 'ui-lib\\');
+    const rl = await api('library_add_folder', { path: libBase });
+    await loadLibrary(rl.groups);
+    const top = S.lib.find(n => n.path.toLowerCase() === libBase.replace(/\\$/, '').toLowerCase());
+    ok('媒体库按实际层级显示：带序号的在前，子文件夹里也按序号', top && top.children.map(c => c.name).join('|') === '1、第一讲|资料|预告'
+      && top.children[0].children.map(c => c.name).join('|') === '1、甲|2、乙', top && top.children.map(c => c.name));
+    const headOf = name => [...document.querySelectorAll('#libBody [data-folder]')].find(h => h.querySelector('.lib-gname').textContent === name);
+    ok('子文件夹显示成可以展开的一层，往里缩进', !!headOf('资料') && getComputedStyle(headOf('资料')).getPropertyValue('--depth').trim() === '1');
+    headOf('资料').click();
+    ok('点文件夹收起，记住', headOf('资料').parentElement.classList.contains('collapsed') && libNode(top.path + '\\资料').collapsed);
+    headOf('资料').click();
+    const sib = () => siblings0(top.path).map(el => el.dataset.fname || el.dataset.drag.split('\\').pop());
+    const elOf = name => siblings0(top.path).find(el => (el.dataset.fname || '') === name);
+    let list = siblings0(top.path).filter(el => el !== elOf('预告.avi'));
+    list.splice(list.indexOf(elOf('资料')), 0, elOf('预告.avi'));
+    await libReorder({ el: elOf('预告.avi'), path: elOf('预告.avi').dataset.drag, parent: top.path }, list);
+    ok('拖动没序号的：放到哪里就排在哪里', await until(() => sib().join('|') === '1、第一讲|预告.avi|资料'), sib());
+    const origPrompt = window.prompt;
+    window.prompt = () => null;  // 提示改名时不改
+    const inner = top.path + '\\1、第一讲';
+    const elsIn = () => siblings0(inner);
+    list = elsIn().slice().reverse();
+    await libReorder({ el: list[0], path: list[0].dataset.drag, parent: inner }, list);
+    ok('拖动带序号的打乱序号：提示改名，不改名就不动', toasts().some(t => t.includes('按序号排列')) && elsIn().map(el => el.dataset.fname).join('|') === '1、甲.avi|2、乙.avi');
+    window.prompt = () => '预告（改过名）';
+    ok('改名：电脑上的文件和媒体库一起改', await renameNode(libNode(top.path + '\\预告.avi')) && !!libNode(top.path + '\\预告（改过名）.avi')
+      && !libNode(top.path + '\\预告.avi'));
+    window.prompt = origPrompt;
+    await window.openPath(top.path + '\\资料\\补充.epub');
+    ok('打开电子书（EPUB）：分出章节，显示类型', await until(() => S.mode === 'book' && (S.doc.chapters || []).length === 2) && $('#bkInfo').textContent.includes('电子书（EPUB）'), $('#bkInfo').textContent);
+    ok('打开的课所在的文件夹自动展开', !headOf('资料').parentElement.classList.contains('collapsed'));
+    await window.openPath(keepPath);
+    await loadLibrary((await api('library_remove', { kind: 'folder', path: top.path })).groups);
+
     // 设置窗口
     openSettings('codex');
     ok('设置：ChatGPT 账号登录', document.querySelector('#codexBox').textContent.includes('用 ChatGPT 账号登录'));

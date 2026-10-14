@@ -196,11 +196,28 @@ function renderTeacherSelect() {
 }
 
 /* ------------------------------------------------------------ 媒体库 ---- */
+/* 树形（2026-10-14）：最上层是加进来的文件夹和单个文件（按加入先后），文件夹按实际层级展开。
+   同一层里带序号的按序号、没序号的按下载时间；没序号的可以拖动排序，带序号的拖乱了会提示改名。
+   排列规则在后台 core/library.py，这里只显示、记住展开收起、把拖好的顺序交给后台。 */
 async function loadLibrary(groups) {
   try { S.lib = groups || (await api('library')).groups; S.libError = ''; } catch (e) { S.libError = e.message || String(e); fail(e); }
   renderLibrary();
 }
-function itemHTML(it) {
+/* 媒体库里所有的文件（任意层），可以带过滤 */
+function libFiles(nodes = S.lib, out = []) {
+  for (const n of nodes || []) { if (n.type === 'folder') libFiles(n.children, out); else out.push(n); }
+  return out;
+}
+function libNode(path, nodes = S.lib) {
+  const p = (path || '').toLowerCase();
+  for (const n of nodes || []) {
+    if (n.path.toLowerCase() === p) return n;
+    if (n.type === 'folder') { const f = libNode(path, n.children); if (f) return f; }
+  }
+  return null;
+}
+const insideDir = (path, dir) => !!path && !!dir && path.toLowerCase().startsWith(dir.toLowerCase().replace(/[\\/]+$/, '') + '\\');
+function itemHTML(it, depth = 0, parent = '') {
   const tags = [];
   if (it.book) tags.push(`<span class="tag ${it.book.done ? 'ok' : ''}">整理 ${it.book.done}/${it.book.total}</span>`);
   if (it.subs) tags.push(`<span class="tag ok" title="这节课的字幕有 ${it.subs} 句">字幕 ${it.subs} 句</span>`);
@@ -213,10 +230,38 @@ function itemHTML(it) {
   if (it.pos && it.duration) tags.push(`<span>看到 ${fmt(it.pos)}</span>`);
   const pct = it.pos && it.duration ? Math.min(100, it.pos / it.duration * 100) : 0;
   const dot = it.clipped && !it.stale ? 'done' : (it.subs || (it.book && it.book.done) ? 'has' : '');
-  return `<div class="lib-item ${S.path && it.path.toLowerCase() === S.path.toLowerCase() ? 'active' : ''}" data-open="${esc(it.path)}" title="${esc(it.path)}">
+  return `<div class="lib-item ${S.path && it.path.toLowerCase() === S.path.toLowerCase() ? 'active' : ''}" data-open="${esc(it.path)}" title="${esc(it.path)}"
+    draggable="true" data-drag="${esc(it.path)}" data-parent="${esc(parent)}" data-fname="${esc(it.fname || '')}" data-num="${it.num ? 1 : 0}" style="--depth:${depth}">
     <i class="dot ${dot}"></i><div class="lib-name">${esc(it.name)}</div>
     ${tags.length ? `<div class="lib-meta">${tags.join('')}</div>` : ''}
     ${pct ? `<div class="lib-prog"><i style="width:${pct.toFixed(1)}%"></i></div>` : ''}</div>`;
+}
+/* 搜索时：文件名或它所在的文件夹名包含关键词就显示 */
+function libMatch(n, q, chain) {
+  if (!q) return true;
+  if (n.type === 'folder') return (chain + ' ' + n.name).toLowerCase().includes(q) || n.children.some(c => libMatch(c, q, chain + ' ' + n.name));
+  return (chain + ' ' + n.name).toLowerCase().includes(q);
+}
+function folderHTML(n, depth, parent, q, chain) {
+  const kids = n.children.filter(c => libMatch(c, q, chain + ' ' + n.name));
+  const open = q || !n.collapsed || insideDir(S.path, n.path);  // 正在看的课所在的文件夹自动展开
+  const t = n.teacher && teacherById(n.teacher);
+  return `<div class="lib-group ${open ? '' : 'collapsed'} ${n.top ? 'top' : ''}">
+    <div class="lib-ghead" data-folder="${esc(n.path)}" draggable="true" data-drag="${esc(n.path)}" data-parent="${esc(parent)}"
+      data-fname="${esc(n.fname || '')}" data-num="${n.num ? 1 : 0}" style="--depth:${depth}" title="${esc(n.path)}">
+      <svg class="caret" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+      <span class="lib-gname">${esc(n.name)}</span>
+      ${t ? `<span class="lib-gteacher" title="这个文件夹（和没单独绑定的下层文件夹）里的课用这位老师的术语表">${esc(t.name)}</span>` : ''}
+      <span class="lib-gcount">${n.count}</span>
+      <button class="lib-more" data-more="${esc(n.path)}" title="更多">⋯</button>
+    </div>
+    ${n.missing ? `<div class="lib-missing" style="--depth:${depth}">找不到这个文件夹，可能被移动或删除了</div>` : ''}
+    <div class="lib-items">${kids.map(c => nodeHTML(c, depth + 1, n.path, q, chain + ' ' + n.name)).join('')
+      || (n.missing ? '' : `<div class="lib-missing muted" style="--depth:${depth + 1}">没有音视频和文档</div>`)}</div>
+  </div>`;
+}
+function nodeHTML(n, depth, parent, q, chain) {
+  return n.type === 'folder' ? folderHTML(n, depth, parent, q, chain) : itemHTML(n, depth, parent);
 }
 function renderLibrary() {
   const q = $('#libSearch').value.trim().toLowerCase();
@@ -226,37 +271,17 @@ function renderLibrary() {
     return;
   }
   if (!S.lib.length) {
-    body.innerHTML = '<div class="lib-empty">还没有添加文件。<br>点上面的 <b>＋文件夹</b> 一次加入整个文件夹的视频和音频，以后点哪个看哪个。</div>';
+    body.innerHTML = '<div class="lib-empty">还没有添加文件。<br>点上面的 <b>＋文件夹</b> 一次加入整个文件夹（含子文件夹）里的视频、音频和文档，以后点哪个看哪个。</div>';
     return;
   }
   const scroll = body.scrollTop;
-  body.innerHTML = S.lib.map((g, gi) => {
-    const items = g.items.filter(it => !q || it.name.toLowerCase().includes(q) || (it.sub || '').toLowerCase().includes(q));
-    let lastSub = null;
-    const list = items.map(it => {
-      const head = it.sub && it.sub !== lastSub ? `<div class="lib-sub">${esc(it.sub)}</div>` : '';
-      lastSub = it.sub;
-      return head + itemHTML(it);
-    }).join('');
-    const t = g.teacher && teacherById(g.teacher);
-    return `<div class="lib-group ${g.collapsed && !q ? 'collapsed' : ''}">
-      <div class="lib-ghead" data-toggle="${gi}">
-        <svg class="caret" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
-        <span class="lib-gname" title="${esc(g.path)}">${esc(g.name)}</span>
-        ${t ? `<span class="lib-gteacher" title="这个文件夹的视频默认用这位老师的术语表">${esc(t.name)}</span>` : ''}
-        <span class="lib-gcount">${items.length}</span>
-        <button class="lib-more" data-more="${gi}" title="更多">⋯</button>
-      </div>
-      ${g.missing ? '<div class="lib-missing">找不到这个文件夹，可能被移动或删除了</div>' : ''}
-      <div class="lib-items">${list || (g.missing ? '' : '<div class="lib-missing muted">没有音视频文件</div>')}</div>
-    </div>`;
-  }).join('');
+  body.innerHTML = S.lib.filter(n => libMatch(n, q, '')).map(n => nodeHTML(n, 0, '', q, '')).join('');
   body.scrollTop = scroll;
 }
 function patchLib(path, patch, later) {
   if (!path) return;
   const p = path.toLowerCase();
-  for (const g of S.lib) for (const it of g.items) if (it.path.toLowerCase() === p) Object.assign(it, patch);
+  for (const it of libFiles()) if (it.path.toLowerCase() === p) Object.assign(it, patch);
   clearTimeout(patchLib.timer);
   if (later) patchLib.timer = setTimeout(renderLibrary, 800); else renderLibrary();
 }
@@ -278,50 +303,146 @@ function showCtx(x, y, html, bindings) {
   m.style.top = Math.max(4, Math.min(y, innerHeight - r.height - 8)) + 'px';
   bindings(m);
 }
-function groupMenu(gi, x, y) {
-  const g = S.lib[gi];
-  if (g.type === 'files') {
-    showCtx(x, y, `<button class="menu-item danger" data-a="clear">清空单个文件列表（不删除文件）</button>`, m => {
-      $('[data-a=clear]', m).onclick = async () => { m.hidden = true; let r; for (const it of g.items) r = await api('library_remove', { kind: 'file', path: it.path }); if (r) loadLibrary(r.groups); };
-    });
-    return;
-  }
+function folderMenu(path, x, y) {
+  const n = libNode(path); if (!n) return;
   showCtx(x, y, `<div class="menu-label">这个文件夹的老师 / 术语表</div>
-    <select data-a="teacher">${teacherOptions(g.teacher, '不指定')}</select>
+    <select data-a="teacher">${teacherOptions(n.teacher, n.top ? '不指定' : '不指定（沿用上一层）')}</select>
+    <button class="menu-item" data-a="rename">重命名…</button>
     <button class="menu-item" data-a="rescan">重新扫描</button>
     <button class="menu-item" data-a="reveal">在资源管理器中打开</button>
-    <button class="menu-item danger" data-a="remove">从媒体库移除（不删除文件）</button>`, m => {
+    ${n.top ? '<button class="menu-item danger" data-a="remove">从媒体库移除（不删除文件）</button>' : ''}`, m => {
     $('[data-a=teacher]', m).onchange = async e => {
-      g.teacher = e.target.value; m.hidden = true;
-      await api('library_set', { path: g.path, teacher: g.teacher }); renderLibrary();
-      toast(g.teacher ? '已设置，这个文件夹里没指定老师的视频会用这位老师的术语表' : '已取消绑定');
+      n.teacher = e.target.value; m.hidden = true;
+      await api('library_set', { path: n.path, teacher: n.teacher }); renderLibrary();
+      toast(n.teacher ? '已设置：这个文件夹和它下面没单独绑定的文件夹，里面的课都用这位老师的术语表' : (n.top ? '已取消绑定' : '已取消绑定，沿用上一层文件夹的设置'));
     };
+    $('[data-a=rename]', m).onclick = () => { m.hidden = true; renameNode(n); };
     $('[data-a=rescan]', m).onclick = () => { m.hidden = true; loadLibrary(); };
-    $('[data-a=reveal]', m).onclick = () => { m.hidden = true; api('reveal', { target: g.path }); };
-    $('[data-a=remove]', m).onclick = async () => { m.hidden = true; if (confirm(`从媒体库移除「${g.name}」？\n不会删除电脑上的文件。`)) loadLibrary((await api('library_remove', { kind: 'folder', path: g.path })).groups); };
+    $('[data-a=reveal]', m).onclick = () => { m.hidden = true; api('reveal', { target: n.path }); };
+    const rm = $('[data-a=remove]', m);
+    if (rm) rm.onclick = async () => { m.hidden = true; if (confirm(`从媒体库移除「${n.name}」？\n不会删除电脑上的文件。`)) loadLibrary((await api('library_remove', { kind: 'folder', path: n.path })).groups); };
   });
 }
 function itemMenu(path, x, y) {
-  const inFiles = S.lib.some(g => g.type === 'files' && g.items.some(it => it.path === path));
+  const n = libNode(path); if (!n) return;
   showCtx(x, y, `<button class="menu-item" data-a="open">打开</button>
+    <button class="menu-item" data-a="rename">重命名…</button>
     <button class="menu-item" data-a="reveal">在资源管理器中显示</button>
-    ${inFiles ? '<button class="menu-item danger" data-a="remove">从列表移除</button>' : ''}`, m => {
+    ${n.top ? '<button class="menu-item danger" data-a="remove">从媒体库移除（不删除文件）</button>' : ''}`, m => {
     $('[data-a=open]', m).onclick = () => { m.hidden = true; openPath(path); };
+    $('[data-a=rename]', m).onclick = () => { m.hidden = true; renameNode(n); };
     $('[data-a=reveal]', m).onclick = () => { m.hidden = true; api('reveal', { target: path }); };
     const rm = $('[data-a=remove]', m);
     if (rm) rm.onclick = async () => { m.hidden = true; loadLibrary((await api('library_remove', { kind: 'file', path })).groups); };
   });
 }
+/* 改名：电脑上的文件 / 文件夹、字幕文件、播放进度、媒体库一起改；Obsidian 里已经剪藏的笔记不改名 */
+async function renameNode(n, suggested) {
+  const isDir = n.type === 'folder';
+  const cur = isDir ? (n.fname || n.path.split(/[\\/]/).pop()) : n.name;
+  const name = (window.prompt(`给这个${isDir ? '文件夹' : '文件'}改名（电脑上的${isDir ? '文件夹' : '文件'}也会改名${isDir ? '' : '，扩展名不变'}）：`, suggested || cur) || '').trim();
+  if (!name || name === cur) return false;
+  const affected = !!S.path && (S.path.toLowerCase() === n.path.toLowerCase() || (isDir && insideDir(S.path, n.path)));
+  if (affected && S.job) { toast('这节课还有任务在进行，等它完成后再改名', { error: true }); return false; }
+  const oldOpen = S.path;
+  if (affected) { await flushSave(); releaseMedia(); }
+  try {
+    const r = await api('rename', { path: n.path, name });
+    S.lib = r.groups; renderLibrary();
+    if (affected) await window.openPath(isDir ? r.path + oldOpen.slice(n.path.length) : r.path);
+    toast('已改名' + (n.clipped || isDir ? '。Obsidian 里已经剪藏的笔记保留原来的文件名' : ''), { ms: 6000 });
+    return true;
+  } catch (e) {
+    fail(e);
+    if (affected) await window.openPath(oldOpen);
+    return false;
+  }
+}
+/* 改名前放开正在播放 / 显示的文件（Windows 上被占用的文件改不了名） */
+function releaseMedia() {
+  const v = $('#video');
+  try { v.pause(); v.removeAttribute('src'); v.load(); } catch (_) { /* 没有在播放 */ }
+  const pdf = $('#bookPdf'); if (pdf && pdf.getAttribute('src')) pdf.src = 'about:blank';
+}
+/* 拖动排序：只能在同一层里拖；带序号的拖乱了序号顺序，提示改名 */
+function libDrag() {
+  const body = $('#libBody');
+  let drag = null;
+  const siblings = parent => $$('[data-drag]', body).filter(el => el.dataset.parent === parent);
+  const clear = () => $$('.drop-before,.drop-after', body).forEach(el => el.classList.remove('drop-before', 'drop-after'));
+  body.addEventListener('dragstart', e => {
+    const el = e.target.closest('[data-drag]'); if (!el || $('#libSearch').value.trim()) { e.preventDefault(); return; }
+    drag = { el, path: el.dataset.drag, parent: el.dataset.parent };
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', drag.path);
+  });
+  body.addEventListener('dragover', e => {
+    if (!drag) return;
+    const el = e.target.closest('[data-drag]');
+    clear();
+    if (!el || el === drag.el || el.dataset.parent !== drag.parent) return;
+    e.preventDefault(); e.stopPropagation();
+    const r = el.getBoundingClientRect();
+    el.classList.add(e.clientY < r.top + r.height / 2 ? 'drop-before' : 'drop-after');
+  });
+  body.addEventListener('dragleave', e => { if (!body.contains(e.relatedTarget)) clear(); });
+  body.addEventListener('dragend', () => { clear(); drag = null; });
+  body.addEventListener('drop', async e => {
+    if (!drag) return;
+    e.preventDefault(); e.stopPropagation();
+    const el = e.target.closest('[data-drag]');
+    const d = drag; drag = null;
+    const before = el && el.classList.contains('drop-before');
+    clear();
+    if (!el || el === d.el || el.dataset.parent !== d.parent) return;
+    const list = siblings(d.parent).filter(x => x !== d.el);
+    list.splice(list.indexOf(el) + (before ? 0 : 1), 0, d.el);
+    await libReorder(d, list);
+  });
+}
+async function libReorder(d, list) {
+  const top = !d.parent;
+  if (!top && d.el.dataset.num === '1') {
+    // 带序号的：拖完后它和别的带序号的顺序变了，就不是「排列」而是「序号不对」了，提示改名
+    const nums = list.filter(x => x.dataset.num === '1').map(x => x.dataset.drag);
+    const now = siblings0(d.parent).filter(x => x.dataset.num === '1').map(x => x.dataset.drag);
+    if (nums.join('\n') !== now.join('\n')) {
+      const n = libNode(d.path);
+      toast('带序号的文件按序号排列。要把它排到这里，请改一下序号（例如改成 3.5、 或 03-1、），改完会自动按序号排好', { ms: 9000 });
+      if (n) await renameNode(n);
+      return;
+    }
+  }
+  const names = list.map(x => top ? x.dataset.drag : x.dataset.fname);
+  try { loadLibrary((await api('library_reorder', { parent: d.parent, names })).groups); } catch (e) { fail(e); }
+}
+const siblings0 = parent => $$('[data-drag]', $('#libBody')).filter(el => el.dataset.parent === parent);
 async function addFolder() {
   try {
-    const r = await api('library_add_folder');
-    if (r.groups) { loadLibrary(r.groups); toast(`已添加文件夹，找到 ${r.added} 个音视频文件`); if (!S.settings.sidebar) savePrefs({ sidebar: true }); }
+    toast('选择窗口里只显示文件夹，看不到里面的文件是正常的：选中要加的文件夹，点「选择文件夹」就行', { ms: 8000 });
+    let r = await api('library_add_folder');
+    if (r.status === 'cancel') return;
+    if (r.status === 'need_merge') {
+      const what = [r.children.length ? `文件夹「${r.children.join('」「')}」` : '', r.files ? `${r.files} 个单独加的文件` : ''].filter(Boolean).join('和');
+      const merge = confirm(`媒体库里已经单独加了它下面的${what}。\n\n确定：合并。按实际层级显示，原来单独加的并进这个文件夹里（绑定的老师、拖好的顺序都保留）。\n取消：重复加入。原来的不动，它们会在媒体库里出现两次。`);
+      r = await api('library_add_folder', { path: r.path, merge });
+    }
+    if (r.status === 'exists') return toast('这个文件夹已经在媒体库里了');
+    if (r.status === 'inside') return toast(`这个文件夹已经在「${r.parent_name}」里面了，展开它就能看到`, { ms: 6000 });
+    loadLibrary(r.groups);
+    if (!S.settings.sidebar) savePrefs({ sidebar: true });
+    const got = [r.video ? `视频 ${r.video} 个` : '', r.audio ? `音频 ${r.audio} 个` : '', r.doc ? `文档 ${r.doc} 个` : ''].filter(Boolean).join('、');
+    const skipped = Object.entries(r.skipped || {}).sort((a, b) => b[1] - a[1]);
+    const skipText = skipped.length ? `。另有 ${skipped.reduce((s, x) => s + x[1], 0)} 个文件不是能整理的格式，没有加入（${skipped.slice(0, 4).map(([k, v]) => `${k} ${v} 个`).join('、')}）` : '';
+    toast((got ? `已加入：${got}` : '这个文件夹里没有找到视频、音频或文档（支持 mp4 等视频、mp3 等音频、PDF、Word、EPUB、MOBI、AZW3、PPT）') + skipText
+      + (r.merged ? '。原来单独加的已经并进来了' : ''), { ms: 10000 });
   } catch (e) { fail(e); }
 }
 async function addFiles() {
   try {
     const r = await api('library_add_files');
-    if (r.added) { loadLibrary(r.groups); toast(`已添加 ${r.added} 个文件`); if (!S.settings.sidebar) savePrefs({ sidebar: true }); }
+    if (r.added) { loadLibrary(r.groups); if (!S.settings.sidebar) savePrefs({ sidebar: true }); }
+    if (r.added || r.inside) toast((r.added ? `已添加 ${r.added} 个文件` : '') + (r.inside ? `${r.added ? '；' : ''}${r.inside} 个已经在媒体库的文件夹里了，没有重复加` : ''));
   } catch (e) { fail(e); }
 }
 
@@ -340,7 +461,7 @@ window.openPath = async function (path) {
     S.path = d.path; S.doc = d.doc; S.info = d.info; S.undo = []; S.active = -1; S.dirty = false;
     // 换课时关掉单句循环：「存疑 / 回听」会自动打开它，以前一直开着，换到别的课就一直循环同一句
     $('#optLoop').checked = false; S.loopIdx = null; updateLoopHint();
-    S.docStale = (S.lib || []).some(g => g.items.some(it => it.stale && it.path.toLowerCase() === d.path.toLowerCase()));
+    S.docStale = libFiles().some(it => it.stale && it.path.toLowerCase() === d.path.toLowerCase());
     S.lastSaved = d.doc.updated || null; S.rev = d.doc.rev || 0; S.summaryChanges = d.summary_changes || 0;
     $('#btnUndo').disabled = true;
     $('#empty').hidden = true; $('#stageMain').hidden = false;
@@ -400,8 +521,7 @@ function openBook(d) {
   const s = bookShift();
   $('#bkFirst').value = s === null ? '' : s + 1;
   $('#bkFirst').closest('.field').hidden = d.book.kind !== 'pdf';
-  const kinds = { pdf: d.book.scan ? '扫描 PDF（OCR 文字层）' : 'PDF', docx: 'Word 文档', text: '文本文档' };
-  $('#bkInfo').textContent = `${kinds[d.book.kind]}，${d.book.pages} ${d.book.kind === 'pdf' ? '页' : '段'}，约 ${Math.round(d.book.chars / 1000)} 千字，${d.book.figures} 页有图表` +
+  $('#bkInfo').textContent = `${d.book.kind_name}，${d.book.pages} ${d.book.unit}，约 ${Math.round(d.book.chars / 1000)} 千字，${d.book.figures} 页有图表` +
     (d.book.kind === 'pdf' && d.book.detected_shift === null ? '。没认出书上的页码，请填上面的「书上第 1 页是 PDF 第几页」，否则锚点写成「PDF 第 X 页」' : '') +
     (d.book.scan && d.book.chars < d.book.pages * 50 ? '。⚠ 这个 PDF 几乎没有文字层，请先用 WPS 做 OCR' : '') +
     (d.book.companion ? `。同时参考同名 Word「${d.book.companion}」的正文` : '') +
@@ -411,7 +531,7 @@ function openBook(d) {
   else {
     $('#bookPdf').hidden = true; $('#bookText').hidden = false; $('#bookText').innerHTML = '<div class="muted">正在读取…</div>';
     api('book_pages', { path: d.path }).then(r => {
-      $('#bookText').innerHTML = r.pages.map(p => `<div class="bpage" id="bp-${p.n}"><span class="bref">第 ${p.n} 段</span>${esc(p.text)}${p.images.map(u => `<img src="${esc(u)}" alt="">`).join('')}</div>`).join('');
+      $('#bookText').innerHTML = r.pages.map(p => `<div class="bpage" id="bp-${p.n}"><span class="bref">第 ${p.n} ${S.book.unit || '段'}</span>${esc(p.text)}${p.images.map(u => `<img src="${esc(u)}" alt="">`).join('')}</div>`).join('');
     }).catch(fail);
   }
   renderTeacherSelect(); renderBook(); updateButtons(); updateSaveLabel(); renderLibrary(); busyNotice(d);
@@ -1319,7 +1439,7 @@ async function doClip() {
       }
       r = await api('clip', { doc: S.doc, force: true });
     }
-    S.doc.clip = { path: r.path, time: r.time, hash: r.hash, file_hash: r.file_hash, tags: r.tags }; S.docStale = false; markDirty(); save();
+    S.doc.clip = { path: r.path, time: r.time, hash: r.hash, file_hash: r.file_hash, tags: r.tags, img_base: r.img_base }; S.docStale = false; markDirty(); save();
     toast((S.doc.reviewed ? '已剪藏到 Obsidian' : '已剪藏到 Obsidian（字幕还没标记为已校对）') + (r.backup ? '。覆盖前的旧笔记已备份' : '') + (r.moved ? `。有 ${r.moved} 条你写的标注找不到原来那句话，放在了那一节的最后` : ''),
       { action: { label: '在 Obsidian 中打开', run: () => api('reveal', { target: r.uri }) }, ms: 7000 });
     return true;
@@ -1862,18 +1982,21 @@ function bind() {
   $('#libSearch').oninput = renderLibrary;
   $('#libBody').addEventListener('click', e => {
     const more = e.target.closest('[data-more]');
-    if (more) { e.stopPropagation(); const r = more.getBoundingClientRect(); groupMenu(+more.dataset.more, r.left, r.bottom + 4); return; }
-    const tg = e.target.closest('[data-toggle]');
-    if (tg) {
-      const g = S.lib[+tg.dataset.toggle]; g.collapsed = !g.collapsed; renderLibrary();
-      api('library_set', { path: g.path, collapsed: g.collapsed }).catch(() => {});
+    if (more) { e.stopPropagation(); const r = more.getBoundingClientRect(); folderMenu(more.dataset.more, r.left, r.bottom + 4); return; }
+    const head = e.target.closest('[data-folder]');
+    if (head) {  // 展开 / 收起，记住
+      const n = libNode(head.dataset.folder); if (!n) return;
+      const open = !head.parentElement.classList.contains('collapsed');
+      n.collapsed = open; renderLibrary();
+      api('library_set', { path: n.path, collapsed: n.collapsed }).catch(() => {});
     }
   });
   $('#libBody').addEventListener('contextmenu', e => {
-    const it = e.target.closest('[data-open]'); const gh = e.target.closest('.lib-ghead');
+    const it = e.target.closest('[data-open]'); const gh = e.target.closest('[data-folder]');
     if (it) { e.preventDefault(); itemMenu(it.dataset.open, e.clientX, e.clientY); }
-    else if (gh) { e.preventDefault(); groupMenu(+gh.dataset.toggle, e.clientX, e.clientY); }
+    else if (gh) { e.preventDefault(); folderMenu(gh.dataset.folder, e.clientX, e.clientY); }
   });
+  libDrag();
   document.addEventListener('click', e => {
     const item = e.target.closest('[data-open]');
     if (item && !e.target.closest('#ctxMenu')) { closeMenus(); openPath(item.dataset.open); return; }

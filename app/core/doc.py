@@ -343,8 +343,10 @@ def _same_media(a, b):
     return bool(a) and norm(a) == norm(b)
 
 
-def find_note(vault: Path, media: str, prefer: Path = None):
-    """找已经剪藏过的笔记（用户可能在 Obsidian 里移动或改了名）：按笔记属性里的 source 找。"""
+def find_note(vault: Path, media: str, prefer: Path = None, also=()):
+    """找已经剪藏过的笔记（用户可能在 Obsidian 里移动或改了名）：按笔记属性里的「视频文件」找。
+    also：这个视频以前的路径（在软件里改过名、移动过文件夹），笔记里写的可能还是旧路径。"""
+    medias = [media] + [x for x in also or () if x]
     roots = [p for p in (prefer, vault) if p and p.is_dir()]
     seen = set()
     for root in roots:
@@ -360,7 +362,7 @@ def find_note(vault: Path, media: str, prefer: Path = None):
             if not head.startswith('---') or ('猛人学习' not in head and '猛人字幕' not in head):
                 continue
             m = re.search(r'(?m)^(?:视频文件|source):\s*"?(.*?)"?\s*$', head)  # 1.7.4 以前的笔记属性是英文
-            if m and _same_media(m.group(1), media):
+            if m and any(_same_media(m.group(1), x) for x in medias):
                 return p
     return None
 
@@ -669,7 +671,8 @@ def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolde
     if previous and Path(previous).is_file():
         path = Path(previous)  # 同一个视频再次剪藏时更新原来的笔记
     elif doc.get('media'):
-        path = find_note(Path(vault), doc['media'], prefer=target_dir if target_dir.is_dir() else Path(vault) / (folder or ''))
+        path = find_note(Path(vault), doc['media'], prefer=target_dir if target_dir.is_dir() else Path(vault) / (folder or ''),
+                         also=doc.get('media_history') or ())
     if path is None:
         target_dir.mkdir(parents=True, exist_ok=True)
         base = note_name(name_pattern, doc, teacher, series)
@@ -685,7 +688,10 @@ def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolde
                     'modified': time.strftime('%Y-%m-%d %H:%M', time.localtime(path.stat().st_mtime))}
         backup = backup_note(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    out = dict(doc, summary=place_figures(doc.get('summary') or '', doc.get('frames'), path.parent, doc.get('title') or '字幕', shot))
+    # 插图文件名沿用第一次剪藏时的名字：在软件里改了名再剪藏，不会多出一套新名字的图片、旧的没人清
+    img_base = (doc.get('clip') or {}).get('img_base') if isinstance(doc.get('clip'), dict) else None
+    img_base = img_base or doc.get('title') or '字幕'
+    out = dict(doc, summary=place_figures(doc.get('summary') or '', doc.get('frames'), path.parent, img_base, shot))
     text, moved = to_markdown(out, teacher, series, boundary), 0
     if path.exists():  # 更新原来的笔记：保留用户在 Obsidian 里加的小节、标注和属性
         legacy = {x for x in ((teacher or {}).get('name'), (teacher or {}).get('display')) if x}
@@ -697,5 +703,5 @@ def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolde
     from urllib.parse import quote
     return {'path': str(path), 'uri': f'obsidian://open?vault={quote(vault_name)}&file={quote(rel)}',
             'time': time.strftime('%Y-%m-%d %H:%M:%S'), 'hash': note_hash(doc), 'file_hash': note_fingerprint(text),
-            'backup': str(backup) if backup else '', 'moved': moved,
+            'backup': str(backup) if backup else '', 'moved': moved, 'img_base': img_base,
             'tags': _tag_list(dict(_fm_blocks(_split_front(text)[0])).get('tags') or ['tags:'])}

@@ -644,23 +644,28 @@ check('回页面核对：改正正文、记进 OCR 修正、清掉已确认的',
 (BOOKS / '_关键帧缓存').mkdir()
 shutil.copy(pdfp, BOOKS / '_关键帧缓存' / '视觉资料.pdf')
 lb = api.call('library_add_folder', {'path': str(BOOKS)})
-names = [i['name'] for i in lb['groups'][-1]['items']]
+names = [i['name'] for i in lb['groups'][-1]['children']]
 check('媒体库列出 PDF 和 Word、不列「_」开头的辅助文件夹', '《测试书籍》测试作者' in names and '讲义' in names and '视觉资料' not in names and '文章' not in names, names)
-bi = next(i for i in lb['groups'][-1]['items'] if i['name'] == '《测试书籍》测试作者')
+bi = next(i for i in lb['groups'][-1]['children'] if i['name'] == '《测试书籍》测试作者')
 check('媒体库显示整理进度', bi.get('book') == {'done': 1, 'total': 2}, bi)
 api.call('library_remove', {'kind': 'folder', 'path': str(BOOKS)})
 
 # 媒体库
 lib = api.call('library_add_folder', {'path': str(MEDIA)})
-check('添加文件夹', lib['added'] == 2 and len(lib['groups'][0]['items']) == 2, lib)
-item = next(i for i in lib['groups'][0]['items'] if i['name'] == '演示视频')
+check('添加文件夹：告诉界面加了几个视频', lib['status'] == 'added' and lib['video'] == 2 and lib['groups'][0]['count'] == 2, lib)
+item = next(i for i in lib['groups'][0]['children'] if i['name'] == '演示视频')
 check('媒体库显示字幕和进度', item['subs'] == 9 and item['pos'] == 12.5, item)
 api.call('library_set', {'path': str(MEDIA), 'teacher': t['id']})
 check('文件夹绑定老师', library.folder_teacher(str(MEDIA / '旧格式.avi')) == t['id'])
 check('打开时自动用文件夹的老师', api.call('open', {'path': str(MEDIA / '旧格式.avi')})['doc']['teacher'] == t['id'])
-api.call('library_add_files', {'paths': [str(MEDIA / '演示视频.mp4')]})
-check('添加单个文件', api.call('library', {})['groups'][-1]['type'] == 'files')
-check('移除文件夹', len(api.call('library_remove', {'kind': 'folder', 'path': str(MEDIA)})['groups']) == 1)
+r_ = api.call('library_add_files', {'paths': [str(MEDIA / '演示视频.mp4')]})
+check('已经在加进来的文件夹里的文件，不重复加', r_['added'] == 0 and r_['inside'] == 1, r_)
+single = TMP / '单独的视频.mp4'
+shutil.copy(MEDIA / '演示视频.mp4', single)
+r_ = api.call('library_add_files', {'paths': [str(single)]})
+check('添加单个文件：和文件夹一起按加入先后排在最上层', r_['added'] == 1 and r_['groups'][-1]['type'] == 'file' and r_['groups'][-1]['top'], r_['groups'][-1])
+check('移除文件夹', [n['type'] for n in api.call('library_remove', {'kind': 'folder', 'path': str(MEDIA)})['groups']] == ['file'])
+api.call('library_remove', {'kind': 'file', 'path': str(single)})
 api.call('teacher_delete', {'id': t['id']})
 check('删除老师', api.call('settings', {})['teachers'] == [])
 
