@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from .config import DATA_DIR
@@ -35,9 +36,35 @@ def stored_file(media_path: str):
     return None
 
 
+def media_key(media_path: str) -> str:
+    """同一个文件永远同一个编号（按完整路径算，不分大小写）。"""
+    return hashlib.sha1(os.path.abspath(media_path).lower().encode('utf-8')).hexdigest()[:20]
+
+
 def fallback(media_path: str) -> Path:
-    h = hashlib.sha1(os.path.abspath(media_path).lower().encode('utf-8')).hexdigest()[:20]
-    return DATA_DIR / 'library' / f'{h}.json'
+    return DATA_DIR / 'library' / f'{media_key(media_path)}.json'
+
+
+@contextmanager
+def write_lock(media_path: str):
+    """同一节课的字幕文件同时只让一个程序写：界面和命令行（Agent）可能同时在改同一节课。"""
+    d = DATA_DIR / 'locks'
+    d.mkdir(parents=True, exist_ok=True)
+    f = open(d / f'{media_key(media_path)}.lock', 'a+b')
+    locked = False
+    try:
+        if os.name == 'nt':
+            import msvcrt
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)  # 拿不到会重试约 10 秒，再不行报错
+            locked = True
+        yield
+    finally:
+        if locked:
+            import msvcrt
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+        f.close()
 
 
 def load(media_path: str):
@@ -109,27 +136,35 @@ def _write(path: Path, data: dict):
     os.replace(tmp, path)
 
 
-def save(media_path: str, doc: dict) -> dict:
-    data = {k: v for k, v in doc.items() if not k.startswith('_')}
-    data['version'] = VERSION
-    data['media'] = os.path.abspath(media_path)
-    data['segments'] = clean_segments(data.get('segments'))
-    data['updated'] = time.strftime('%Y-%m-%d %H:%M:%S')
-    try:
-        old, new = old_sidecar(media_path), sidecar(media_path)
-        if old.exists() and not new.exists():  # 改名前的字幕文件：先改成新名字，保存时照样留一份上一版
-            os.replace(old, new)
-        _write(new, data)
-        where = new
-        for p in (old, old.with_name(old.name + '.bak')):
-            try:
-                p.unlink(missing_ok=True)
-            except OSError:
-                pass
-    except OSError:
-        _write(fallback(media_path), data)
-        where = fallback(media_path)
-    return {'updated': data['updated'], 'stored': str(where), 'stale': clip_stale(data)}
+def save(media_path: str, doc: dict, base_rev=None) -> dict:
+    """保存。每保存一次 rev 加 1。传了 base_rev（界面打开 / 上次保存时的 rev）而磁盘上已经是别的 rev，
+    说明这期间别的程序（Agent 自动整理）改过这节课：不覆盖，返回 {'conflict': True}。"""
+    with write_lock(media_path):
+        cur = load(media_path)
+        disk_rev = int((cur or {}).get('rev') or 0)
+        if base_rev is not None and cur is not None and int(base_rev or 0) != disk_rev:
+            return {'conflict': True, 'rev': disk_rev, 'updated': cur.get('updated')}
+        data = {k: v for k, v in doc.items() if not k.startswith('_')}
+        data['version'] = VERSION
+        data['media'] = os.path.abspath(media_path)
+        data['segments'] = clean_segments(data.get('segments'))
+        data['updated'] = time.strftime('%Y-%m-%d %H:%M:%S')
+        data['rev'] = disk_rev + 1
+        try:
+            old, new = old_sidecar(media_path), sidecar(media_path)
+            if old.exists() and not new.exists():  # 改名前的字幕文件：先改成新名字，保存时照样留一份上一版
+                os.replace(old, new)
+            _write(new, data)
+            where = new
+            for p in (old, old.with_name(old.name + '.bak')):
+                try:
+                    p.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        except OSError:
+            _write(fallback(media_path), data)
+            where = fallback(media_path)
+    return {'updated': data['updated'], 'rev': data['rev'], 'stored': str(where), 'stale': clip_stale(data)}
 
 
 # ------------------------------------------------------------------ 导出 ----

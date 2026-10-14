@@ -50,6 +50,23 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('修改和老师都保存到磁盘', reread.doc.segments[0].text === '改过的第一句' && reread.doc.teacher === tr.teacher.id);
     ok('媒体库里的状态跟着更新', await until(() => [...document.querySelectorAll('.lib-item.active .tag')].length >= 1));
 
+    // 后台的 Agent 自动整理改过这节课：界面保存时不直接覆盖，先问
+    ok('打开时记下字幕文件的版本号', S.rev > 0 && S.rev === reread.doc.rev, [S.rev, reread.doc.rev]);
+    const origConfirm = window.confirm;
+    const bg1 = (await api('open', { path: S.path })).doc;
+    bg1.summary = '后台整理的课程重点'; await api('save', { path: S.path, doc: bg1 });  // 模拟 Agent 写入（不带版本号）
+    window.confirm = () => true;  // 选「重新打开，看自动整理的结果」
+    S.doc.segments[2].text = '界面里改的第三句'; markDirty(); await save();
+    ok('后台改过：选「重新打开」就看到后台的结果，不覆盖', await until(() => S.doc.summary === '后台整理的课程重点' && !S.dirty) && S.doc.segments[2].text !== '界面里改的第三句', S.doc.summary);
+    const bg2 = (await api('open', { path: S.path })).doc;
+    bg2.summary = '后台又改了一次'; await api('save', { path: S.path, doc: bg2 });
+    window.confirm = () => false;  // 选「保留我的版本」
+    S.doc.segments[2].text = '界面里改的第三句'; markDirty(); await save();
+    const kept = (await api('open', { path: S.path })).doc;
+    ok('后台改过：选「保留我的」就用界面的版本覆盖', kept.segments[2].text === '界面里改的第三句' && kept.summary === '后台整理的课程重点' && !S.dirty, kept.summary);
+    window.confirm = origConfirm;
+    S.doc.summary = ''; markDirty(); await save();
+
     // 工具按钮：正在编辑的一行，下排的「合并」按钮超出这一行时，也要点得到它自己（不能被下一句盖住）
     const cue1 = document.querySelectorAll('.cue')[1];
     cue1.scrollIntoView({ block: 'center' });

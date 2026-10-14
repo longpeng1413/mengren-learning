@@ -338,7 +338,7 @@ window.openPath = async function (path) {
     // 换课时关掉单句循环：「存疑 / 回听」会自动打开它，以前一直开着，换到别的课就一直循环同一句
     $('#optLoop').checked = false; S.loopIdx = null; updateLoopHint();
     S.docStale = (S.lib || []).some(g => g.items.some(it => it.stale && it.path.toLowerCase() === d.path.toLowerCase()));
-    S.lastSaved = d.doc.updated || null;
+    S.lastSaved = d.doc.updated || null; S.rev = d.doc.rev || 0;
     $('#btnUndo').disabled = true;
     $('#empty').hidden = true; $('#stageMain').hidden = false;
     $('#fileTitle').textContent = d.doc.title; $('#fileTitle').title = d.path; document.title = `${d.doc.title} - 猛人学习`;
@@ -346,7 +346,7 @@ window.openPath = async function (path) {
     setupPlayer(d);
     renderTeacherSelect(); renderCues(); renderSummary(); renderChat(); renderFrames(); updateButtons(); updateSaveLabel();
     $('#optReviewed').checked = !!S.doc.reviewed;
-    showPendingBanner(); renderLibrary();
+    showPendingBanner(); renderLibrary(); busyNotice(d);
     if (d.convert_job) runJob(d.convert_job, '正在准备播放…', { onDone: job => setSource(job.result.src) });
   } catch (e) { fail(e); }
 };
@@ -388,7 +388,7 @@ function bookShift() { const s = S.doc.shift; return s === null || s === undefin
 function pageRef(n) { const s = bookShift(); return s !== null && n - s >= 1 ? `P${n - s}` : `PDF 第 ${n} 页`; }
 function openBook(d) {
   S.path = d.path; S.doc = d.doc; S.info = { has_video: false, book: d.book }; S.book = d.book; S.viewer = d.viewer;
-  S.undo = []; S.dirty = false; S.lastSaved = d.doc.updated || null; S.bookSel = S.bookSel && S.bookSel.path === d.path ? S.bookSel : { path: d.path, i: -1 };
+  S.undo = []; S.dirty = false; S.lastSaved = d.doc.updated || null; S.rev = d.doc.rev || 0; S.bookSel = S.bookSel && S.bookSel.path === d.path ? S.bookSel : { path: d.path, i: -1 };
   S.bookChecked = new Set();
   setMode('book');
   $('#empty').hidden = true;
@@ -411,7 +411,11 @@ function openBook(d) {
       $('#bookText').innerHTML = r.pages.map(p => `<div class="bpage" id="bp-${p.n}"><span class="bref">第 ${p.n} 段</span>${esc(p.text)}${p.images.map(u => `<img src="${esc(u)}" alt="">`).join('')}</div>`).join('');
     }).catch(fail);
   }
-  renderTeacherSelect(); renderBook(); updateButtons(); updateSaveLabel(); renderLibrary();
+  renderTeacherSelect(); renderBook(); updateButtons(); updateSaveLabel(); renderLibrary(); busyNotice(d);
+}
+/* Agent（命令行）正在后台自动整理这节课 */
+function busyNotice(d) {
+  if (d.busy) toast(`后台正在自动整理这节课（${d.busy.since} 开始）。整理完之前在这里改的内容，保存时会先问你。`, { ms: 9000 });
 }
 function updateShiftHint() {
   const s = bookShift();
@@ -806,21 +810,40 @@ async function save(quiet = true) {
   clearTimeout(S.saveTimer);
   if (S.saving) { await S.saving; if (!S.dirty) return; }
   S.dirty = false;
+  let conflict = false;
   const run = (async () => {
     try {
-      const r = await api('save', { path: S.path, doc: S.doc });
-      S.lastSaved = r.updated; S.docStale = !!r.stale;
+      const r = await api('save', { path: S.path, doc: S.doc, base_rev: S.rev || 0, force: !!S.forceSave });
+      if (r.conflict) { S.dirty = true; conflict = true; return; }
+      S.rev = r.rev; S.lastSaved = r.updated; S.docStale = !!r.stale;
       syncLibFromDoc();
       if (!quiet) toast('已保存');
     } catch (e) { S.dirty = true; fail(new Error('保存失败：' + e.message)); }
   })();
   S.saving = run; updateSaveLabel();
   await run; S.saving = null; updateSaveLabel();
+  if (conflict) await onSaveConflict();
+}
+/* 保存时发现字幕文件在这期间被后台的 Agent 自动整理改过：不直接覆盖，问用户要哪一份 */
+async function onSaveConflict() {
+  if (S.closing) { S.dirty = false; logToFile('warn', '关闭时发现这节课被后台改过，保留后台的结果：' + S.path); return; }
+  if (S.conflictAsking) return;
+  S.conflictAsking = true;
+  try {
+    if (confirm('这节课刚刚被后台的自动整理更新了（字幕、课程重点等）。\n\n确定：重新打开，看自动整理的结果（你刚才没保存的修改会丢掉）\n取消：保留你现在的版本，覆盖自动整理的结果')) {
+      S.dirty = false; clearTimeout(S.saveTimer);
+      await window.openPath(S.path);
+    } else {
+      S.forceSave = true;
+      try { await save(); } finally { S.forceSave = false; }
+    }
+  } finally { S.conflictAsking = false; }
 }
 async function flushSave() { await savePosition(true); if (S.dirty) await save(); else if (S.saving) await S.saving; return true; }
 window.flushSave = flushSave;
 /* 关闭窗口前由后台调用：保存完（最多等 3 秒）再通知后台关窗 */
 window.prepareClose = async function () {
+  S.closing = true;
   try { await Promise.race([flushSave(), sleep(3000)]); }
   catch (e) { logToFile('error', '关闭前保存失败：' + (e.message || e)); }
   finally { try { await window.pywebview.api.call('quit', {}); } catch (_) { /* 后台会自己超时关窗 */ } }

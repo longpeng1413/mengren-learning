@@ -160,6 +160,20 @@ ChatGPT 账号登录用的是 OpenAI Codex 命令行工具的登录方式，不�
 - API 密钥只保存在本机，日志里不记录密钥。
 - 缓存自动清理：抽出的音频保留 3 天，转换后的视频最多 5GB，关键帧截图 30 天没用过就删。日志最多 4 个文件、每个 2MB。缓存和日志的位置可以在「设置 → 关于与数据」里更改。
 
+## 让 AI Agent 自动整理（命令行）
+
+从源码运行时，可以让 Claude Code、Codex 这类 AI Agent 直接调用猛人学习整理课程，不用点界面。做的事和在软件里点「一键整理」一样：生成字幕 → AI 校对 → 挑插图 → 用画面复核存疑句 → 翻译（只有英文视频）→ 课程重点 → 查漏补缺 → 新术语。**不剪藏**：整理结果写在原来的字幕文件里，你在软件的媒体库里打开、人工校对后自己剪藏。
+
+```bat
+rem 某课程第 12 个视频
+mengren.cmd process --course 峰级分析 --index 12 --json
+
+rem 今天新增、还没整理的全部整理
+mengren.cmd process --todo --since today --json
+```
+
+做到一半失败，再运行会从失败的那一步接着做，做过的步骤不重复花钱。完整说明见 [docs/命令行.md](docs/命令行.md)。
+
 ## 从源码运行
 
 需要 Python 3.12 以上（开发用的是 3.14）和 ffmpeg。
@@ -174,6 +188,9 @@ rem 运行
 rem 后台测试（不联网，会用 ffmpeg 生成测试视频）
 .venv\Scripts\python tests\test_backend.py
 
+rem Agent 自动整理和命令行的测试（不联网，识别和 AI 用假的）
+.venv\Scripts\python tests\test_agent.py
+
 rem 界面测试（会弹出一个窗口自动操作，1–2 分钟后关闭；加 --exe 测打包好的版本）
 .venv\Scripts\python tests\run_ui_test.py
 
@@ -185,6 +202,7 @@ rem 打包：输出到 dist-next；关掉正在运行的猛人学习后，双击
 
 - `app\main.py`：程序入口，负责开窗口和关闭流程；
 - `app\bridge.py`：界面调用后台功能的接口；
+- `app\cli.py`：命令行，给 AI Agent 调用（项目根目录的 `mengren.cmd`）；
 - `app\core\`：
   - `asr.py`：字幕识别；
   - `llm.py`：AI 调用（翻译、校对、课程重点、对话）；
@@ -196,6 +214,8 @@ rem 打包：输出到 dist-next；关掉正在运行的猛人学习后，双击
   - `glossary.py`：把确认的新术语写进术语表；
   - `book.py`：书籍和文档（读取 PDF / Word / 文本、分章、页码、整理、全书总览、剪藏）；
   - `config.py`：设置、老师档案、播放进度和存放位置；
+  - `workflow.py`：任务层，命令行调用的「一键整理」各个步骤；
+  - `tasks.py`：Agent 任务记录、错误分类、重试、取消；
   - `cache.py`、`log.py`、`jobs.py`：缓存清理、日志、后台任务；
 - `app\web\`：界面（HTML、CSS、JavaScript）。
 

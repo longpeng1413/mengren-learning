@@ -6,7 +6,7 @@ import threading
 import time
 from pathlib import Path
 
-from core import asr, book, cache, codex_auth, config, doc as docs, frames, glossary, jobs, library, llm, media
+from core import asr, book, cache, codex_auth, config, doc as docs, frames, glossary, jobs, library, llm, media, tasks, workflow
 from core.log import LOG_DIR, log
 
 MEDIA_FILTER = ('音视频和文档 (*.mp4;*.m4v;*.mov;*.mkv;*.webm;*.avi;*.flv;*.ts;*.wmv;*.3gp;*.mpg;*.mpeg;'
@@ -123,7 +123,8 @@ class Api:
         plan = media.play_plan(path, info)
         if not d.get('teacher'):
             d['teacher'] = library.folder_teacher(path)
-        out = {'path': path, 'info': info, 'doc': d, 'plan': plan, 'position': config.get_position(path)}
+        out = {'path': path, 'info': info, 'doc': d, 'plan': plan, 'position': config.get_position(path),
+               'busy': tasks.busy(docs.media_key(path))}
         cached = media.playable_path(path, info)
         if plan == 'direct':
             out['src'] = file_url(path)
@@ -142,7 +143,8 @@ class Api:
         path = b.get('path')
         if not path or not os.path.isfile(path):
             raise ValueError('视频文件不见了，无法保存字幕')
-        return docs.save(path, b.get('doc') or {})
+        # base_rev：界面打开 / 上次保存时字幕文件的版本号。期间被 Agent 改过就返回 conflict，由界面问用户（force 时直接覆盖）
+        return docs.save(path, b.get('doc') or {}, None if b.get('force') or 'base_rev' not in b else b.get('base_rev'))
 
     def do_position(self, b):
         path = b.get('path')
@@ -368,7 +370,7 @@ class Api:
             d['teacher'] = library.folder_teacher(path)
         config.add_recent(path, d.get('title') or Path(path).stem)
         return {'path': path, 'kind': 'book', 'doc': d, 'book': self._book_info(info, d),
-                'viewer': file_url(path) if info['kind'] == 'pdf' else None}
+                'viewer': file_url(path) if info['kind'] == 'pdf' else None, 'busy': tasks.busy(docs.media_key(path))}
 
     def do_book_pages(self, b):
         """Word / 文本在左边显示：每「页」的文字和图片。"""
@@ -457,19 +459,7 @@ class Api:
 
     # ------------------------------------------------------------ 画面 ----
     def _vision(self, s, need=True):
-        name = s.get('vision') or ''
-        if name and name in config.CHAT_PROVIDERS:
-            try:
-                if name in llm.VISION_NOTE:
-                    raise llm.LlmError(llm.VISION_NOTE[name] + '，请到「设置 → 任务用哪个 AI」给「画面识别」换一个能看图的服务')
-                llm.check(s, name)
-                return name
-            except llm.LlmError:
-                if need:
-                    raise
-        if need:
-            raise llm.LlmError('还没有设置「画面识别」用哪个 AI，请到「设置 → 任务用哪个 AI」选择')
-        return ''
+        return workflow.vision_provider(s, need)
 
     def do_frames_extract(self, b):
         """找关键帧并写画面记录。没有能看图的 AI 时，只截候选画面。"""

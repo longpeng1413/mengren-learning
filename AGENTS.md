@@ -81,6 +81,31 @@
 
 前端把每句字幕的改动记在 `doc.fixes`（`[{t, before, after, by: ai|frames|manual}]`）。「新术语」：`llm.fix_spans` 取出换掉的几个字，连同完整字幕交给 AI，找术语表没有的新术语和识别错误，程序再去掉已有的；**用户勾选确认后**才写（用户术语表的「新术语加入规则」要求人工确认，只记名称，不写定义）。关联了文件时写进文件末尾的「逐课补充（猛人学习）」一节（`| 术语 | 首次出现 | 老师原话 |` 和 `| ASR常见识别 | 正确术语 | 出处 |` 两张表，`terms_from_markdown` 认得），文件其他部分不动，写前备份到 `%APPDATA%\猛人学习\backups\术语表`（留 30 份）。没关联文件时加进老师档案的术语。
 
+## Agent 自动整理（命令行，2026-10-14）
+
+让 Claude Code、Codex（以后 ChatGPT Dots）不点界面就能整理课程。用法见 `docs/命令行.md`。用户定的范围：
+
+- **只是把「一键整理」自动化，不改工作流**。顺序：生成字幕（有就跳过）→ AI 校对 → 找关键帧 → 画面复核存疑句 → 翻译（**只有英文**）→ 课程重点 → 查漏 → 新术语（只放进 `terms_pending`）。**不剪藏、不写术语表、不打开「已校对」**：这些由用户在软件里人工校对后自己做。结果写在原来的字幕文件里，媒体库里直接能看到。
+- **书**：分章（没认出章节时 AI 读目录）→ 逐章整理 → 全书总览，同样不剪藏。
+- 识别只用云端，`--model local` 留着接口、明确返回 `not_supported`。
+- Codex 写的升级提示词里的结构化重点、模板可配置、术语五分类、草稿区、HTTP API **用户明确不要**。
+
+结构：
+```
+界面 app.js ──→ bridge.py ──┐
+命令行 cli.py ──────────────┼──→ core/workflow.py（任务层）──→ asr / llm / frames / book / doc（核心，不变）
+（以后 MCP，stdio，不开端口）┘        └─ core/tasks.py（任务记录、错误码、重试、「正在整理」标记、取消）
+```
+
+- `workflow.py` 每一步：读最新字幕文件 → 调核心模块 → **再读一次**（期间用户可能在界面里改过）→ 按和界面相同的规则合并 → 保存。一步做到一半失败什么都不写；已完成的步骤再运行时跳过（看字幕文件里的结果和新字段 `steps`），除非 `--steps x --force`。
+- **过渡期（第二步还没做）**：界面那边同样的合并规则还在 `app.js`（`startTranscribe`、`startCorrect`、`findFrames`、`recheckDoubts`、`doSummary`、`findTerms`、`bookOrganize`、`recordFix`、`pushVersion`），**改合并规则要两边一起改**。第二步是把界面也改成调用 `workflow.py`，用户先试用 Agent 再说。
+- **保存冲突**：字幕文件新增 `rev`（每次保存加 1）。`doc.save(path, doc, base_rev)` 发现磁盘上的 rev 和调用方读到的不一样就不写、返回 `conflict`；界面（`save()` / `onSaveConflict()`）问用户「重新打开看自动整理的结果」还是「保留我的覆盖」。写文件用 `doc.write_lock`（`%APPDATA%\猛人学习\locks\`）防止两个进程同时写。
+- Agent 正在整理的课有 `locks\<key>.busy` 标记（记着进程号，进程不在了就失效），界面打开时提示。
+- Agent 校对前存一份「AI 校对前」历史版本（界面的 AI 校对不存，界面有撤销）。
+- 只处理媒体库里的文件（`workflow.allowed`），其他路径返回 `not_in_library`。
+- 命令行从 Claude 桌面版启动时可能被转存（见上面「转存」）：`cli.use_real_appdata()` 检测到就改用 `\\localhost\C$\…` 读写真实数据。日志写 `agent.log`（不和界面的 `app.log` 抢着轮换）。
+- 入口：`mengren.cmd`（项目根目录，用 `.venv` 的 Python 跑 `app/cli.py`）。打包版还没有控制台版 exe（窗口程序打不出命令行输出），需要时再加。
+
 ## 架构速览
 
 - `app/main.py`：入口、版本号 `VERSION`、开窗口、关闭流程、卡死监视（界面 20 秒无响应时把各线程堆栈写进日志）、自测入口。
@@ -110,6 +135,7 @@ python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 .venv\Scripts\python app\main.py                    rem 运行（加 --debug 打开开发者工具）
 .venv\Scripts\python tests\test_backend.py          rem 后台测试，不联网
+.venv\Scripts\python tests\test_agent.py            rem Agent 自动整理和命令行的测试，不联网（识别和 AI 用假的）
 .venv\Scripts\python tests\run_ui_test.py           rem 界面测试：弹出真实窗口自动操作，最后连关闭流程一起测
 .venv\Scripts\python tests\run_ui_test.py --exe     rem 同上，测 dist-next 里打包好的 exe
 ```
