@@ -687,8 +687,14 @@ old_wav = config.CACHE_DIR / 'audio' / 'old.wav'
 old_wav.write_bytes(b'0' * 1000)
 os.utime(old_wav, (time.time() - 5 * 86400, time.time() - 5 * 86400))
 (config.CACHE_DIR / 'chunks-x').mkdir(exist_ok=True)
+(config.CACHE_DIR / 'play').mkdir(parents=True, exist_ok=True)
+old_play, new_play = config.CACHE_DIR / 'play' / 'old.mp4', config.CACHE_DIR / 'play' / 'new.mp4'
+old_play.write_bytes(b'0' * 1000)
+new_play.write_bytes(b'0' * 1000)
+os.utime(old_play, (time.time() - 40 * 86400, time.time() - 40 * 86400))
 cache.cleanup()
 check('自动清理 3 天前的音频和残留片段', not old_wav.exists() and not (config.CACHE_DIR / 'chunks-x').exists())
+check('转换后的视频 30 天没打开过就删，最近用过的留着', not old_play.exists() and new_play.exists())
 check('清空缓存', api.call('cache_clear', {})['cache'] == 0)
 
 # 设置导出 / 导入

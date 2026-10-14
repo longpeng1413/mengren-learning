@@ -1,6 +1,6 @@
 """缓存清理，防止越用越大。
 - 抽出来的音频（audio/*.wav，1 小时视频约 115MB）：只在识别时用，保留 3 天；
-- 转换后的视频（play/*.mp4）：按最近使用时间保留，总量超过 5GB 时先删最久没用的；
+- 转换后的视频（play/*.mp4）：30 天没打开过的删掉（需要时会重新转换；2026-10-14 播放规则改了以后，有些以前转换的已经用不上了），总量超过 5GB 时再先删最久没用的；
 - 识别时切出来的临时片段（chunks-*）：软件异常退出时可能留下，启动时清掉；
 - 崩溃日志超过 1MB 时只保留后半部分。
 日志本身由 RotatingFileHandler 控制：app.log 最多 4 个文件 × 2MB。"""
@@ -14,6 +14,7 @@ from .log import log
 
 AUDIO_DAYS = 3
 PLAY_LIMIT = 5 * 1024 ** 3
+PLAY_DAYS = 30
 FRAME_DAYS = 30
 
 
@@ -96,7 +97,7 @@ def cleanup(clear_all=False) -> int:
     for f in (CACHE_DIR / 'play').glob('*'):
         try:
             st = f.stat()
-            if clear_all or '.part' in f.name:
+            if clear_all or '.part' in f.name or now - st.st_mtime > PLAY_DAYS * 86400:
                 freed += st.st_size
                 f.unlink()
             else:

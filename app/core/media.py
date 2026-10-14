@@ -12,14 +12,24 @@ from .config import CACHE_DIR
 
 NO_WINDOW = 0x08000000 if os.name == 'nt' else 0  # 打包后调用 ffmpeg 不弹黑框
 
-AUDIO_EXT = {'.mp3', '.m4a', '.aac', '.wav', '.flac', '.ogg', '.opus', '.wma', '.amr', '.ape'}
-VIDEO_EXT = {'.mp4', '.m4v', '.mov', '.mkv', '.webm', '.avi', '.flv', '.ts', '.wmv', '.3gp', '.mpg', '.mpeg'}
+# 各平台常见的格式（2026-10-14 补齐）：YouTube（mkv / webm）、B 站（mp4 / flv）、抖音 / 视频号（mp4）、网课（ts / m3u8）、
+# 录屏（mkv / flv）、网盘老资源（avi / rmvb / wmv / mpg / vob）、摄像机（mts / m2ts）、苹果设备（mov / m4v）
+AUDIO_EXT = {'.mp3', '.m4a', '.m4b', '.aac', '.wav', '.flac', '.ogg', '.oga', '.opus', '.wma', '.amr', '.ape', '.mka', '.ac3', '.aif', '.aiff'}
+VIDEO_EXT = {'.mp4', '.m4v', '.mov', '.mkv', '.webm', '.avi', '.flv', '.f4v', '.ts', '.m2ts', '.mts', '.wmv', '.asf', '.3gp', '.3g2',
+             '.mpg', '.mpeg', '.vob', '.rm', '.rmvb', '.ogv', '.divx'}
 MEDIA_EXT = AUDIO_EXT | VIDEO_EXT
 
-# WebView2（Edge 内核）能直接放的容器和编码
-PLAY_CONTAINERS = {'.mp4', '.m4v', '.mov', '.webm', '.mp3', '.m4a', '.aac', '.wav', '.flac', '.ogg', '.opus'}
+# WebView2（Edge 内核）能直接放的（2026-10-14 用内置播放器逐个实测：tests/test_playback.py）：
+# 外壳 mp4 / mov / m4v / f4v / webm / mkv，画面 H.264 / AV1 / VP9 / VP8，声音 AAC / MP3 / Opus / Vorbis / FLAC / PCM。
+# 放不了的：H.265（HEVC）、xvid、ProRes、Theora 的画面；AC3 / EAC3 / WMA / AMR / ALAC 的声音；
+# flv、ts、avi、wmv、3gp、mpg、vob、rmvb 这些外壳。
+PLAY_CONTAINERS = {'.mp4', '.m4v', '.f4v', '.mov', '.webm', '.mkv', '.mka',
+                   '.mp3', '.m4a', '.m4b', '.aac', '.wav', '.flac', '.ogg', '.oga', '.opus'}
 PLAY_VIDEO = {'h264', 'vp8', 'vp9', 'av1'}
 PLAY_AUDIO = {'aac', 'mp3', 'opus', 'vorbis', 'flac', 'pcm_s16le', 'pcm_s24le', 'pcm_f32le', 'pcm_u8'}
+# 换成 mp4 外壳时可以原样复制、不用重新编码的（复制几秒钟就好，画质不变）
+COPY_VIDEO = {'h264', 'av1', 'vp9'}
+COPY_AUDIO = {'aac', 'mp3', 'opus', 'flac'}
 
 
 class MediaError(Exception):
@@ -91,13 +101,13 @@ def tail_problem(path: str, seconds=30) -> str:
 
 
 def play_plan(path: str, info: dict) -> str:
-    """direct：直接播放；remux：只换容器（很快）；transcode：重新编码（较慢）。"""
+    """direct：直接播放；remux：画面原样复制、只换外壳（声音不认得时只转声音），很快；transcode：画面要重新编码（较慢）。"""
     ext = Path(path).suffix.lower()
     v_ok = (not info['has_video']) or info['vcodec'] in PLAY_VIDEO
     a_ok = info['acodec'] in PLAY_AUDIO
     if ext in PLAY_CONTAINERS and v_ok and a_ok:
         return 'direct'
-    if v_ok and info['acodec'] in {'aac', 'mp3'} and (not info['has_video'] or info['vcodec'] == 'h264'):
+    if not info['has_video'] or info['vcodec'] in COPY_VIDEO:
         return 'remux'
     return 'transcode'
 
@@ -143,12 +153,15 @@ def make_playable(path: str, info: dict, plan: str, progress=lambda f: None, can
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_name(out.stem + '.part' + out.suffix)
     base = [tool('ffmpeg'), '-y', '-hide_banner', '-loglevel', 'error', '-i', path, '-map', '0:v:0?', '-map', '0:a:0']
-    if plan == 'remux':
-        codec = ['-c', 'copy']
-    elif info['has_video']:
-        codec = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k']
+    # 画面和声音分开看：能原样复制的就复制（几秒钟），只有放不了的那一路才重新编码
+    if not info['has_video']:
+        video = ['-vn']
+    elif info['vcodec'] in COPY_VIDEO:
+        video = ['-c:v', 'copy']
     else:
-        codec = ['-vn', '-c:a', 'aac', '-b:a', '160k']
+        video = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p']
+    audio = ['-c:a', 'copy'] if info['acodec'] in COPY_AUDIO else ['-c:a', 'aac', '-b:a', '160k']
+    codec = video + audio
     _ffmpeg_progress(base + codec + ['-movflags', '+faststart', str(tmp)], info['duration'], progress, cancel)
     os.replace(tmp, out)
     return out

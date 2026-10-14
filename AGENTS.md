@@ -136,12 +136,13 @@
   - `llm.py`：AI 调用，支持 OpenAI 兼容接口、ChatGPT 账号（codex）、Claude（官方 anthropic SDK）、Gemini（REST）。
   - `codex_auth.py`：ChatGPT 账号登录，借用 Codex 命令行工具的 OAuth 方式。端口 1455 被占用时用「粘贴回调网址」兜底。
   - `media.py`：ffmpeg 相关，包括探测、能否直接播放、转码、抽 16k 单声道音频、按静音切段、检查视频结尾是否损坏。
+  - **播放规则**（2026-10-14 用户要求「所有平台的格式都应该自动支持」，用内置播放器逐个实测 56 种格式定的，见 `tests/test_playback.py`）：WebView2 能直接放 mp4 / mov / m4v / f4v / webm / **mkv** 外壳里的 H.264 / AV1 / VP9 / VP8 + AAC / MP3 / Opus / Vorbis / FLAC / PCM（YouTube 下的 mkv AV1+Opus 直接放，以前误判成要重新编码，很慢）。放不了的分开处理（`make_playable`）：画面是 H.264 / AV1 / VP9 就原样复制、只换 mp4 外壳（几秒）；声音是 AAC / MP3 / Opus / FLAC 就复制，否则（AC3、WMA、AMR…）只转声音；只有画面本身放不了（H.265、xvid、WMV、RealVideo、MPEG-2…）才用 libx264 重新编码。改 `PLAY_*` / `COPY_*` 前先跑 `test_playback.py`。这台电脑的 NVIDIA 显卡编码器用不了（远程桌面虚拟显卡），软件编码 veryfast 约 15 倍速，够用。
   - 插图原则（用户明确要求）：**非必要不插图**，知识库要小、便于以后 AI 蒸馏。课程重点最多 3 张，只插文字确实说不清的；剪藏时图片缩到 960 宽、压缩（`doc._small_copy`）。
   - `frames.py`：关键帧。候选按 15 秒一段挑「最像背景」的小图（避开老师走动挡屏），加上老师说「请看」的时间；能看图的 AI 先筛选、再确认并写一句说明，只留 `figure` 为真的，超过 8 张时 `frames.pick` 按说明去重（只看文字）。用户 2026-10 明确：识别画面**只为插必要的图**，不要照录课件、板书，不要写大段画面记录。课程重点里写 `![[画面 mm:ss]]`，剪藏时 `doc.place_figures` 换成截图并复制到笔记旁边的 `image/`。只用豆包识别的字幕（`.猛人学习.json`），不读用户以前本地模型生成的 `.srt`。
   - 一键整理的顺序是用户定的：先 AI 按术语表校对，再找关键帧，再「用画面复核存疑句」（`frames.recheck_doubts`：截下每句存疑句说话时的画面，长句每 3 秒一张，最多 4 张，看烧录字幕和课件核对）。不要把找关键帧挪回校对前面。
   - AI 消息内容可以是图文混排 `[{'type': 'text'|'image', …}]`，`llm.stream` 按各家格式转换（`_to_openai` / `_to_codex` / `_to_claude` / `_to_gemini`）。
   - `config.py`：设置、老师、媒体库、播放进度和存放位置。缓存和日志默认放软件目录下的「缓存（可随时删除）」「日志（可随时删除）」，可以自定义（`storage_dir`，重启生效），软件目录不可写时退回 LOCALAPPDATA。
-  - `cache.py`：清理。音频保留 3 天，转换后的视频最多 5GB，截图 30 天没用就删；`clean_marks` 删掉 `locks\` 里一天没用的锁文件、程序已经不在的「正在整理」标记。软件启动时清一次，命令行的 process / run / resume 开始前也清一次（命令行从源码跑，缓存在项目文件夹里，以前没人清）。
+  - `cache.py`：清理。音频保留 3 天，转换后的视频 30 天没打开就删、总量最多 5GB，截图 30 天没用就删；`clean_marks` 删掉 `locks\` 里一天没用的锁文件、程序已经不在的「正在整理」标记。软件启动时清一次，命令行的 process / run / resume 开始前也清一次（命令行从源码跑，缓存在项目文件夹里，以前没人清）。
   - `log.py`：日志最多 2MB × 4 个文件。打包后 stdout/stderr 是 None，已重定向到日志。
   - `workflow.py`：任务层，所有整理步骤的规则（见上面「Agent 自动整理」）；`tasks.py`：任务记录、错误码、重试、「正在整理」标记、取消；`fake_ai.py`：界面自测用的假 AI。
   - `library.py`：媒体库（见上面「媒体库」）；`ebook.py`：电子书、老版 Word、演示文稿的读取。
@@ -160,6 +161,7 @@ python -m venv .venv
 .venv\Scripts\python tests\test_backend.py          rem 后台测试，不联网
 .venv\Scripts\python tests\test_agent.py            rem Agent 自动整理和命令行的测试，不联网（识别和 AI 用假的）
 .venv\Scripts\python tests\test_library.py          rem 媒体库树形、排列、合并、改名，电子书 / DOC / PPT 读取
+.venv\Scripts\python tests\test_playback.py         rem 56 种音视频格式在内置播放器里实际播放（弹小窗口，改播放 / 转换规则时跑）
 .venv\Scripts\python tests\run_ui_test.py           rem 界面测试：弹出真实窗口自动操作，最后连关闭流程一起测
 .venv\Scripts\python tests\run_ui_test.py --exe     rem 同上，测 dist-next 里打包好的 exe
 ```
