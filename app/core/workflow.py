@@ -344,31 +344,33 @@ def st_transcribe(ctx):
     provider = ctx.opts.get('provider') or (s['asr_en'] if lang == 'en' else s['asr_zh'])
     if provider not in ('openai', 'siliconflow', 'doubao'):
         raise WorkError('config', '未知的识别服务：' + str(provider))
-    pending = d.get('pending_task') if provider == 'doubao' and isinstance(d.get('pending_task'), dict) else None
-    if pending and pending.get('model'):
-        s['providers']['doubao']['model'] = pending['model']  # 接着取上次提交的豆包标准版 / 闲时版任务
     asr.check_ready(s, provider)
     info = media.probe(ctx.path)
     teacher = ctx.teacher(d)
-    model = s['providers']['doubao']['model'] if provider == 'doubao' else s['providers'][provider].get('asr_model')
-    ctx.task.stage('transcribe').update(model=f'{provider} · {model}', params={'lang': lang, 'provider': provider, 'resume': bool(pending)})
-    cues = []
+    # 豆包：按账号 × 模型自动换（asr.doubao_plan），用的是哪个识别完才知道
+    model = '' if provider == 'doubao' else s['providers'][provider].get('asr_model')
+    ctx.task.stage('transcribe').update(model=f'{provider} · {model or "自动"}', params={'lang': lang, 'provider': provider})
+    cues, used = [], {}
 
     def on_progress(f, m=None, extra=None):
         ctx.progress(f, m)
-        if extra and extra.get('task_id') and (not pending or pending.get('task_id') != extra['task_id']):
-            # 豆包标准版 / 闲时版：任务一提交就记下来，程序中途退出，下次运行接着取结果（不用重新上传、重新付费）
-            def keep(doc):
-                doc['pending_task'] = dict(extra, lang=lang, provider=provider)
-            _apply(ctx.path, keep)
+        if extra and extra.get('used'):
+            used.update(extra)
 
     def on_cues(part):
+        if part is None:  # 额度用完或没开通，换了账号 / 模型从头识别：前面收到的作废
+            cues.clear()
+            ctx.emit([{'kind': 'reset'}])
+            return
         cues.extend(part)
         ctx.emit([{'kind': 'cue', 'start': c['start'], 'end': c['end'], 'text': c['text']} for c in part])
 
-    asr.recognise(ctx.path, info['duration'], provider, lang, s, ctx.cancel, on_progress, on_cues, pending, teacher,
-                  d.get('title') or Path(ctx.path).stem)
+    asr.recognise(ctx.path, info['duration'], provider, lang, s, ctx.cancel, on_progress, on_cues,
+                  teacher=teacher, title=d.get('title') or Path(ctx.path).stem)
     ctx.check_cancel()
+    if used.get('used'):
+        model = used['used']
+        ctx.task.stage('transcribe').update(model=f'{provider} · {model}')
 
     def apply(doc):
         if doc.get('segments'):
@@ -379,10 +381,15 @@ def st_transcribe(ctx):
         doc['corrected'] = False
         doc['reviewed'] = False
         doc['duration'] = info['duration'] or doc.get('duration', 0)
-        doc.pop('pending_task', None)
+        doc.pop('pending_task', None)  # 以前豆包闲时版留下的「还在处理」记录（闲时版已经不用了）
         doc['steps'] = {'transcribe': tasks.now()}  # 字幕换了，后面的步骤都要重做
     _apply(ctx.path, apply)
-    return {'segments': len(cues), 'lang': lang}
+    out = {'segments': len(cues), 'lang': lang}
+    if used.get('used'):
+        out['used'] = used['used']
+    if used.get('notes'):
+        out['notes'] = used['notes']
+    return out
 
 
 def _need_segments(d):

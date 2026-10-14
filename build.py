@@ -14,7 +14,6 @@ args = [
     '--add-data', f'{ROOT / "app" / "web"};web',
     '--hidden-import', 'websocket',
     '--hidden-import', 'pystray._win32',
-    '--collect-submodules', 'tos',
     '--collect-all', 'pypdfium2', '--collect-all', 'pypdfium2_raw', '--collect-all', 'pypdfium2_cfg',
     '--exclude-module', 'numpy', '--exclude-module', 'tkinter',
     '--distpath', str(ROOT / DIST), '--workpath', str(ROOT / 'build'), '--specpath', str(ROOT / 'build'),

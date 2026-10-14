@@ -349,7 +349,26 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     document.querySelector('#tName').value = tOld; await saveTeacher();
     ok('设置：可以关联术语表文件；没有「笔记里的称呼」（笔记不写老师）', document.querySelector('#tFile').textContent === '没有关联' && !!document.querySelector('#tFilePick') && !document.querySelector('#tDisplay'));
     showSection('doubao');
-    ok('设置：对象存储写清楚存储桶名称和 AK 从哪里来', document.querySelector('section[data-sec="doubao"] .tos').textContent.includes('小写英文字母') && document.querySelector('[data-k="providers.doubao.tos_ak"]').placeholder === 'AKLT…');
+    ok('设置：豆包只列三种模型、按顺序自动换；没有模型下拉框和对象存储', document.querySelectorAll('#doubaoOrder li').length === 3
+       && document.querySelector('#doubaoOrder li').textContent.includes('流式识别 2.0') && !document.querySelector('#doubaoModel')
+       && !document.querySelector('[data-k="providers.doubao.tos_ak"]'));
+    document.querySelector('#dbAdd').click();
+    const dbRow = document.querySelector('#dbMore .db-acct:last-child');
+    dbRow.querySelector('.db-name').value = '小号'; dbRow.querySelector('.db-key').value = 'ui-test-key-98765';
+    await saveSettings(false);
+    const dbMk = S.settings.providers.doubao.more_keys;
+    renderDoubaoAccounts();
+    ok('设置：可以添加别的豆包账号，保存后密钥只显示后四位', dbMk.length === 1 && dbMk[0].name === '小号' && dbMk[0].key === '••••8765'
+       && document.querySelector('#dbMore .db-key').placeholder.includes('••••8765') && document.querySelector('#dbMore .db-key').value === '', dbMk);
+    await api('settings', { settings: { providers: { doubao: { spent: { [dbMk[0].id + '|stream2']: '2026-10-14' } } } } });
+    await refreshSettingsOnly(); renderDoubaoAccounts();
+    ok('设置：列出哪个账号的哪种模型额度用完了', document.querySelector('#dbSpent').textContent.includes('小号 · 流式识别 2.0：2026-10-14 用完'),
+       document.querySelector('#dbSpent').textContent);
+    document.querySelector('[data-db-revive]').click();
+    ok('点「重新启用」去掉用完的记录', await until(() => !Object.keys(S.settings.providers.doubao.spent || {}).length && !document.querySelector('[data-db-revive]')));
+    document.querySelector('#dbMore [data-db-del]').click();
+    await saveSettings(false);
+    ok('设置：删掉豆包账号', !S.settings.providers.doubao.more_keys.length);
     showSection('obsidian');
     ok('设置：笔记文件名格式', document.querySelector('[data-k="obsidian.name_pattern"]').value === '{title}');
     showSection('tasks');
@@ -361,6 +380,14 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('关于：开源地址已改名', document.querySelector('#aboutHome').textContent.includes('mengren-learning'));
     ok('关于：点 × 时收到右下角，默认打开，可以关掉', document.querySelector('[data-k="close_to_tray"]').checked === true);
     document.querySelector('#dlgSettings').close();
+
+    // 识别中途豆包额度用完或没开通、换了账号 / 模型从头识别：已经显示的半截字幕清掉
+    const segs0 = S.doc.segments, live0 = liveView();
+    live0.onItems([{ kind: 'cue', start: 0, end: 1, text: '半截一' }, { kind: 'cue', start: 1, end: 2, text: '半截二' }]);
+    live0.onItems([{ kind: 'reset' }, { kind: 'cue', start: 0, end: 1, text: '重新识别' }]);
+    ok('识别中途换了账号或模型：先清掉已经显示的半截字幕', S.doc.segments.length === 1 && S.doc.segments[0].text === '重新识别'
+       && document.querySelectorAll('#cues .cue').length === 1, S.doc.segments.length);
+    S.doc.segments = segs0; renderCues();
 
     // 使用说明
     document.querySelector('#btnHelpTop').click();

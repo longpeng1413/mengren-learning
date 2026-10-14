@@ -103,9 +103,12 @@ DEFAULTS = {
         'siliconflow': {'key': '', 'base_url': 'https://api.siliconflow.cn/v1', 'asr_model': 'Qwen/Qwen3-ASR-1.7B',
                         'chat_model': '', 'use_proxy': False},
         'openai': {'key': '', 'base_url': 'https://api.openai.com/v1', 'asr_model': 'whisper-1', 'chat_model': 'gpt-5-mini', 'use_proxy': True},
-        'doubao': {'key': '', 'app_id': '', 'access_token': '', 'base_url': 'https://openspeech.bytedance.com/api/v3',
-                   'model': 'flash', 'enable_ddc': False, 'stream_speed': 8, 'use_proxy': False,
-                   'tos_ak': '', 'tos_sk': '', 'tos_bucket': '', 'tos_region': 'cn-beijing', 'tos_endpoint': 'tos-cn-beijing.volces.com'},
+        # 豆包可以填几个账号（2026-10-14）：key / app_id / access_token 是主账号（name 是它的名字），
+        # more_keys 是备用账号 [{id, name, key}]；spent 记哪个账号的哪种模型额度用完了 {"账号id|模型": "日期"}。
+        # 模型不让选了：按 asr.DOUBAO_ORDER 自动换，model 只是识别时临时填进去的。对象存储（TOS）不再需要。
+        'doubao': {'key': '', 'app_id': '', 'access_token': '', 'name': '', 'more_keys': [], 'spent': {},
+                   'base_url': 'https://openspeech.bytedance.com/api/v3',
+                   'model': 'stream2', 'enable_ddc': False, 'stream_speed': 8, 'use_proxy': False},
     },
     'proxy': '',
     'asr_en': 'openai',
@@ -255,7 +258,7 @@ def mask(key: str) -> str:
     return ('••••' + key[-4:]) if key and len(key) > 8 else ('••••' if key else '')
 
 
-SECRETS = ('key', 'access_token', 'tos_sk')
+SECRETS = ('key', 'access_token')  # 豆包备用账号的密钥在 more_keys 里，public() / update() 单独处理
 
 
 def public(settings: dict) -> dict:
@@ -267,11 +270,41 @@ def public(settings: dict) -> dict:
             p['has_key'] = bool(o.get('refresh'))
             p['account'] = {'email': o.get('email', ''), 'plan': o.get('plan', '')} if o.get('refresh') else None
             continue
-        p['has_key'] = bool(p.get('key') or (p.get('app_id') and p.get('access_token')))
+        p['has_key'] = bool(p.get('key') or (p.get('app_id') and p.get('access_token'))
+                            or any(isinstance(a, dict) and a.get('key') for a in p.get('more_keys') or []))
         for k in SECRETS:
             if k in p:
                 p[k] = mask(p.get(k, ''))
+        if 'more_keys' in p:
+            p['more_keys'] = [dict(a, key=mask(a.get('key', ''))) for a in p['more_keys'] if isinstance(a, dict)]
     return out
+
+
+def _merge_more_keys(old, new):
+    """豆包备用账号：界面交回 [{id, name, key}]，key 是掩码或空表示不改，没交回的就是删掉了。"""
+    before = {a.get('id'): a for a in old or [] if isinstance(a, dict)}
+    out = []
+    for a in new or []:
+        if not isinstance(a, dict):
+            continue
+        aid = str(a.get('id') or '').strip() or uuid.uuid4().hex[:8]
+        key = str(a.get('key') or '').strip()
+        if not key or key.startswith('••••'):
+            key = (before.get(aid) or {}).get('key', '')
+        out.append({'id': aid, 'name': str(a.get('name') or '').strip(), 'key': key})
+    return out
+
+
+def _drop_spent(p, old):
+    """豆包换了密钥（等于换了账号）：以前记的「用完了」作废。"""
+    ids = set()
+    if (p.get('key'), p.get('app_id'), p.get('access_token')) != (old.get('key'), old.get('app_id'), old.get('access_token')):
+        ids.add('main')
+    keys = {a['id']: a['key'] for a in old.get('more_keys') or [] if isinstance(a, dict) and a.get('id')}
+    now = {a['id'] for a in p.get('more_keys') or []}
+    ids |= {a['id'] for a in p.get('more_keys') or [] if keys.get(a['id']) != a['key']} | (set(keys) - now)
+    if ids and p.get('spent'):
+        p['spent'] = {k: v for k, v in p['spent'].items() if k.split('|')[0] not in ids}
 
 
 def update(patch: dict) -> dict:
@@ -280,8 +313,12 @@ def update(patch: dict) -> dict:
     for name, p in (patch.get('providers') or {}).items():
         if name not in current['providers'] or not isinstance(p, dict):
             continue
+        old = copy.deepcopy(current['providers'][name])
         for k, v in p.items():
             if k in ('has_key', 'oauth', 'account') or k not in DEFAULTS['providers'][name]:
+                continue
+            if k == 'more_keys':
+                current['providers'][name][k] = _merge_more_keys(old.get(k), v)
                 continue
             if k in SECRETS:
                 if v is None:
@@ -290,6 +327,8 @@ def update(patch: dict) -> dict:
                     current['providers'][name][k] = v.strip()
                 continue
             current['providers'][name][k] = v.strip() if isinstance(v, str) else v
+        if name == 'doubao' and 'spent' not in p:
+            _drop_spent(current['providers'][name], old)
     for k, v in patch.items():
         if k == 'providers' or k not in DEFAULTS:
             continue

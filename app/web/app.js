@@ -182,7 +182,7 @@ function keepLayout(fresh) {
 
 async function loadSettings() {
   const d = await api('settings', {});
-  S.settings = d.settings; S.doubaoModels = d.doubao_models; S.chatProviders = d.chat_providers;
+  S.settings = d.settings; S.doubaoModels = d.doubao_models; S.doubaoOrder = d.doubao_order || []; S.chatProviders = d.chat_providers;
   S.providerNames = d.provider_names; S.teachers = d.teachers; S.defaultTemplate = d.default_template;
   applyLook(); renderTeacherSelect();
 }
@@ -485,7 +485,7 @@ window.openPath = async function (path) {
     setupPlayer(d);
     renderTeacherSelect(); renderCues(); renderSummary(); renderChat(); renderFrames(); updateButtons(); updateSaveLabel();
     $('#optReviewed').checked = !!S.doc.reviewed;
-    showPendingBanner(); renderLibrary(); busyNotice(d);
+    renderLibrary(); busyNotice(d);
     if (d.convert_job) runJob(d.convert_job, '正在准备播放…', { onDone: job => setSource(job.result.src) });
   } catch (e) { fail(e); }
 };
@@ -1068,7 +1068,6 @@ function renderDoc() {
   if (S.mode === 'book') { renderBook(); updateButtons(); updateSaveLabel(); return; }
   renderTeacherSelect(); renderCues(); renderSummary(); renderFrames(); updateButtons(); updateSaveLabel();
   $('#optReviewed').checked = !!S.doc.reviewed;
-  showPendingBanner();
 }
 /* 一步的结果：失败时提示原因、返回 null；跳过时返回 {skipped: 原因}；完成时返回这一步的结果 */
 function stepResult(res, name) {
@@ -1089,6 +1088,11 @@ function dropSnapshot() { S.undo.pop(); $('#btnUndo').disabled = !S.undo.length;
 function liveView() {
   const live = { cues: [], text: '' };
   live.onItems = items => {
+    const reset = items.map(x => x.kind).lastIndexOf('reset');
+    if (reset >= 0) {  // 豆包额度用完或没开通，换了账号 / 模型从头识别
+      live.cues.length = 0; S.doc.segments = live.cues; renderCues(); $('#cueCount').textContent = '0 句';
+      items = items.slice(reset + 1);
+    }
     const cues = items.filter(x => x.kind === 'cue');
     if (cues.length) {
       if (!live.cues.length) { S.doc.segments = live.cues; renderCues(); }
@@ -1125,7 +1129,7 @@ function reviewToast(x) {
 const PROVIDER_LABEL = { doubao: '豆包', siliconflow: '硅基流动', openai: 'OpenAI' };
 function providerHint(p) {
   const s = S.settings.providers[p];
-  const model = p === 'doubao' ? (S.doubaoModels[s.model] || {}).name : s.asr_model;
+  const model = p === 'doubao' ? (S.doubaoOrder.map(k => S.doubaoModels[k].short).join(' → ') + '（自动，用完换下一个）') : s.asr_model;
   const terms = { doubao: '术语会作为热词传给豆包。', openai: '术语会作为提示词传给 Whisper。', siliconflow: '硅基流动读不了术语表，建议识别后用 AI 校对。' }[p];
   return `模型：${model || ''}${s.has_key ? '' : '　⚠ 还没有填写 API Key'}　${terms}`;
 }
@@ -1186,19 +1190,10 @@ async function startTranscribe(lang, provider) {
       if (had) dropSnapshot();
       return false;
     }
-    toast(`字幕生成好了，共 ${out.segments} 句`);
+    toast(`字幕生成好了，共 ${out.segments} 句${out.used ? `（${out.used}）` : ''}${out.notes && out.notes.length ? '。中途换过：' + out.notes.join('；') : ''}`,
+      out.notes && out.notes.length ? { ms: 10000 } : undefined);
     return true;
   } catch (e) { fail(e); return false; }
-}
-function showPendingBanner() {
-  const b = $('#banner');
-  const p = S.doc && S.doc.pending_task;
-  if (!p || S.job) { b.hidden = true; return; }
-  const when = new Date(p.submitted * 1000).toLocaleString();
-  b.innerHTML = `<span>豆包${p.model === 'idle' ? '闲时版' : '标准版'}的识别任务还在处理中（${esc(when)} 提交）。</span><button class="btn small primary" id="resumeTask">继续获取结果</button><button class="btn small" id="dropTask">放弃</button>`;
-  b.hidden = false;
-  $('#resumeTask').onclick = () => { b.hidden = true; startTranscribe(p.lang, 'doubao', p); };
-  $('#dropTask').onclick = () => { delete S.doc.pending_task; markDirty(); b.hidden = true; };
 }
 
 /* ------------------------------------------------------------ 字幕版本 ---- */
@@ -1753,7 +1748,6 @@ function openSettings(section) {
   dlg._draft = { theme: s.theme, accent: s.accent };
   $('#themePick').innerHTML = THEMES.map(t => `<button data-theme="${t.id}" style="background:${t.bg};color:${t.fg}" class="${s.theme === t.id ? 'active' : ''}">${t.name}</button>`).join('');
   $('#accentPick').innerHTML = ACCENTS.map(c => `<button data-accent="${c}" style="background:${c}" class="${s.accent === c ? 'active' : ''}"></button>`).join('');
-  $('#doubaoModel').innerHTML = Object.entries(S.doubaoModels).map(([k, m]) => `<option value="${k}">${esc(m.name)}</option>`).join('');
   fillProviderSelects();
   $$('[data-k]', dlg).forEach(el => {
     if (el.classList.contains('provider-select')) return;
@@ -1768,7 +1762,7 @@ function openSettings(section) {
   $('#summaryTemplate').value = s.summary_template || S.defaultTemplate;
   const p = s.providers.doubao;
   $$('input[name=dbAuth]').forEach(r => r.checked = r.value === (p.app_id && !p.key ? 'old' : 'new'));
-  refreshDoubaoFields();
+  refreshDoubaoFields(); renderDoubaoAccounts();
   renderCodexBox(); $('#codexPaste').hidden = true;
   renderTeacherList(S.teachers[0] && S.teachers[0].id);
   $$('.test-result', dlg).forEach(el => { el.textContent = ''; el.className = 'test-result'; });
@@ -1795,9 +1789,41 @@ function showSection(sec) {
 function refreshDoubaoFields() {
   const auth = ($('input[name=dbAuth]:checked') || {}).value || 'new';
   $$('[data-auth]').forEach(el => el.hidden = el.dataset.auth !== auth);
-  const m = S.doubaoModels[$('#doubaoModel').value] || {};
-  $('#doubaoNote').textContent = m.note || '';
-  $$('#dlgSettings [data-kind="stream"], #dlgSettings .tos[data-kind]').forEach(el => el.hidden = el.dataset.kind !== m.kind);
+}
+/* 豆包：模型不让选，按固定顺序自动换（2026-10-14 用户实测后定的）；可以填几个账号，额度用完的记下来 */
+function doubaoAccountName(id) {
+  const p = S.settings.providers.doubao;
+  if (id === 'main') return p.name || '账号 1';
+  const k = (p.more_keys || []).findIndex(a => a.id === id);
+  return k < 0 ? '（已删除的账号）' : (p.more_keys[k].name || `账号 ${k + 2}`);
+}
+function dbRowHTML(a, n) {
+  return `<div class="key-row db-acct" data-id="${esc(a.id || '')}">
+    <input class="db-name" value="${esc(a.name || '')}" placeholder="账号 ${n}">
+    <input class="db-key" value="" placeholder="${a.key ? `已保存（${esc(a.key)}），留空表示不修改` : '这个账号的 API Key'}">
+    <button class="btn small" data-db-del title="删掉这个账号">删除</button></div>`;
+}
+function renderDoubaoAccounts() {
+  const p = S.settings.providers.doubao;
+  $('#doubaoOrder').innerHTML = `<p class="hint">按这个顺序自动用，额度用完自动换下一个。每种模型先把所有账号的额度用完，再换下一种：</p><ol>${
+    S.doubaoOrder.map(k => `<li><b>${esc(S.doubaoModels[k].name)}</b>：${esc(S.doubaoModels[k].note)}</li>`).join('')
+  }</ol><p class="hint">这三种都要先在火山引擎控制台「豆包语音 → 开通管理」里开通。</p>`;
+  $('#dbMore').innerHTML = (p.more_keys || []).map((a, i) => dbRowHTML(a, i + 2)).join('');
+  const spent = Object.entries(p.spent || {});
+  $('#dbSpent').innerHTML = spent.length ? `<div class="label strong">额度用完了的</div>${spent.map(([k, day]) => {
+    const [id, m] = k.split('|');
+    return `<div class="db-spent"><span>${esc(doubaoAccountName(id))} · ${esc((S.doubaoModels[m] || {}).short || m)}：${esc(day)} 用完</span>
+      <button class="btn small" data-db-revive="${esc(k)}">重新启用</button></div>`;
+  }).join('')}<p class="hint">充值或买了资源包以后点「重新启用」；也可以点下面的「测试连接」，能用的自动重新启用。</p>` : '';
+}
+async function reviveDoubao(key) {
+  const spent = Object.assign({}, S.settings.providers.doubao.spent || {});
+  delete spent[key];
+  try {
+    const r = await api('settings', { settings: { providers: { doubao: { spent } } } });
+    S.settings.providers.doubao.spent = r.settings.providers.doubao.spent;
+    renderDoubaoAccounts(); toast('已重新启用，下次识别会先试它');
+  } catch (e) { fail(e); }
 }
 function collectSettings() {
   const dlg = $('#dlgSettings');
@@ -1812,6 +1838,9 @@ function collectSettings() {
   });
   if (patch.summary_template && patch.summary_template.trim() === S.defaultTemplate.trim()) patch.summary_template = '';
   if (($('input[name=dbAuth]:checked') || {}).value === 'old') setPath(patch, 'providers.doubao.key', null);
+  // 其他豆包账号：密钥留空表示不改（后台按 id 保留原来的）；新加的没填密钥就不要
+  setPath(patch, 'providers.doubao.more_keys', $$('#dbMore .db-acct').map(r => ({
+    id: r.dataset.id, name: $('.db-name', r).value.trim(), key: $('.db-key', r).value.trim() })).filter(a => a.id || a.key));
   return patch;
 }
 async function saveSettings(close = true) {
@@ -2177,7 +2206,12 @@ function bind() {
   $('#settingsNav').onclick = e => { const b = e.target.closest('button'); if (b) showSection(b.dataset.sec); };
   $('#themePick').onclick = e => { const b = e.target.closest('button'); if (!b) return; $('#dlgSettings')._draft.theme = b.dataset.theme; $$('#themePick button').forEach(x => x.classList.toggle('active', x === b)); document.documentElement.dataset.theme = b.dataset.theme; };
   $('#accentPick').onclick = e => { const b = e.target.closest('button'); if (!b) return; $('#dlgSettings')._draft.accent = b.dataset.accent; $$('#accentPick button').forEach(x => x.classList.toggle('active', x === b)); document.documentElement.style.setProperty('--accent', b.dataset.accent); };
-  $('#doubaoModel').onchange = refreshDoubaoFields;
+  $('#dbAdd').onclick = () => {
+    $('#dbMore').insertAdjacentHTML('beforeend', dbRowHTML({}, $$('#dbMore .db-acct').length + 2));
+    $('#dbMore .db-acct:last-child .db-name').focus();
+  };
+  $('#dbMore').addEventListener('click', e => { const b = e.target.closest('[data-db-del]'); if (b) b.closest('.db-acct').remove(); });
+  $('#dbSpent').addEventListener('click', e => { const b = e.target.closest('[data-db-revive]'); if (b) reviveDoubao(b.dataset.dbRevive); });
   $$('input[name=dbAuth]').forEach(r => r.onchange = refreshDoubaoFields);
   $$('[data-clear]').forEach(b => b.onclick = () => { const el = $(`[data-k="${b.dataset.clear}"]`); el.value = ''; el.dataset.cleared = '1'; el.placeholder = '保存后清除'; });
   $('#setCancel').onclick = () => $('#dlgSettings').close();
@@ -2191,7 +2225,10 @@ function bind() {
     out.className = 'test-result'; out.textContent = '先保存设置，再测试…';
     if (!(await saveSettings(false))) return;
     out.textContent = '测试中…';
-    try { const r = await api('test', { provider: b.dataset.test, kind: b.dataset.kind }); out.textContent = '✓ ' + r.message; out.classList.add('ok'); }
+    try {
+      const r = await api('test', { provider: b.dataset.test, kind: b.dataset.kind }); out.textContent = '✓ ' + r.message; out.classList.add('ok');
+      if (b.dataset.test === 'doubao') { await refreshSettingsOnly(); renderDoubaoAccounts(); }
+    }
     catch (e) { out.textContent = '✗ ' + e.message; out.classList.add('bad'); }
   });
   $$('[data-models]').forEach(b => b.onclick = async () => {

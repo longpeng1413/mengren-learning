@@ -14,7 +14,7 @@ def _payload(messages):
         return {}
 
 
-def recognise(path, duration, provider, language, settings, cancel, progress, on_cues, pending=None, teacher=None, title=''):
+def recognise(path, duration, provider, language, settings, cancel, progress, on_cues, teacher=None, title=''):
     cues = []
     texts = (['Hello and welcome.', 'This lesson is about risk.', 'Cut losses short.', 'Let profits run.'] if language == 'en'
              else ['大家好，今天讲峰级。', '风级的入门很重要。', '这是一个关于峰级的讲论文。', '这就是三段结构。'])

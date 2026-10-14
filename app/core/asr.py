@@ -3,10 +3,11 @@
 支持三家服务：
 - OpenAI（whisper-1，返回句子级时间戳）；
 - 硅基流动（OpenAI 兼容接口，只返回文字，按停顿切成短段后按句长分配时间）；
-- 豆包（火山引擎），按官方文档分三类接口：
-  * 录音文件识别·极速版：一次请求直接上传音频（base64），单次 ≤2 小时 / 100MB；
-  * 流式识别 1.0 / 2.0（bigmodel_nostream）：WebSocket 直接发送本地音频，可用 2.0 模型；
-  * 录音文件识别 1.0 / 2.0 标准版、闲时版：只接受公网音频链接，需要先上传到火山引擎对象存储（TOS）。
+- 豆包（火山引擎），只留用户实测后选的三种（DOUBAO_MODELS），可以填几个账号，按 DOUBAO_ORDER 自动换：
+  * 流式识别 2.0（bigmodel_nostream）：WebSocket 直接发送本地音频；
+  * 录音文件识别 1.0 极速版：一次请求直接上传音频（base64），单次 ≤2 小时 / 100MB；
+  * 录音文件识别 2.0 标准版：提交 + 查询。官方文档只写了传公网链接，实测直接发 base64（audio.data）也可以，
+    所以不需要对象存储（TOS）。
 """
 import base64
 import gzip
@@ -25,31 +26,26 @@ from pathlib import Path
 import requests
 
 from . import media
+from .log import log
 from .config import CACHE_DIR, PROVIDER_NAMES
 
 RETRIES = 3
 TIMEOUT = 600
 
+# 用户 2026-10-14 用同一节已校对的 18 分钟课（带 61 个术语热词）实测后定的：只留这三种，按 DOUBAO_ORDER 的顺序用。
+# 流式 2.0 的「峰」「级」认错最少（192 个里错 10，另外两种错 30 多）；录音文件 2.0 标准版和 1.0 极速版错法几乎一样，
+# 极速版快得多，所以排在标准版前面。并发版每个账号只送 1 小时、闲时版要等很久、1.0 流式和标准版不如 2.0，都去掉了。
+# 流式 2.0 不加路数提速（用户要质量第一；实测 8 路能快 3 倍多，但没看出质量有没有差别，不冒险）。
 DOUBAO_MODELS = {
-    'flash':    {'name': '录音文件识别 · 极速版（推荐）', 'resource': 'volc.bigasr.auc_turbo', 'kind': 'flash',
-                 'note': '直接上传音频，返回快，带逐句时间戳。'},
-    'stream2':  {'name': '流式识别 2.0 · 小时版', 'resource': 'volc.seedasr.sauc.duration', 'kind': 'stream',
-                 'note': '豆包 2.0 模型，直接发送本地音频，按时长计费。'},
-    'stream2c': {'name': '流式识别 2.0 · 并发版', 'resource': 'volc.seedasr.sauc.concurrent', 'kind': 'stream',
-                 'note': '豆包 2.0 模型，按并发路数计费。'},
-    'stream1':  {'name': '流式识别 1.0 · 小时版', 'resource': 'volc.bigasr.sauc.duration', 'kind': 'stream', 'note': ''},
-    'stream1c': {'name': '流式识别 1.0 · 并发版', 'resource': 'volc.bigasr.sauc.concurrent', 'kind': 'stream', 'note': ''},
-    'std2':     {'name': '录音文件识别 2.0 · 标准版', 'resource': 'volc.seedasr.auc', 'kind': 'task',
-                 'submit': '/auc/bigmodel/submit', 'query': '/auc/bigmodel/query',
-                 'note': '豆包 2.0 模型。需要先在设置里填写火山引擎对象存储（TOS）。'},
-    'std1':     {'name': '录音文件识别 1.0 · 标准版', 'resource': 'volc.bigasr.auc', 'kind': 'task',
-                 'submit': '/auc/bigmodel/submit', 'query': '/auc/bigmodel/query',
-                 'note': '需要先在设置里填写火山引擎对象存储（TOS）。'},
-    'idle':     {'name': '录音文件识别 · 闲时版（最便宜，可能要等很久）', 'resource': 'volc.bigasr.auc_idle', 'kind': 'task',
-                 'submit': '/auc/bigmodel/idle/submit', 'query': '/auc/bigmodel/idle/query',
-                 'note': '空闲时才处理，官方承诺 24 小时内出结果。需要对象存储（TOS）。'},
+    'stream2': {'name': '流式识别 2.0（小时版）', 'short': '流式识别 2.0', 'resource': 'volc.seedasr.sauc.duration', 'kind': 'stream',
+                'note': '识别最准（交易术语认错最少）。18 分钟的课约 3 分钟。'},
+    'flash':   {'name': '录音文件识别 1.0 · 极速版', 'short': '极速版 1.0', 'resource': 'volc.bigasr.auc_turbo', 'kind': 'flash',
+                'note': '几秒钟就好，准确度和录音文件识别 2.0 差不多。'},
+    'std2':    {'name': '录音文件识别 2.0 · 标准版', 'short': '录音文件识别 2.0', 'resource': 'volc.seedasr.auc', 'kind': 'task',
+                'submit': '/auc/bigmodel/submit', 'query': '/auc/bigmodel/query',
+                'note': '18 分钟的课约 1 分半。'},
 }
-
+DOUBAO_ORDER = ('stream2', 'flash', 'std2')
 
 class AsrError(Exception):
     pass
@@ -57,6 +53,14 @@ class AsrError(Exception):
 
 class Cancelled(AsrError):
     pass
+
+
+class QuotaError(AsrError):
+    """额度用完或欠费：换下一个账号 / 模型。"""
+
+
+class AuthError(AsrError):
+    """密钥不对，或这个账号没开通这种模型：换下一个，全都不行才报错。"""
 
 
 def proxies_for(settings, name):
@@ -70,25 +74,11 @@ def check_ready(settings, name):
     p = settings['providers'][name]
     label = PROVIDER_NAMES[name]
     if name == 'doubao':
-        if not (p.get('key') or (p.get('app_id') and p.get('access_token'))):
+        if not doubao_accounts(p):
             raise AsrError(f'还没有填写{label}的 API Key，请到「设置」里填写')
-        if DOUBAO_MODELS.get(p.get('model'), {}).get('kind') == 'task' and not all(p.get(k) for k in ('tos_ak', 'tos_sk', 'tos_bucket', 'tos_endpoint')):
-            raise AsrError('豆包标准版和闲时版需要先把音频传到火山引擎对象存储，请到「设置」里填写 TOS 的 AK/SK 和存储桶')
-        if DOUBAO_MODELS.get(p.get('model'), {}).get('kind') == 'task':
-            check_tos(p)
     elif not p.get('key'):
         raise AsrError(f'还没有填写{label}的 API Key，请到「设置」里填写')
 
-
-def check_tos(p):
-    """对象存储常见的填错：存储桶名称用了中文，AK 填成了豆包语音的 APP ID。"""
-    bucket = p.get('tos_bucket', '').strip()
-    if not re.fullmatch(r'[a-z0-9][a-z0-9-]{1,61}[a-z0-9]', bucket):
-        raise AsrError(f'存储桶名称「{bucket}」不对：要填你在「对象存储 TOS」里创建的存储桶的名字，'
-                       '只能用小写英文字母、数字和短横线，3～63 个字符，例如 mengren-audio')
-    if p.get('tos_ak', '').strip().isdigit():
-        raise AsrError('Access Key ID 填的像是豆包语音的 APP ID。这里要填火山引擎账号的访问密钥：'
-                       '控制台右上角头像 →「API 访问密钥」，ID 一般以 AKLT 开头')
 
 # ---------------------------------------------------------------- 文字整理 ----
 NOISE = re.compile(r'<\|[^|>]*\|>|[\U0001F300-\U0001FAFF☀-➿️]')
@@ -242,14 +232,66 @@ def doubao_request_body(p, language, audio, context=''):
     return {'user': {'uid': 'mengren-zimu'}, 'audio': audio, 'request': req}
 
 
+QUOTA_WORDS = r'quota|balance|insufficient|exhaust|arrear|overdue|额度|余额|欠费|用完|用尽|耗尽|不足'
+
+
 def doubao_check(code, message):
     if code in ('', DOUBAO_OK):
         return
-    if re.search(r'quota|balance|insufficient|额度|余额|欠费', message or '', re.I):
-        raise AsrError('豆包额度不足或账户欠费：' + message)
+    if re.search(QUOTA_WORDS, message or '', re.I):
+        raise QuotaError('豆包额度不足或账户欠费：' + message)
     if code.startswith('450000') and re.search(r'auth|key|token|permission|resource|unauthor|grant', message or '', re.I):
-        raise AsrError('豆包鉴权失败：请检查 API Key，以及是否已在控制台开通所选模型（' + message[:80] + '）')
+        raise AuthError('豆包鉴权失败：请检查 API Key，以及是否已在控制台开通所选模型（' + message[:80] + '）')
     raise AsrError(f'豆包识别失败（{code}）：{(message or "")[:160]}')
+
+
+def doubao_denied(message, model):
+    """HTTP 401 / 403：多半是密钥不对或没开通，但额度用完时也可能这样回，看说明文字分开。"""
+    if re.search(QUOTA_WORDS, message or '', re.I):
+        return QuotaError('豆包额度不足或账户欠费：' + (message or '')[:160])
+    return AuthError(f'豆包鉴权失败：请检查 API Key，以及是否已开通「{DOUBAO_MODELS[model]["name"]}」（{(message or "")[:80]}）')
+
+
+def doubao_accounts(p):
+    """主账号 + 备用账号 → [{id, name, key, app_id, access_token}]，没填密钥的不算。"""
+    out = []
+    if p.get('key') or (p.get('app_id') and p.get('access_token')):
+        out.append({'id': 'main', 'name': (p.get('name') or '').strip() or '账号 1',
+                    'key': p.get('key', ''), 'app_id': p.get('app_id', ''), 'access_token': p.get('access_token', '')})
+    for a in p.get('more_keys') or []:
+        if isinstance(a, dict) and a.get('id') and a.get('key'):
+            out.append({'id': a['id'], 'name': (a.get('name') or '').strip() or f'账号 {len(out) + 1}',
+                        'key': a['key'], 'app_id': '', 'access_token': ''})
+    return out
+
+
+def doubao_plan(p):
+    """要依次试的 (账号, 模型)：每种模型先把所有账号的用完，再换下一种（质量好的尽量多用）；跳过标记了用完的。"""
+    spent = p.get('spent') or {}
+    accounts = doubao_accounts(p)
+    return [(a, m) for m in DOUBAO_ORDER for a in accounts if f"{a['id']}|{m}" not in spent]
+
+
+def with_account(settings, account, model):
+    """一份只换了豆包账号和模型的设置（浅拷贝，不改原来的）。"""
+    out = dict(settings, providers=dict(settings['providers']))
+    out['providers']['doubao'] = dict(settings['providers']['doubao'], model=model, key=account['key'],
+                                      app_id=account['app_id'], access_token=account['access_token'])
+    return out
+
+
+def mark_spent(settings, account, model):
+    """记下这个账号的这种模型用完了（设置文件，软件和命令行共用），以后跳过，直到用户在设置里点「重新启用」。"""
+    from . import config
+    key = f"{account['id']}|{model}"
+    day = time.strftime('%Y-%m-%d')
+    settings['providers']['doubao'].setdefault('spent', {})[key] = day  # 这次运行接下来的课也跳过
+    try:
+        spent = dict(config.load()['providers']['doubao'].get('spent') or {})
+        spent[key] = day
+        config.update({'providers': {'doubao': {'spent': spent}}})
+    except Exception:
+        log.warning('记录豆包额度用完失败', exc_info=True)
 
 
 def doubao_utterances(data):
@@ -277,7 +319,7 @@ def doubao_flash(settings, path: Path, language, cancel, context=''):
                               proxies=proxies_for(settings, 'doubao'))
             code, msg = r.headers.get('X-Api-Status-Code', ''), r.headers.get('X-Api-Message', '')
             if r.status_code in (401, 403):
-                raise AsrError('豆包鉴权失败：请检查 API Key，以及是否已开通「录音文件识别极速版」')
+                raise doubao_denied(msg or _error_detail(r), 'flash')
             if code == DOUBAO_SILENT:
                 return '', None
             if (code.startswith('55') or r.status_code in (429, 500, 502, 503, 504)) and attempt < RETRIES:
@@ -349,7 +391,7 @@ def doubao_stream(settings, wav: Path, start: float, end: float, language, cance
                                              **_ws_proxy(settings))
         except websocket.WebSocketBadStatusException as e:
             if e.status_code in (401, 403):
-                raise AsrError('豆包鉴权失败：请检查 API Key，以及是否已开通所选的流式识别模型')
+                raise doubao_denied(str(e), p['model'])
             last_err = str(e)[:200]
             time.sleep(_retry_wait(attempt))
             continue
@@ -413,63 +455,61 @@ def _ws_proxy(settings):
     return {'http_proxy_host': u.hostname, 'http_proxy_port': u.port or 80, 'proxy_type': 'http'}
 
 
-def _tos_client(p):
-    import tos
-    return tos.TosClientV2(p['tos_ak'], p['tos_sk'], p['tos_endpoint'], p['tos_region'])
-
-
-def doubao_task(settings, mp3: Path, language, cancel, progress, pending=None, context=''):
-    """标准版/闲时版：传到 TOS → 生成临时链接 → 提交 → 轮询。pending 用于闲时版重开软件后继续查询。"""
+def doubao_task(settings, mp3: Path, language, cancel, context=''):
+    """录音文件识别 2.0 标准版：提交（直接带 base64 音频）→ 轮询结果。"""
     p = settings['providers']['doubao']
     model = DOUBAO_MODELS[p['model']]
     base = p['base_url'].rstrip('/')
-    client = _tos_client(p)
-    if pending:
-        task_id, key = pending['task_id'], pending['object']
-    else:
-        key = f'mengren-zimu/{uuid.uuid4().hex}.mp3'
-        progress(0.05, '正在上传音频到对象存储…')
+    task_id = str(uuid.uuid4())
+    body = doubao_request_body(p, language, {'data': base64.b64encode(mp3.read_bytes()).decode(), 'format': 'mp3'}, context)
+    last = None
+    for attempt in range(RETRIES + 1):
+        if cancel.is_set():
+            raise Cancelled('已取消')
         try:
-            client.put_object_from_file(p['tos_bucket'], key, str(mp3))
-            signed = client.pre_signed_url('GET', p['tos_bucket'], key, expires=86400 * 2).signed_url
-        except Exception as e:
-            raise AsrError('上传到火山引擎对象存储失败，请检查 TOS 设置：' + str(e)[:200])
-        task_id = str(uuid.uuid4())
-        body = doubao_request_body(p, language, {'url': signed, 'format': 'mp3'}, context)
-        r = requests.post(base + model['submit'], json=body, headers=doubao_headers(p, model['resource'], task_id), timeout=60,
-                          proxies=proxies_for(settings, 'doubao'))
-        doubao_check(r.headers.get('X-Api-Status-Code', ''), r.headers.get('X-Api-Message', '') or r.text[:200])
+            r = requests.post(base + model['submit'], json=body, headers=doubao_headers(p, model['resource'], task_id), timeout=TIMEOUT,
+                              proxies=proxies_for(settings, 'doubao'))
+        except requests.RequestException as e:
+            last = str(e)[:200]
+            time.sleep(_retry_wait(attempt))
+            continue
+        code, msg = r.headers.get('X-Api-Status-Code', ''), r.headers.get('X-Api-Message', '')
+        if r.status_code in (401, 403):
+            raise doubao_denied(msg or _error_detail(r), p['model'])
+        if (code.startswith('55') or r.status_code in (429, 500, 502, 503, 504)) and attempt < RETRIES:
+            last = f'{code} {msg}'
+            time.sleep(_retry_wait(attempt))
+            continue
+        doubao_check(code, msg or r.text[:200])
         if r.status_code >= 400:
             raise AsrError(f'豆包提交任务失败（HTTP {r.status_code}）：' + _error_detail(r))
-    info = {'task_id': task_id, 'object': key, 'model': p['model'], 'submitted': time.time()}
-    progress(0.15, '已提交，等待豆包识别…', info)
-    started, wait = time.time(), 3
-    try:
-        while True:
+        break
+    else:
+        raise AsrError('连接豆包失败：' + (last or '未知错误'))
+    started, wait, errors = time.time(), 3, 0
+    while True:
+        for _ in range(int(wait * 10)):
             if cancel.is_set():
                 raise Cancelled('已取消')
+            time.sleep(0.1)
+        wait = min(10, wait * 1.5)
+        try:
             r = requests.post(base + model['query'], json={}, headers=doubao_headers(p, model['resource'], task_id, sequence=False),
                               timeout=60, proxies=proxies_for(settings, 'doubao'))
-            code, msg = r.headers.get('X-Api-Status-Code', ''), r.headers.get('X-Api-Message', '')
-            if code == DOUBAO_OK:
-                return doubao_utterances(r.json())
-            if code == DOUBAO_SILENT:
-                return '', None
-            if code not in (DOUBAO_RUNNING, DOUBAO_QUEUED):
-                doubao_check(code, msg or r.text[:200])
-            mins = int((time.time() - started) / 60)
-            progress(0.2, ('排队中' if code == DOUBAO_QUEUED else '识别中') + f'…已等待 {mins} 分钟', info)
-            for _ in range(int(wait * 10)):
-                if cancel.is_set():
-                    raise Cancelled('已取消')
-                time.sleep(0.1)
-            wait = min(60 if p['model'] == 'idle' else 10, wait * 1.5)
-    finally:
-        if not cancel.is_set():
-            try:
-                client.delete_object(p['tos_bucket'], key)
-            except Exception:
-                pass
+        except requests.RequestException as e:
+            errors += 1
+            if errors > RETRIES:
+                raise AsrError('查询豆包识别结果失败：' + str(e)[:200])
+            continue
+        code, msg = r.headers.get('X-Api-Status-Code', ''), r.headers.get('X-Api-Message', '')
+        if code == DOUBAO_OK:
+            return doubao_utterances(r.json())
+        if code == DOUBAO_SILENT:
+            return '', None
+        if code not in (DOUBAO_RUNNING, DOUBAO_QUEUED):
+            doubao_check(code, msg or r.text[:200])
+        if time.time() - started > 3 * 3600:
+            raise AsrError('豆包 3 小时还没识别完，请稍后重新生成字幕')
 
 
 # --------------------------------------------------------------- 总流程 ----
@@ -482,6 +522,8 @@ def chunk_plan(name, settings):
     kind = DOUBAO_MODELS[settings['providers']['doubao']['model']]['kind']
     if kind == 'stream':
         return 300, 540, 2  # 长视频切成几段，两段同时发
+    if kind == 'task':
+        return 1200, 1800, 3  # 标准版：20 分钟左右一段（18 分钟的课一次发完，和实测一样）
     return 300, 540, 3  # 极速版
 
 
@@ -501,9 +543,67 @@ def asr_context(teacher, title, language):
     return doubao, prompt[-240:], fixes
 
 
-def recognise(media_path, duration, provider, language, settings, cancel, progress, on_cues, pending=None, teacher=None, title=''):
-    """生成整段字幕。progress(fraction, message, extra=None)；on_cues(list) 按顺序收到每段的字幕。"""
+class _Stop:
+    """一次识别尝试自己的「停止」：用户取消也算停止；某一段失败时只停这一次，换账号或模型后还能接着识别。"""
+
+    def __init__(self, outer):
+        self.outer, self.own = outer, threading.Event()
+
+    def is_set(self):
+        return self.outer.is_set() or self.own.is_set()
+
+    def set(self):
+        self.own.set()
+
+
+def recognise(media_path, duration, provider, language, settings, cancel, progress, on_cues, teacher=None, title=''):
+    """生成整段字幕。progress(fraction, message, extra=None)；on_cues(list) 按顺序收到每段的字幕。
+    豆包按 doubao_plan 依次试「账号 × 模型」：额度用完（记下来，以后跳过）或没开通就换下一个，从头重新识别，
+    换之前 on_cues(None) 表示前面收到的作废。识别完 progress 的 extra = {'used': 用的哪个, 'notes': [换过的原因]}。"""
     check_ready(settings, provider)
+    if provider != 'doubao':
+        cues = _recognise_once(media_path, duration, provider, language, settings, cancel, progress, on_cues, teacher, title)
+        progress(1.0, '识别完成')
+        return cues
+    plan = doubao_plan(settings['providers']['doubao'])
+    if not plan:
+        raise QuotaError('豆包额度不足或账户欠费：所有账号的三种识别模型都标记成用完了。'
+                         '充值或买了资源包以后，到「设置 → 豆包语音」点「重新启用」')
+    notes, quota = [], False
+    for k, (account, model) in enumerate(plan):
+        used = f"{account['name']} · {DOUBAO_MODELS[model]['short']}"
+        got = []
+
+        def cues_in(cues):
+            got.append(1)
+            on_cues(cues)
+        try:
+            cues = _recognise_once(media_path, duration, provider, language, with_account(settings, account, model),
+                                   _Stop(cancel), progress, cues_in, teacher, title)
+            progress(1.0, '识别完成', {'used': used, 'notes': notes})
+            return cues
+        except (QuotaError, AuthError) as e:
+            if cancel.is_set():
+                raise Cancelled('已取消')
+            if isinstance(e, QuotaError):
+                quota = True
+                mark_spent(settings, account, model)
+                notes.append(f'{used} 的额度用完了')
+            else:
+                notes.append(f'{used} 用不了（没开通这种模型，或密钥不对）')
+            log.warning('豆包识别：%s，换下一个。%s', notes[-1], str(e)[:200])
+            if got:
+                on_cues(None)
+            if k + 1 < len(plan):
+                a2, m2 = plan[k + 1]
+                progress(0.0, f"{notes[-1]}，换成 {a2['name']} · {DOUBAO_MODELS[m2]['short']} 重新识别…")
+    if quota:
+        raise QuotaError('豆包额度不足或账户欠费：' + '；'.join(notes) + '。充值或买了资源包以后，到「设置 → 豆包语音」点「重新启用」')
+    raise AuthError('豆包鉴权失败：' + '；'.join(notes) + '。请检查 API Key，以及在火山引擎控制台「豆包语音 → 开通管理」里开通了这几种模型')
+
+
+def _recognise_once(media_path, duration, provider, language, settings, cancel, progress, on_cues, teacher=None, title=''):
+    """用设置里的这一个服务（豆包是这一个账号的这一种模型）识别一遍。"""
     label = PROVIDER_NAMES[provider]
     ctx_doubao, ctx_prompt, fixes = asr_context(teacher, title, language)
     if fixes:
@@ -518,24 +618,16 @@ def recognise(media_path, duration, provider, language, settings, cancel, progre
     wav = media.extract_wav(media_path, duration, lambda f: progress(0.08 * f, '正在提取音频…'), cancel)
     if cancel.is_set():
         raise Cancelled('已取消')
-
-    if provider == 'doubao' and DOUBAO_MODELS[settings['providers']['doubao']['model']]['kind'] == 'task':
-        mp3 = media.encode_chunk(wav, 0, duration, CACHE_DIR / 'audio' / (wav.stem + '-full'))
-        try:
-            text, segs = doubao_task(settings, mp3, language, cancel, lambda f, m, extra=None: progress(0.1 + 0.85 * f, m, extra), pending, ctx_doubao)
-        finally:
-            mp3.unlink(missing_ok=True)
-        cues = cues_from(text, segs, 0.0, duration)
-        on_cues(cues)
-        progress(1.0, '识别完成')
-        return cues
+    kind = DOUBAO_MODELS[settings['providers']['doubao']['model']]['kind'] if provider == 'doubao' else ''
+    if provider == 'doubao':
+        label = f"豆包（{DOUBAO_MODELS[settings['providers']['doubao']['model']]['short']}）"
 
     target, maximum, workers = chunk_plan(provider, settings)
     progress(0.09, '正在按停顿切分音频…' if duration > maximum else '正在连接识别服务…')
     mids = media.silences(wav) if duration > maximum else []
     chunks = media.plan_chunks(mids, duration, target, maximum)
     scratch = Path(tempfile.mkdtemp(dir=CACHE_DIR, prefix='chunks-'))
-    is_stream = provider == 'doubao' and DOUBAO_MODELS[settings['providers']['doubao']['model']]['kind'] == 'stream'
+    is_stream = kind == 'stream'
     sent = {}  # 流式识别：每段发送了多少，用来显示进度
     shown = {'t': 0.0}
     progress(0.1, f'{label}识别中…')
@@ -556,6 +648,8 @@ def recognise(media_path, duration, provider, language, settings, cancel, progre
             return doubao_stream(settings, wav, a, b, language, cancel, ctx_doubao, lambda f: stream_progress(i, f))
         piece = media.encode_chunk(wav, a, b, scratch / f'c{i}')
         try:
+            if kind == 'task':
+                return doubao_task(settings, piece, language, cancel, ctx_doubao)
             if provider == 'doubao':
                 return doubao_flash(settings, piece, language, cancel, ctx_doubao)
             return openai_transcribe(settings, provider, piece, language, cancel, ctx_prompt)
@@ -588,12 +682,11 @@ def recognise(media_path, duration, provider, language, settings, cancel, progre
             scratch.rmdir()
         except OSError:
             pass
-    progress(1.0, '识别完成')
     return made
 
 
 def test_provider(settings, name):
-    """用一段 1 秒的静音测试密钥和模型能不能用。"""
+    """用一段 1.5 秒的音频测试密钥和模型能不能用。豆包：每个账号的三种模型都试，能用的顺便取消「用完了」的标记。"""
     check_ready(settings, name)
     tmp = Path(tempfile.mkdtemp(dir=CACHE_DIR if CACHE_DIR.exists() else None))
     try:
@@ -601,18 +694,41 @@ def test_provider(settings, name):
         media.run([media.tool('ffmpeg'), '-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1.5',
                    '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', str(wav)], timeout=60)
         cancel = threading.Event()
-        if name == 'doubao':
-            kind = DOUBAO_MODELS[settings['providers']['doubao']['model']]['kind']
-            if kind == 'stream':
-                doubao_stream(settings, wav, 0, 1.5, 'zh', cancel)
-            elif kind == 'task':
-                _tos_client(settings['providers']['doubao']).head_bucket(settings['providers']['doubao']['tos_bucket'])
-                return '对象存储连接正常。标准版/闲时版的识别要在真正生成字幕时才能验证。'
-            else:
-                doubao_flash(settings, media.encode_chunk(wav, 0, 1.5, tmp / 'c'), 'zh', cancel)
-        else:
+        if name != 'doubao':
             openai_transcribe(settings, name, media.encode_chunk(wav, 0, 1.5, tmp / 'c'), 'zh', cancel)
-        return '连接正常'
+            return '连接正常'
+        mp3 = media.encode_chunk(wav, 0, 1.5, tmp / 'c')
+        lines, ok = [], []
+
+        def one(account, model):
+            s = with_account(settings, account, model)
+            kind = DOUBAO_MODELS[model]['kind']
+            try:
+                if kind == 'stream':
+                    doubao_stream(s, wav, 0, 1.5, 'zh', cancel)
+                elif kind == 'task':
+                    doubao_task(s, mp3, 'zh', cancel)
+                else:
+                    doubao_flash(s, mp3, 'zh', cancel)
+                ok.append(f"{account['id']}|{model}")
+                return '能用'
+            except QuotaError:
+                return '额度用完了'
+            except AuthError:
+                return '没开通或密钥不对'
+            except AsrError as e:
+                return '出错：' + str(e)[:60]
+        for account in doubao_accounts(settings['providers']['doubao']):
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                res = list(pool.map(lambda m: one(account, m), DOUBAO_ORDER))
+            lines.append(account['name'] + '：' + '，'.join(f"{DOUBAO_MODELS[m]['short']} {r}" for m, r in zip(DOUBAO_ORDER, res)))
+        spent = dict(settings['providers']['doubao'].get('spent') or {})
+        back = [k for k in ok if k in spent]
+        if back:
+            from . import config
+            config.update({'providers': {'doubao': {'spent': {k: v for k, v in spent.items() if k not in back}}}})
+            lines.append(f'以前标记用完的 {len(back)} 项现在能用了，已重新启用')
+        return '\n'.join(lines)
     finally:
         for f in tmp.glob('*'):
             f.unlink(missing_ok=True)

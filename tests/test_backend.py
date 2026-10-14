@@ -781,20 +781,131 @@ check('流式识别拿到最终结果', st[0].startswith('你好世界') and st[
 check('流式识别报告发送进度，最后到 100%', seen_p and seen_p[-1] == 1.0 and len(seen_p) == 60, (len(seen_p), seen_p[-1:]))
 check('流式识别 20 倍速：12 秒音频不到 2 秒发完', time.time() - t0 < 2, time.time() - t0)
 
-# 对象存储常见填错
-tos_p = dict(ss['providers']['doubao'], model='std2', tos_ak='AKLTxxxx', tos_sk='s', tos_bucket='2.0标准版', tos_endpoint='tos-cn-beijing.volces.com')
+# 豆包：只留三种模型，几个账号 × 三种模型按顺序自动换（2026-10-14）
+check('豆包只留三种模型，顺序是流式 2.0 → 极速版 1.0 → 录音文件 2.0',
+      list(asr.DOUBAO_MODELS) == ['stream2', 'flash', 'std2'] and asr.DOUBAO_ORDER == ('stream2', 'flash', 'std2'))
+dp = {'key': 'main-key-123456', 'name': '', 'more_keys': [{'id': 'b1', 'name': '小号', 'key': 'second-key-123456'},
+                                                          {'id': 'b2', 'name': '', 'key': ''}], 'spent': {'main|stream2': '2026-10-14'}}
+check('账号：主账号叫「账号 1」，没填密钥的备用账号不算', [(a['id'], a['name']) for a in asr.doubao_accounts(dp)] == [('main', '账号 1'), ('b1', '小号')])
+check('顺序：每种模型先把所有账号用完再换下一种，跳过用完的',
+      [(a['id'], m) for a, m in asr.doubao_plan(dp)] == [('b1', 'stream2'), ('main', 'flash'), ('b1', 'flash'), ('main', 'std2'), ('b1', 'std2')])
 try:
-    asr.check_tos(tos_p); e_ = ''
+    asr.check_ready({'providers': {'doubao': {'more_keys': [{'id': 'x', 'key': 'k'}]}}}, 'doubao'); e_ = ''
 except asr.AsrError as e:
     e_ = str(e)
-check('存储桶名称用了中文时说清楚怎么填', '只能用小写英文字母' in e_, e_)
+check('只填了备用账号也能识别', e_ == '', e_)
+
+# 换账号 / 模型：额度用完记下来、换下一个、前面收到的字幕作废；没开通跳过
+config.update({'providers': {'doubao': {'key': 'main-key-123456', 'more_keys': [{'id': 'b1', 'name': '小号', 'key': 'second-key-123456'}], 'spent': {}}}})
+orig_once = asr._recognise_once
+tried, got, prog = [], [], []
+
+
+def fake_once(path, duration, provider, lang, s, cancel, progress, on_cues, teacher=None, title=''):
+    d = s['providers']['doubao']
+    tried.append((d['key'][:4], d['model']))
+    on_cues([{'start': 0, 'end': 1, 'text': '半截'}])
+    if (d['key'][:4], d['model']) == ('main', 'stream2'):
+        raise asr.QuotaError('豆包额度不足或账户欠费：quota exceeded')
+    if (d['key'][:4], d['model']) == ('seco', 'stream2'):
+        raise asr.AuthError('豆包鉴权失败：没开通')
+    return [{'start': 0, 'end': 1, 'text': '好了'}]
+
+
+asr._recognise_once = fake_once
+ss = config.load()
+cues = asr.recognise('x.mp4', 10, 'doubao', 'zh', ss, threading.Event(), lambda f, m, extra=None: prog.append((m, extra)), got.append)
+check('额度用完和没开通的都换下一个：主账号流式 → 小号流式 → 主账号极速版',
+      tried == [('main', 'stream2'), ('seco', 'stream2'), ('main', 'flash')] and cues[0]['text'] == '好了', tried)
+check('换之前通知前面收到的字幕作废', got.count(None) == 2 and got[-1][0]['text'] == '半截', got)
+check('识别完告诉调用方用的是哪个、中途换过什么', prog[-1][1] == {'used': '账号 1 · 极速版 1.0', 'notes': ['账号 1 · 流式识别 2.0 的额度用完了', '小号 · 流式识别 2.0 用不了（没开通这种模型，或密钥不对）']}, prog[-1])
+check('换的时候进度里说清楚', any('换成 小号 · 流式识别 2.0 重新识别' in (m or '') for m, _ in prog), prog)
+spent = config.load()['providers']['doubao']['spent']
+check('额度用完的记进设置（没开通的不记）', list(spent) == ['main|stream2'], spent)
+tried.clear()
+asr.recognise('x.mp4', 10, 'doubao', 'zh', config.load(), threading.Event(), lambda *a: None, lambda c: None)
+check('下次直接跳过用完的', tried[0] == ('seco', 'stream2'), tried)
+
+asr._recognise_once = lambda *a, **k: (_ for _ in ()).throw(asr.QuotaError('豆包额度不足或账户欠费：x'))
 try:
-    asr.check_tos(dict(tos_p, tos_bucket='mengren-audio', tos_ak='5283000000')); e_ = ''
-except asr.AsrError as e:
+    asr.recognise('x.mp4', 10, 'doubao', 'zh', config.load(), threading.Event(), lambda *a: None, lambda c: None); e_ = ''
+except asr.QuotaError as e:
     e_ = str(e)
-check('AK 填成 APP ID 时提示', 'APP ID' in e_, e_)
-asr.check_tos(dict(tos_p, tos_bucket='mengren-audio'))
-check('正确的存储桶名称和 AK 通过检查', True)
+check('全都用完：报额度不足，说清楚怎么重新启用', e_.startswith('豆包额度不足') and '重新启用' in e_, e_)
+from core import tasks  # noqa: E402
+check('全都用完的错误归为额度问题，不自动重试', tasks.classify(asr.QuotaError(e_))[:2] == ('quota', False))
+try:
+    asr.recognise('x.mp4', 10, 'doubao', 'zh', config.load(), threading.Event(), lambda *a: None, lambda c: None); e_ = ''
+except asr.QuotaError as e:
+    e_ = str(e)
+check('都标记成用完以后，不再去试', '都标记成用完了' in e_, e_)
+asr._recognise_once = orig_once
+
+# 设置：备用账号的密钥打码、保存时不冲掉、换了密钥清掉「用完了」
+pub = config.public(config.load())['providers']['doubao']
+check('给界面看的备用账号密钥只显示后四位', pub['more_keys'][0]['key'] == '••••3456' and pub['has_key'], pub['more_keys'])
+config.update({'providers': {'doubao': {'more_keys': [{'id': 'b1', 'name': '小号改名', 'key': '••••3456'}, {'name': '新号', 'key': 'third-key-123456'}]}}})
+mk = config.load()['providers']['doubao']['more_keys']
+check('密钥是掩码表示不改；新加的账号自动给一个编号', mk[0] == {'id': 'b1', 'name': '小号改名', 'key': 'second-key-123456'}
+      and mk[1]['name'] == '新号' and mk[1]['key'] == 'third-key-123456' and mk[1]['id'], mk)
+check('只改名字不清「用完了」', 'main|stream2' in config.load()['providers']['doubao']['spent'])
+config.update({'providers': {'doubao': {'spent': {'main|stream2': '2026-10-14', 'b1|flash': '2026-10-14'}}}})
+config.update({'providers': {'doubao': {'more_keys': [{'id': 'b1', 'name': '小号', 'key': 'changed-key-123456'}]}}})
+check('换了密钥（等于换了账号）、删掉的账号：以前的「用完了」作废', config.load()['providers']['doubao']['spent'] == {'main|stream2': '2026-10-14'}
+      and len(config.load()['providers']['doubao']['more_keys']) == 1, config.load()['providers']['doubao'])
+config.update({'providers': {'doubao': {'key': 'new-main-key-123456'}}})
+check('主账号换了密钥，它的「用完了」也作废', config.load()['providers']['doubao']['spent'] == {})
+exp3 = api.call('export_settings', {'dest': str(TMP / 'exp3.json'), 'keys': False})
+d3 = json.loads(Path(exp3['path']).read_text(encoding='utf-8'))['settings']['providers']['doubao']
+check('导出设置（不含密钥）：备用账号的密钥也清掉', d3['more_keys'][0]['key'] == '' and d3['key'] == '' and 'tos_sk' not in d3, d3)
+api.call('import_settings', {'path': exp3['path']})
+check('导入不含密钥的设置：保留这台电脑上的备用账号密钥', config.load()['providers']['doubao']['more_keys'][0]['key'] == 'changed-key-123456')
+
+# 录音文件 2.0：直接发 base64 音频，不用对象存储；403 但说的是额度时算额度用完
+import requests as _rq  # noqa: E402
+sent_body, calls_ = {}, []
+
+
+class FakeResp:
+    def __init__(self, status, code, msg='', data=None):
+        self.status_code, self.headers, self._d, self.text = status, {'X-Api-Status-Code': code, 'X-Api-Message': msg}, data or {}, msg
+
+    def json(self):
+        return self._d
+
+
+def fake_post(url, json=None, headers=None, **k):
+    calls_.append(url.rsplit('/', 1)[-1])
+    if url.endswith('submit'):
+        sent_body.update(json)
+        return FakeResp(200, '20000000')
+    if len(calls_) < 3:
+        return FakeResp(200, '20000001')
+    return FakeResp(200, '20000000', data={'result': {'text': '你好。', 'utterances': [{'start_time': 0, 'end_time': 900, 'text': '你好。'}]}})
+
+
+orig_post, orig_sleep = _rq.post, time.sleep
+_rq.post, asr.time.sleep = fake_post, lambda x: None
+mp3 = TMP / 'std2.mp3'
+mp3.write_bytes(b'ID3fake')
+ts = asr.with_account(config.load(), {'key': 'k', 'app_id': '', 'access_token': ''}, 'std2')
+txt, segs = asr.doubao_task(ts, mp3, 'zh', threading.Event())
+check('录音文件 2.0：直接发音频（base64），提交后查询到结果', sent_body['audio'].get('data') and 'url' not in sent_body['audio']
+      and calls_ == ['submit', 'query', 'query'] and txt == '你好。', (calls_, list(sent_body.get('audio', {}))))
+_rq.post = lambda *a, **k: FakeResp(403, '45000000', 'resource quota exhausted')
+try:
+    asr.doubao_task(ts, mp3, 'zh', threading.Event()); e_ = None
+except asr.AsrError as e:
+    e_ = e
+check('403 但说的是额度用完：算额度用完（换下一个、记下来）', isinstance(e_, asr.QuotaError), e_)
+_rq.post = lambda *a, **k: FakeResp(401, '45000000', 'invalid api key')
+try:
+    asr.doubao_task(ts, mp3, 'zh', threading.Event()); e_ = None
+except asr.AsrError as e:
+    e_ = e
+check('401 密钥不对：算鉴权失败', isinstance(e_, asr.AuthError) and '录音文件识别 2.0' in str(e_), e_)
+_rq.post, asr.time.sleep = orig_post, orig_sleep
+mp3.unlink()
 
 # 代码里没有写错的变量名（pyflakes）
 import importlib.util  # noqa: E402

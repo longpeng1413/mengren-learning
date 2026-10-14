@@ -87,7 +87,7 @@ def maybe_fail(stage):
         raise f[1]
 
 
-def fake_recognise(path, duration, provider, lang, s, cancel, progress, on_cues, pending=None, teacher=None, title=''):
+def fake_recognise(path, duration, provider, lang, s, cancel, progress, on_cues, teacher=None, title=''):
     calls['asr'] += 1
     seen['asr_provider'] = provider
     maybe_fail('transcribe')

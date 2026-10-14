@@ -438,3 +438,10 @@ body.mode-book .video-only { display: none !important; }
 
 /* 剪藏后又改过：提醒重新剪藏 */
 .tag.warn { color: #f0a030; border-color: color-mix(in srgb, #f0a030 55%, transparent); background: color-mix(in srgb, #f0a030 12%, transparent); }
+
+/* 豆包语音：自动换的顺序、其他账号、用完了的 */
+.db-order ol { margin: 4px 0 6px 20px; padding: 0; font-size: 13px; line-height: 1.7; }
+.db-acct { margin-bottom: 8px; }
+.db-acct .db-name { flex: 0 0 9em; }
+.db-spent { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; font-size: 13px; }
+.test-result { white-space: pre-line; }

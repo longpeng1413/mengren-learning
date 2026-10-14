@@ -42,7 +42,7 @@ def setup(debug=False):
     root = logging.getLogger()
     root.handlers[:] = [handler]
     root.setLevel(logging.DEBUG if debug else logging.INFO)
-    for noisy in ('urllib3', 'httpx', 'httpcore', 'anthropic', 'websocket', 'tos', 'pywebview'):
+    for noisy in ('urllib3', 'httpx', 'httpcore', 'anthropic', 'websocket', 'pywebview'):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     if sys.stdout is None or getattr(sys, 'frozen', False):
         sys.stdout = _ToLog(logging.INFO)

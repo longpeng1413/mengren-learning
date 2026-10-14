@@ -93,7 +93,7 @@ def _setup_log():
     root = logging.getLogger()
     root.handlers[:] = [h]
     root.setLevel(logging.INFO)
-    for noisy in ('urllib3', 'httpx', 'httpcore', 'anthropic', 'websocket', 'tos'):
+    for noisy in ('urllib3', 'httpx', 'httpcore', 'anthropic', 'websocket'):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 

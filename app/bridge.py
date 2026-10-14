@@ -102,7 +102,8 @@ class Api:
         s = config.load()
         return {'settings': config.public(s), 'provider_names': config.PROVIDER_NAMES, 'chat_providers': config.CHAT_PROVIDERS,
                 'teachers': config.load_teachers(), 'default_template': llm.DEFAULT_TEMPLATE,
-                'doubao_models': {k: {'name': v['name'], 'note': v['note'], 'kind': v['kind']} for k, v in asr.DOUBAO_MODELS.items()}}
+                'doubao_models': {k: {'name': v['name'], 'short': v['short'], 'note': v['note'], 'kind': v['kind']} for k, v in asr.DOUBAO_MODELS.items()},
+                'doubao_order': list(asr.DOUBAO_ORDER)}
 
     def do_recent(self, b):
         return {'items': [r for r in config.load().get('recent', []) if os.path.isfile(r.get('path', ''))]}
@@ -496,8 +497,8 @@ class Api:
                         p[k] = ''
                 if 'oauth' in p:
                     p['oauth'] = {}
-                if name == 'doubao':
-                    p['tos_ak'] = ''
+                for a in p.get('more_keys') or []:  # 豆包备用账号的密钥
+                    a['key'] = ''
         data = {'app': config.APP_NAME, 'kind': 'settings-export', 'version': self._version,
                 'exported': time.strftime('%Y-%m-%d %H:%M:%S'), 'with_keys': bool(b.get('keys')),
                 'settings': s, 'teachers': config.load_teachers()}
@@ -524,9 +525,13 @@ class Api:
         new['storage_dir'] = cur.get('storage_dir', '')  # 位置跟电脑有关，保留这台电脑的
         new['recent'] = cur.get('recent', [])
         for name, p in new['providers'].items():  # 文件里没带密钥时，保留这台电脑上已有的
-            for k in list(config.SECRETS) + ['oauth', 'tos_ak']:
+            for k in list(config.SECRETS) + ['oauth']:
                 if k in p and not p[k] and cur['providers'].get(name, {}).get(k):
                     p[k] = cur['providers'][name][k]
+            had = {a.get('id'): a.get('key') for a in cur['providers'].get(name, {}).get('more_keys') or [] if isinstance(a, dict)}
+            for a in p.get('more_keys') or []:
+                if isinstance(a, dict) and not a.get('key') and had.get(a.get('id')):
+                    a['key'] = had[a.get('id')]
         config.save(new)
         n_t = 0
         for t in data.get('teachers') or []:
