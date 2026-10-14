@@ -253,6 +253,14 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('找关键帧', await findFrames(true) && S.doc.frames.length === 1 && S.doc.frames[0].note === '假 AI 挑的图');
     ok('课程重点：后台写好，自动查漏补缺', await doSummary() && S.doc.summary.includes('## 一、风险') && S.doc.summary.includes('查漏补上的一条')
       && $('#summaryBox').textContent.includes('截断亏损') && $('#btnSummary').textContent === '重新生成', S.doc.summary);
+    ok('课程重点刚生成：不提醒重新生成', document.querySelector('#summaryStale').hidden && S.summaryChanges === 0);
+    S.doc.segments.slice(0, 3).forEach(s => { s.text += '（人工改）'; }); markDirty(); await save();
+    ok('生成后字幕改了 3 句：课程重点上方提醒重新生成', !document.querySelector('#summaryStale').hidden && S.summaryChanges === 3
+      && document.querySelector('#summaryStaleText').textContent.includes('改了 3 句'));
+    document.querySelector('#btnSummaryStale').click();
+    ok('点提醒里的「重新生成」：用改好的字幕重新写，提醒消失', await until(() => !S.job && S.summaryChanges === 0 && document.querySelector('#summaryStale').hidden, 15000));
+    ok('媒体库标「重点待更新」', itemHTML({ path: 'x.mp4', name: 'x', summary: true, summary_changes: 5 }).includes('重点待更新')
+      && !itemHTML({ path: 'x.mp4', name: 'x', summary: true, summary_changes: 2 }).includes('重点待更新'));
     ok('翻译：中文字幕自己选了翻译也照样翻', await startTranslate(false) && S.doc.segments.every(s => s.tr.startsWith('中文：')));
     const termsP = findTerms(false);
     ok('新术语：放进待勾选并打开对话框', await until(() => document.querySelector('#dlgTerms').open) && S.doc.terms_pending.terms[0].term === '假AI新术语');

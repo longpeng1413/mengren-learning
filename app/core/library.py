@@ -35,6 +35,7 @@ def _status(path, positions):
         item['summary'] = bool((d.get('summary') or '').strip())
         item['clipped'] = bool(d.get('clip'))
         item['stale'] = docs.clip_stale(d)
+        item['summary_changes'] = docs.summary_changes(d)  # 生成课程重点后字幕改了几句
         item['reviewed'] = bool(d.get('reviewed'))
         item['teacher'] = d.get('teacher') or ''
         item['duration'] = d.get('duration') or 0

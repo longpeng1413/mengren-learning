@@ -286,6 +286,25 @@ check('书：逐章整理 + 全书总览，不剪藏', tb['status'] == 'complete
 tb2 = wf.process(BK)
 check('书：再运行全部跳过', tb2['status'] == 'completed' and book_calls['org'] == len(db['chapters']) and book_calls['overview'] == 1)
 
+# ------------------------------------------------------------ 课程重点比字幕旧 ----
+d = docs.load(L1)
+check('生成课程重点时记下用的哪一版字幕：刚生成时不提醒', isinstance(d.get('summary_src'), list) and docs.summary_changes(d) == 0
+      and wf.summarize(L1)['summary_changes'] == 0)
+for i in range(3):
+    d['segments'][i]['text'] += '（人工改）'
+docs.save(L1, d)
+d = docs.load(L1)
+check('之后改了 3 句：提醒重新生成（媒体库也标出来）', docs.summary_changes(d) == 3 and wf.summarize(L1)['summary_changes'] == 3
+      and next(x for x in wf.find(course='峰级') if x['path'] == L1)['summary_outdated'])
+check('保存时把「改了几句」告诉界面', docs.save(L1, d)['summary_changes'] == 3)
+wf.run_step(L1, 'summary', force=True)
+check('重新生成后不再提醒', docs.summary_changes(docs.load(L1)) == 0 and not next(x for x in wf.find(course='峰级') if x['path'] == L1)['summary_outdated'])
+old = {'summary': '以前生成的重点', 'segments': [{'start': 0, 'end': 1, 'text': '甲改', 'tr': ''}, {'start': 1, 'end': 2, 'text': '乙改', 'tr': ''}, {'start': 2, 'end': 3, 'text': '丙', 'tr': ''}],
+       'fixes': [{'t': 0, 'before': '甲', 'after': '甲改', 'by': 'manual'}, {'t': 1, 'before': '乙', 'after': '乙改', 'by': 'manual'},
+                 {'t': 2, 'before': '丁', 'after': '丙', 'by': 'ai'}, {'t': 3, 'before': '戊', 'after': '撤销掉的', 'by': 'manual'}]}
+check('以前生成的课程重点（没记字幕版本）：按手动改过的句子估算', docs.summary_changes(old) == 2)
+check('没有课程重点、书：不提醒', docs.summary_changes(dict(old, summary='')) == 0 and docs.summary_changes({'kind': 'book', 'summary': 'x'}) == 0)
+
 # ------------------------------------------------------------ 界面调用 ----
 # 界面上的整理按钮也走 workflow.process（caller='gui'）：不限媒体库、边做边显示、用户自己选的选项
 shown = []
@@ -389,6 +408,30 @@ th.join(15)
 check('取消：任务停下，状态 cancelled，课程重点没被改', holder['r']['status'] == 'cancelled' and docs.load(L3)['summary'] != 'x' * 100)
 llm.stream = fake_stream
 
+
+# ------------------------------------------------------------ 清理 ----
+from core import cache  # noqa: E402
+old_lock = tasks.BUSY_DIR / 'oldlesson.lock'
+old_lock.write_bytes(b'')
+os.utime(old_lock, (time.time() - 3 * 86400, time.time() - 3 * 86400))
+dead_busy = tasks.BUSY_DIR / 'deadlesson.busy'
+dead_busy.write_text(json.dumps({'task_id': 'x', 'pid': 999999, 'since': 'x'}), encoding='utf-8')
+fresh_lock = tasks.BUSY_DIR / 'fresh.lock'
+fresh_lock.write_bytes(b'')
+with docs.write_lock(L1):  # 正被占着的锁文件删不掉，跳过
+    held = tasks.BUSY_DIR / f'{docs.media_key(L1)}.lock'
+    os.utime(held, (time.time() - 3 * 86400, time.time() - 3 * 86400))
+    cache.clean_marks()
+    check('清理：旧的锁文件、程序已经不在的「正在整理」标记删掉；新的、正被占着的保留',
+          not old_lock.exists() and not dead_busy.exists() and fresh_lock.exists() and held.exists())
+(config.CACHE_DIR / 'audio').mkdir(parents=True, exist_ok=True)
+old_wav = config.CACHE_DIR / 'audio' / 'old.wav'
+old_wav.write_bytes(b'0' * 100)
+os.utime(old_wav, (time.time() - 5 * 86400, time.time() - 5 * 86400))
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+    cli.main(['run', 'summary', L1, '--json', '--quiet'])
+check('命令行整理时也清理缓存（以前只有软件启动时清）', not old_wav.exists())
 
 # ------------------------------------------------------------ 命令行 ----
 def run_cli(*argv):

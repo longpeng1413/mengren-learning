@@ -124,7 +124,7 @@ class Api:
         if not d.get('teacher'):
             d['teacher'] = library.folder_teacher(path)
         out = {'path': path, 'info': info, 'doc': d, 'plan': plan, 'position': config.get_position(path),
-               'busy': tasks.busy(docs.media_key(path))}
+               'busy': tasks.busy(docs.media_key(path)), 'summary_changes': docs.summary_changes(d)}
         cached = media.playable_path(path, info)
         if plan == 'direct':
             out['src'] = file_url(path)
@@ -188,7 +188,8 @@ class Api:
         if not os.path.isfile(path):
             raise ValueError('文件不见了：' + path)
         d = workflow.load_doc(path)
-        return {'doc': d, 'stale': docs.clip_stale(d) if d.get('kind') != 'book' else False, 'busy': tasks.busy(docs.media_key(path))}
+        return {'doc': d, 'stale': docs.clip_stale(d) if d.get('kind') != 'book' else False, 'busy': tasks.busy(docs.media_key(path)),
+                'summary_changes': docs.summary_changes(d)}
 
     def do_cancel(self, b):
         job = jobs.get(b.get('id'))

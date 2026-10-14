@@ -217,6 +217,10 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .summary-edit { flex: 1; min-height: 0; resize: none; border: 0; outline: none; background: var(--panel2); padding: 14px 16px; font: 13px/1.7 var(--mono); }
 .ai-foot { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--line); flex: none; flex-wrap: wrap; }
 .ai-empty { color: var(--muted); text-align: center; margin-top: 30px; line-height: 1.8; }
+.summary-stale { display: flex; align-items: center; gap: 10px; padding: 7px 12px; margin: 0 0 6px; border-radius: 6px; font-size: 13px; flex: none;
+  color: #f0a030; border: 1px solid color-mix(in srgb, #f0a030 55%, transparent); background: color-mix(in srgb, #f0a030 12%, transparent); }
+.summary-stale[hidden] { display: none; }
+.summary-stale span { flex: 1; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; padding: 6px 12px; flex: none; }
 .chips button { border: 1px solid var(--line); background: var(--panel2); border-radius: 20px; padding: 3px 11px; font-size: 12px; cursor: pointer; color: var(--muted); }
 .chips button:hover { color: var(--text); border-color: var(--accent-line); }

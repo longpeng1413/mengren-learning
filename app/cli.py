@@ -358,6 +358,12 @@ def main(argv=None):
     if redirected:
         log.info('命令行被转存，改用真实数据文件夹：%s', redirected)
     log.info('命令行：%s', ' '.join(sys.argv[1:] if argv is None else argv))
+    if a.cmd in ('process', 'run', 'resume'):  # 和软件启动时一样清理缓存（音频 3 天、截图 30 天没用的），命令行的缓存不会越积越多
+        from core import cache
+        try:
+            cache.cleanup()
+        except Exception:  # noqa: BLE001  清理失败不影响整理
+            log.exception('清理缓存出错')
     try:
         return a.fn(a, out, wf)
     except wf.WorkError as e:

@@ -201,6 +201,7 @@
     <button class="btn icon-only small" id="btnAiHide" title="隐藏 AI 区"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
   </div>
   <div class="ai-body" data-pane="summary">
+    <div class="summary-stale" id="summaryStale" hidden><span id="summaryStaleText"></span><button class="btn primary small" id="btnSummaryStale" title="用改好的字幕重新写课程重点（会自动查漏补缺）">重新生成</button></div>
     <div class="ai-scroll md" id="summaryBox"></div>
     <textarea class="summary-edit" id="summaryEdit" hidden spellcheck="false"></textarea>
     <div class="ai-foot">
@@ -462,6 +463,7 @@
           <li>老师口述和课件不一致时两边分别写出，加「整理者注：口述与课件不一致」。</li>
           <li>拿不准的标「（存疑）」，老师提到但没讲明的标「（未讲明）」，不补写；字幕提前结束、最后一句没说完、视频结尾损坏，会写一行「整理者注」。</li>
           <li><b>查漏补缺</b>：生成后默认自动进行（可在「设置 → 课程重点模板」里关掉），AI 对照完整字幕，把漏掉的内容补进对应小节。下方会显示「字幕被引用约 xx%」和没有出处的时间段。也可以随时点「查漏补缺」。</li>
+          <li><b>重点待更新</b>：课程重点是按生成时的字幕写的。之后你又改了 3 句以上字幕（比如回听改了存疑句），上方会出现提醒和「重新生成」按钮，媒体库也标「重点待更新」。存疑句多的课，建议改完再重新生成一次。</li>
           <li>可以点「编辑」直接改；剪藏时放在笔记上半部分。</li>
           <li>要求（模板）可以在「设置 → 课程重点模板」里改，每位老师也可以单独设一份。</li>
         </ul>
@@ -566,7 +568,7 @@
           <li><b>字幕、课程重点、插图说明、对话、历史版本</b>：存在视频旁边的 <code>视频名.mp4.猛人学习.json</code>；书籍的整理结果存在文档旁边的 <code>书名.pdf.猛人学习.json</code>。删了就没了。改名前的 <code>.猛人字幕.json</code> 照样能读，下次保存时自动改名。</li>
           <li><b>设置、API 密钥、ChatGPT 登录、老师档案、媒体库、播放进度</b>：在 <code>%APPDATA%\猛人学习\</code>，都很小。不要删；换电脑用「导出设置」。</li>
           <li><b>整理任务记录</b>（每次整理每一步做得怎样、出错的原因，最多留 300 条）：在 <code>%APPDATA%\猛人学习\tasks\</code>，可以删。</li>
-          <li><b>缓存</b>（转换后的视频、抽出的音频、关键帧截图、书籍页面图）和<b>日志</b>：在软件文件夹里的「缓存（可随时删除）」「日志（可随时删除）」，可以随时删，会自动清理。</li>
+          <li><b>缓存</b>（转换后的视频、抽出的音频、关键帧截图、书籍页面图）和<b>日志</b>：在软件文件夹里的「缓存（可随时删除）」「日志（可随时删除）」，可以随时删，会自动清理：音频 3 天、截图 30 天没用就删，转换后的视频最多留 5GB。「设置 → 关于与数据」里能看到占了多少，也能一键清空。</li>
           <li>软件没有服务器，不收集任何数据。音频只发给你选的识别服务，字幕、截图、书页只发给你选的 AI 服务。密钥只存在这台电脑上，日志里不记录密钥。</li>
         </ul>
       </section>

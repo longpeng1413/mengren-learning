@@ -86,6 +86,7 @@ def library_items():
                 'path': it['path'], 'kind': kind, 'duration': round(float(it.get('duration') or 0), 1),
                 'state': _state(it, kind), 'todo': _todo(it, kind), 'subtitles': it.get('subs', 0),
                 'summary': bool(it.get('summary')), 'reviewed': bool(it.get('reviewed')), 'clipped': bool(it.get('clipped')),
+                'summary_outdated': (it.get('summary_changes') or 0) >= docs.SUMMARY_STALE_AT,
                 'teacher': it.get('teacher') or '',
             })
     return out
@@ -582,6 +583,7 @@ def st_summary(ctx):
 
     def apply(doc):
         doc['summary'] = text
+        doc['summary_src'] = docs.summary_basis(d['segments'])  # 记下用的是哪一版字幕：之后字幕改多了会提醒重新生成
         _steps(doc).pop('review', None)
         _steps(doc)['summary'] = tasks.now()
     _apply(ctx.path, apply)
@@ -946,6 +948,7 @@ def summarize(path):
         'figures': sum(1 for f in d.get('frames') or [] if f.get('figure')),
         'translated': sum(1 for x in segs if str(x.get('tr') or '').strip()),
         'summary_chars': len((d.get('summary') or '').strip()), 'reviewed_by_ai': 'review' in st,
+        'summary_changes': docs.summary_changes(d),  # 生成课程重点后字幕改了几句；>= 3 建议重新生成
         'terms_pending': {'terms': len(tp.get('terms') or []), 'errors': len(tp.get('errors') or [])} if tp else None,
         'human_reviewed': bool(d.get('reviewed')), 'clipped': bool(d.get('clip')), 'steps': st, 'updated': d.get('updated'),
     }

@@ -49,9 +49,36 @@ def remove_old_locations() -> int:
     return freed
 
 
+def clean_marks(days=1) -> int:
+    """%APPDATA%\\猛人学习\\locks 和 tasks 里留下的小文件：
+    - 每节课保存时用的锁文件（0 字节，一节课一个）：一天没用、也没有程序占着的删掉，下次保存会重新建；
+    - 「正在整理」标记：整理它的程序已经不在了的删掉；
+    - 任务记录写到一半留下的临时文件。
+    任务记录本身最多留 300 条（tasks.py）。返回删了几个。"""
+    from . import tasks
+    from .config import DATA_DIR
+    now, n = time.time(), 0
+    for f in list((DATA_DIR / 'locks').glob('*.lock')) + list((DATA_DIR / 'tasks').glob('*.tmp')):
+        try:
+            if now - f.stat().st_mtime > days * 86400:
+                f.unlink()  # 别的程序正开着它时删不掉，跳过
+                n += 1
+        except OSError:
+            pass
+    for f in (DATA_DIR / 'locks').glob('*.busy'):
+        try:
+            if tasks.busy(f.stem) is None:
+                f.unlink()
+                n += 1
+        except OSError:
+            pass
+    return n
+
+
 def cleanup(clear_all=False) -> int:
     """返回释放的字节数。"""
     freed = 0 if clear_all else remove_old_locations()
+    clean_marks()
     now = time.time()
     if not CACHE_DIR.exists():
         return 0

@@ -204,7 +204,9 @@ function itemHTML(it) {
   const tags = [];
   if (it.book) tags.push(`<span class="tag ${it.book.done ? 'ok' : ''}">整理 ${it.book.done}/${it.book.total}</span>`);
   if (it.subs) tags.push(`<span class="tag ok" title="这节课的字幕有 ${it.subs} 句">字幕 ${it.subs} 句</span>`);
-  if (it.summary) tags.push('<span class="tag acc">重点</span>');
+  if (it.summary) tags.push((it.summary_changes || 0) >= SUMMARY_STALE_AT
+    ? `<span class="tag warn" title="生成课程重点之后，字幕又改了 ${it.summary_changes} 句。打开这节课，在课程重点上方点「重新生成」">重点待更新</span>`
+    : '<span class="tag acc">重点</span>');
   if (it.reviewed) tags.push('<span class="tag ok">已校对</span>');
   if (it.clipped) tags.push(it.stale ? '<span class="tag warn" title="剪藏后在软件里又改过字幕或课程重点。再点一次「剪藏」，Obsidian 里的笔记才会更新">待更新剪藏</span>'
     : '<span class="tag" title="Obsidian 里的笔记和软件里的内容一致">已剪藏</span>');
@@ -265,7 +267,8 @@ function syncLibFromDoc() {
     patchLib(S.path, { book: { done: chs.filter(c => (c.md || '').trim()).length, total: chs.length }, clipped: !!S.doc.clip });
     return;
   }
-  patchLib(S.path, { subs: S.doc.segments.length, summary: !!(S.doc.summary || '').trim(), clipped: !!S.doc.clip, stale: !!S.docStale, reviewed: !!S.doc.reviewed, duration: S.doc.duration });
+  patchLib(S.path, { subs: S.doc.segments.length, summary: !!(S.doc.summary || '').trim(), clipped: !!S.doc.clip, stale: !!S.docStale, reviewed: !!S.doc.reviewed, duration: S.doc.duration,
+    summary_changes: S.summaryChanges || 0 });
 }
 function showCtx(x, y, html, bindings) {
   const m = $('#ctxMenu');
@@ -338,7 +341,7 @@ window.openPath = async function (path) {
     // 换课时关掉单句循环：「存疑 / 回听」会自动打开它，以前一直开着，换到别的课就一直循环同一句
     $('#optLoop').checked = false; S.loopIdx = null; updateLoopHint();
     S.docStale = (S.lib || []).some(g => g.items.some(it => it.stale && it.path.toLowerCase() === d.path.toLowerCase()));
-    S.lastSaved = d.doc.updated || null; S.rev = d.doc.rev || 0;
+    S.lastSaved = d.doc.updated || null; S.rev = d.doc.rev || 0; S.summaryChanges = d.summary_changes || 0;
     $('#btnUndo').disabled = true;
     $('#empty').hidden = true; $('#stageMain').hidden = false;
     $('#fileTitle').textContent = d.doc.title; $('#fileTitle').title = d.path; document.title = `${d.doc.title} - 猛人学习`;
@@ -805,6 +808,7 @@ async function save(quiet = true) {
       const r = await api('save', { path: S.path, doc: S.doc, base_rev: S.rev || 0, force: !!S.forceSave });
       if (r.conflict) { S.dirty = true; conflict = true; return; }
       S.rev = r.rev; S.lastSaved = r.updated; S.docStale = !!r.stale;
+      if ('summary_changes' in r && r.summary_changes !== S.summaryChanges) { S.summaryChanges = r.summary_changes; renderSummaryStale(); }
       syncLibFromDoc();
       if (!quiet) toast('已保存');
     } catch (e) { S.dirty = true; fail(new Error('保存失败：' + e.message)); }
@@ -921,6 +925,7 @@ async function reloadDoc() {
   if (S.dirty) await save();
   const r = await api('doc', { path: S.path });
   S.doc = r.doc; S.rev = r.doc.rev || 0; S.lastSaved = r.doc.updated || S.lastSaved; S.dirty = false; S.docStale = !!r.stale;
+  S.summaryChanges = r.summary_changes || 0;
   syncLibFromDoc();
 }
 function renderDoc() {
@@ -1442,6 +1447,15 @@ function showLightbox(url) {
 
 /* ------------------------------------------------------------ AI 面板 ---- */
 let summaryEditing = false;
+/* 生成课程重点之后字幕又改了几句以上：提醒重新生成（课程重点是按当时的字幕写的，不会跟着字幕变） */
+const SUMMARY_STALE_AT = 3;  // 和 core/doc.py 的 SUMMARY_STALE_AT 一致
+function renderSummaryStale() {
+  const n = S.summaryChanges || 0;
+  const show = !!(S.doc && S.mode !== 'book' && (S.doc.summary || '').trim() && n >= SUMMARY_STALE_AT);
+  $('#summaryStale').hidden = !show;
+  if (show) $('#summaryStaleText').textContent = `生成课程重点之后，字幕又改了 ${n} 句，重点里可能还是改之前的说法。建议重新生成（不另花钱，约 1～2 分钟）。`;
+  syncLibFromDoc();
+}
 function renderSummary() {
   const box = $('#summaryBox');
   const s = S.doc && S.doc.summary;
@@ -1450,6 +1464,7 @@ function renderSummary() {
   $('#btnCopySummary').disabled = !s;
   $('#btnEditSummary').disabled = !S.doc;
   $('#summaryHint').textContent = s ? '可以编辑；剪藏时放在笔记上半部分' : '';
+  renderSummaryStale();
   updateButtons();
   if (s) refreshCoverage();
   hydrateFigures(box);
@@ -2010,6 +2025,7 @@ function bind() {
     } else savePrefs({ video_h: s.video_h > 0.2 ? 0.14 : 0.55 });
   };
   $('#btnSummary').onclick = doSummary;
+  $('#btnSummaryStale').onclick = () => { if (!S.job) doSummary(); };
   $('#btnEditSummary').onclick = () => toggleSummaryEdit();
   $('#summaryEdit').addEventListener('input', e => { if (S.doc) { S.doc.summary = e.target.value; markDirty(); } });
   $('#btnCopySummary').onclick = () => navigator.clipboard.writeText(S.doc.summary || '').then(() => toast('已复制'));

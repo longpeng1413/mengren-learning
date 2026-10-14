@@ -118,6 +118,42 @@ def note_hash(doc) -> str:
     return hashlib.sha1(json.dumps(data, ensure_ascii=False).encode('utf-8')).hexdigest()[:16]
 
 
+SUMMARY_STALE_AT = 3  # 生成课程重点后字幕改了几句以上，提醒重新生成
+
+
+def _sig(text) -> str:
+    return hashlib.sha1(str(text or '').strip().encode('utf-8')).hexdigest()[:10]
+
+
+def summary_basis(segments) -> list:
+    """生成课程重点时用的是哪一版字幕：每句一个短指纹（不存全文），记在 doc['summary_src']。"""
+    return [_sig(s.get('text')) for s in segments or [] if str(s.get('text') or '').strip()]
+
+
+def summary_changes(doc) -> int:
+    """生成课程重点之后，字幕改了几句（改过、新加的句子数）。没有课程重点时是 0。
+    以前生成的课程重点没记 summary_src：按手动改过、而且现在还是改后样子的句子数估算
+    （一键整理里 AI 校对和画面复核在课程重点之前，手动修改一般在之后）。"""
+    if not (doc.get('summary') or '').strip() or doc.get('kind') == 'book':
+        return 0
+    segs = [str(s.get('text') or '').strip() for s in doc.get('segments') or [] if str(s.get('text') or '').strip()]
+    src = doc.get('summary_src')
+    if isinstance(src, list):
+        left = {}
+        for h in src:
+            left[h] = left.get(h, 0) + 1
+        n = 0
+        for t in segs:
+            h = _sig(t)
+            if left.get(h):
+                left[h] -= 1
+            else:
+                n += 1
+        return n
+    now = set(segs)
+    return len({f.get('after') for f in doc.get('fixes') or [] if f.get('by') == 'manual' and f.get('after') in now})
+
+
 def clip_stale(doc) -> bool:
     """剪藏后又改过要写进笔记的内容。1.7.2 以前剪藏的没有指纹，不判断。"""
     clip = doc.get('clip') if isinstance(doc.get('clip'), dict) else {}
@@ -164,7 +200,8 @@ def save(media_path: str, doc: dict, base_rev=None) -> dict:
         except OSError:
             _write(fallback(media_path), data)
             where = fallback(media_path)
-    return {'updated': data['updated'], 'rev': data['rev'], 'stored': str(where), 'stale': clip_stale(data)}
+    return {'updated': data['updated'], 'rev': data['rev'], 'stored': str(where), 'stale': clip_stale(data),
+            'summary_changes': summary_changes(data)}
 
 
 # ------------------------------------------------------------------ 导出 ----
