@@ -286,6 +286,50 @@ check('书：逐章整理 + 全书总览，不剪藏', tb['status'] == 'complete
 tb2 = wf.process(BK)
 check('书：再运行全部跳过', tb2['status'] == 'completed' and book_calls['org'] == len(db['chapters']) and book_calls['overview'] == 1)
 
+# ------------------------------------------------------------ 界面调用 ----
+# 界面上的整理按钮也走 workflow.process（caller='gui'）：不限媒体库、边做边显示、用户自己选的选项
+shown = []
+tg = wf.process(str(OUTSIDE), steps=['transcribe', 'correct', 'terms'], caller='gui', check_library=False, on_items=shown.extend)
+stg = {s['name']: s for s in tg['stages']}
+check('界面：媒体库以外打开的文件也能整理', tg['status'] == 'completed' and docs.load(str(OUTSIDE))['segments'])
+check('界面：识别出的字幕边做边显示', [x['text'] for x in shown if x['kind'] == 'cue'] == [s['text'] for s in docs.load(str(OUTSIDE))['segments']])
+check('没选老师：不做 AI 校对、不找新术语（跳过并写明原因）', stg['correct']['status'] == 'skipped' and stg['terms']['status'] == 'skipped'
+      and '没有指定老师' in stg['terms']['reason'])
+tg = wf.process(str(OUTSIDE), steps=['correct'], caller='gui', check_library=False, allow_no_teacher=True)
+check('界面：用户确认后没选老师也校对', tg['status'] == 'completed' and docs.load(str(OUTSIDE))['corrected'])
+tg = wf.process(str(OUTSIDE), steps=['translate'], caller='gui', check_library=False)
+check('中文字幕默认不翻译', tg['stages'][0]['status'] == 'skipped')
+tg = wf.process(str(OUTSIDE), steps=['translate'], caller='gui', check_library=False, any_lang=True)
+check('界面：用户自己选了翻译，中文也翻', tg['status'] == 'completed' and all(s['tr'] for s in docs.load(str(OUTSIDE))['segments']))
+c4 = calls.copy()
+tg = wf.process(str(OUTSIDE), steps=['translate'], caller='gui', check_library=False, any_lang=True)
+check('已经都有译文：跳过', tg['stages'][0]['status'] == 'skipped' and calls['translate'] == c4['translate'])
+tg = wf.process(str(OUTSIDE), steps=['translate'], caller='gui', check_library=False, any_lang=True, translate_all=True)
+check('界面：「全部重新翻译」', tg['status'] == 'completed' and calls['translate'] > c4['translate'])
+live = []
+llm.stream = fake_stream
+tg = wf.process(str(OUTSIDE), steps=['summary'], caller='gui', check_library=False, on_items=live.extend)
+check('界面：课程重点边写边显示', ''.join(x['text'] for x in live if x['kind'] == 'text') == docs.load(str(OUTSIDE))['summary'].strip() + '\n'
+      or ''.join(x['text'] for x in live if x['kind'] == 'text').strip() == docs.load(str(OUTSIDE))['summary'])
+BK2 = str(BOOKS / '《第二本》.pdf')
+shutil.copy(ROOT / 'test-media' / '测试书籍.pdf', BK2)
+tg = wf.process(BK2, steps=['organize'], chapters=[1])
+d2b = docs.load(BK2)
+check('界面：只整理勾选的章节', tg['status'] == 'completed' and not d2b['chapters'][0]['md'] and d2b['chapters'][1]['md'])
+tg = wf.process(BK2, steps=['overview'])
+check('Agent：章节没整理完不写总览（可以接着做）', tg['status'] == 'failed' and tg['error']['retryable'])
+tg = wf.process(BK2, steps=['overview'], allow_partial=True)
+check('界面：用户可以先写全书总览', tg['status'] == 'completed' and docs.load(BK2)['overview'])
+try:
+    wf.process(L1, nosuch=True)
+    check('不认识的参数直接报错', False)
+except TypeError:
+    check('不认识的参数直接报错', True)
+r = Api().call('steps', {'path': str(OUTSIDE), 'steps': ['nosuchstep']})
+check('界面入口：步骤名写错直接报错', not r['ok'] and 'nosuchstep' in r['error'])
+r = Api().call('doc', {'path': str(OUTSIDE)})
+check('界面入口：重新读取字幕文件', r['ok'] and r['doc']['segments'] and r['busy'] is None)
+
 # ------------------------------------------------------------ 保存冲突 ----
 d = docs.load(L1)
 rev = d['rev']
@@ -390,7 +434,7 @@ check('转存检测：C 盘路径换成 \\\\localhost\\C$', cli.unc_of(r'C:\User
 env = dict(os.environ)
 r = subprocess.run([sys.executable, str(ROOT / 'app' / 'cli.py'), 'list', '--kind', 'book', '--json'], capture_output=True, env=env, timeout=120)
 outp = json.loads(r.stdout.decode('utf-8'))
-check('命令行进程：退出码 0、stdout 是 UTF-8 的 JSON', r.returncode == 0 and outp['count'] == 1 and outp['items'][0]['name'] == '《测试书籍》测试作者')
+check('命令行进程：退出码 0、stdout 是 UTF-8 的 JSON', r.returncode == 0 and outp['count'] == 2 and '《测试书籍》测试作者' in [x['name'] for x in outp['items']])
 r = subprocess.run(['cmd', '/c', str(ROOT / 'mengren.cmd'), 'steps', '--json'], capture_output=True, env=env, timeout=120)
 check('mengren.cmd 能直接调用', r.returncode == 0 and json.loads(r.stdout.decode('utf-8'))['success'], r.stderr.decode('utf-8', 'replace')[-300:])
 

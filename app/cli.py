@@ -129,21 +129,8 @@ class Out:
 
 
 def compact(task):
-    """任务记录 → 给 Agent 看的结果（success / error_code / retryable 等放在最外层）。"""
-    err = task.get('error') or {}
-    failed = next((s for s in task.get('stages') or [] if s.get('status') in ('failed', 'cancelled')), None)
-    return {
-        'success': task.get('status') == 'completed',
-        'task_id': task.get('task_id'), 'video_id': task.get('video_id'), 'path': task.get('path'), 'title': task.get('title'),
-        'kind': task.get('kind'), 'status': task.get('status'),
-        'stage': err.get('stage') or (failed or {}).get('name') or task.get('stage'),
-        'error_code': err.get('error_code'), 'message': err.get('message') or (task.get('message') if task.get('status') == 'completed' else None),
-        'retryable': err.get('retryable'), 'warnings': task.get('warnings') or [], 'seconds': task.get('seconds'),
-        'stages': [{k: s.get(k) for k in ('name', 'label', 'status', 'reason', 'error_code', 'error', 'retryable', 'retries', 'model', 'result',
-                                          'started', 'finished')} for s in task.get('stages') or []],
-        'state': (task.get('outputs') or {}).get('state'),
-        'subtitle_file': (task.get('outputs') or {}).get('subtitle_file'),
-    }
+    from core.workflow import brief  # 命令行和界面用同一份（导入要放在转存检测之后）
+    return brief(task)
 
 
 STATUS_CN = {'completed': '完成', 'failed': '失败', 'cancelled': '已取消', 'skipped': '跳过', 'pending': '没轮到', 'running': '进行中'}

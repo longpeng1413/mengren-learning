@@ -43,6 +43,16 @@ def check(name, cond, detail=''):
     print('✓', name)
 
 
+def run_steps(path, steps, **kw):
+    """界面的整理按钮：交给任务层，等它做完，返回任务结果（brief）。"""
+    j = wait(api.call('steps', dict({'path': str(path), 'steps': steps}, **kw))['job'])
+    return j['result']['task'] if j['status'] == 'done' else {'status': j['status'], 'error': j.get('error'), 'stages': []}
+
+
+def stage(task, name):
+    return next((x for x in task.get('stages') or [] if x['name'] == name), {})
+
+
 def wait(job_id, timeout=120):
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -126,7 +136,8 @@ api.call('settings', {'settings': {'providers': {'deepseek': {'key': '•••�
 check('提交掩码不会覆盖密钥', config.load()['providers']['deepseek']['key'] == 'sk-1234567890abcd')
 api.call('settings', {'settings': {'providers': {'deepseek': {'key': None}}}})
 check('可以清除密钥', config.load()['providers']['deepseek']['key'] == '')
-check('未填密钥时给出提示', '还没有填写' in api.call('transcribe', {'path': r['path'], 'lang': 'en', 'provider': 'openai'})['error'])
+tk = run_steps(r['path'], ['transcribe'], lang='en', provider='openai')
+check('未填密钥时给出提示', tk['status'] == 'failed' and '还没有填写' in stage(tk, 'transcribe').get('error', '') and tk['error_code'] == 'config', tk)
 
 # 切段
 mids = [10, 19.5, 31, 48, 61, 75]
@@ -280,10 +291,9 @@ check('截小图', frames.grab(mp4, 3.0, small=True).name.endswith('_s.jpg'))
 fu = api.call('frame_url', {'path': mp4, 't': 3.0})
 check('画面图片地址', fu['ok'] and fu['url'].startswith('file:///'), fu)
 api.call('settings', {'settings': {'vision': 'deepseek'}})
-check('画面识别选了 DeepSeek 时提示它不能看图', '不能看图' in api.call('frames_extract', {'path': mp4, 'segments': [], 'duration': 40})['error'])
-fj = api.call('frames_extract', {'path': mp4, 'segments': [], 'duration': 40, 'no_ai': True})
-jj = wait(fj['job'])
-check('没有能看图的 AI 时只截候选画面', jj['status'] == 'done' and jj['result']['frames'] and not jj['result']['ai'], jj)
+fk = run_steps(mp4, ['frames'])
+check('画面识别选了 DeepSeek 时提示它不能看图（这一步跳过）', stage(fk, 'frames').get('status') == 'skipped' and '不能看图' in stage(fk, 'frames').get('reason', ''), fk)
+check('没有能看图的 AI 时只截候选画面', all('why' in f for f in frames.extract({}, '', mp4, 40, [])) and frames.extract({}, '', mp4, 40, []))
 shots = [{'t': 5.0, 'note': '课件标题：交易心理学', 'caption': '欢迎来到', 'figure': True}, {'t': 20.0, 'note': '老师手画曲线'}]
 nt = frames.notes_text(shots)
 check('画面记录写成文字', '[00:05]（可插图） 课件标题：交易心理学　画面字幕：「欢迎来到」' in nt and '[00:20] 老师手画曲线' in nt, nt)
@@ -451,13 +461,12 @@ llm.complete = fake_terms
 tdoc = {'title': '第4课', 'teacher': gt['id'], 'segments': [{'start': 3.0, 'end': 5.0, 'text': '这个峰级线很重要', 'tr': ''}, {'start': 60.0, 'end': 62.0, 'text': '这叫棍态', 'tr': ''}],
         'fixes': [{'t': 3.0, 'before': '这个风机线很重要', 'after': '这个峰级线很重要', 'by': 'manual'},
                   {'t': 60.0, 'before': '这叫滚态', 'after': '这叫棍态了', 'by': 'ai'}]}
-tj = wait(api.call('terms_suggest', {'doc': tdoc})['job'])
+tj = llm.suggest_terms(config.load(), 'deepseek', tdoc, config.get_teacher(gt['id']))
 llm.check, llm.complete = orig_check, orig_c
-check('找新术语：去掉术语表里已有的', tj['status'] == 'done' and [x['term'] for x in tj['result']['terms']] == ['棍态']
-      and [(x['wrong'], x['right'], x['t']) for x in tj['result']['errors']] == [('风机', '峰级', 3.0)], tj)
+check('找新术语：去掉术语表里已有的', [x['term'] for x in tj['terms']] == ['棍态']
+      and [(x['wrong'], x['right'], x['t']) for x in tj['errors']] == [('风机', '峰级', 3.0)], tj)
 check('找新术语：把校对改动交给 AI，撤销掉的不算', '「风机」→「峰级」（人工改）' in seen3['u'] and '滚态' not in seen3['u'], seen3['u'][:600])
-check('没选老师时不找新术语', '先在顶栏选择老师' in api.call('terms_suggest', {'doc': dict(tdoc, teacher='')})['error'])
-ta = api.call('terms_add', {'teacher': gt['id'], 'title': '第4课', 'terms': tj['result']['terms'], 'errors': tj['result']['errors']})
+ta = api.call('terms_add', {'teacher': gt['id'], 'title': '第4课', 'terms': tj['terms'], 'errors': tj['errors']})
 gtext = gfile.read_text(encoding='utf-8')
 check('加进关联的术语表文件', ta['file'] == str(gfile) and ta['terms'] == 1 and ta['errors'] == 1 and '| 棍态 | 《第4课》[01:00] | 这叫棍态 |' in gtext and gtext.startswith(base.rstrip('\n')), ta)
 check('写之前先备份', any((config.DATA_DIR / 'backups' / '术语表').glob('课程术语表-*.md')))
@@ -483,7 +492,8 @@ llm.complete = orig_complete
 check('用画面复核存疑句：能确认的改正、看不清的继续存疑', rc == [{'i': 3, 'text': '峰级的入门'}, {'i': 7, 'doubt': '画面里没有字幕'}], rc)
 check('复核时附上说话时的画面和附近的画面记录', sum(1 for p in seen2['parts'] if p['type'] == 'image') == 2 and any('课件标题：交易心理学' in p.get('text', '') for p in seen2['parts']))
 api.call('settings', {'settings': {'vision': 'deepseek'}})
-check('复核存疑句也要能看图的 AI', '不能看图' in api.call('doubts_recheck', {'path': mp4, 'items': [{'i': 0, 'text': 'x', 'start': 1}]})['error'])
+rk = run_steps(mp4, ['recheck'])
+check('复核存疑句也要能看图的 AI（这一步跳过）', stage(rk, 'recheck').get('status') == 'skipped' and '不能看图' in stage(rk, 'recheck').get('reason', ''), rk)
 (config.CACHE_DIR / 'frames' / 'old').mkdir(parents=True, exist_ok=True)
 oldf = config.CACHE_DIR / 'frames' / 'old' / 'x.jpg'
 oldf.write_bytes(b'0')
@@ -546,9 +556,9 @@ def fake_complete(s_, n_, msgs, **k):
 
 
 llm.complete = fake_complete
-r_ = api.call('book_organize', {'path': str(pdfp), 'doc': ob['doc'], 'indexes': [0]})
-jb = wait(r_['job'])
-check('整理一章', jb['status'] == 'done' and jb['items'][0]['md'].startswith('## 一、本章主题'), jb)
+jb = run_steps(pdfp, ['organize'], chapters=[0])
+bmd = docs.load(str(pdfp))['chapters'][0]['md']
+check('整理一章（写进书旁边的整理结果）', jb['status'] == 'completed' and bmd.startswith('## 一、本章主题') and not docs.load(str(pdfp))['chapters'][1]['md'], jb)
 check('有图表的页附上页面图、锚点写法正确', '[图]' in calls[0] and '锚点写作（P2）' in calls[0] and '【PDF 第 4 页' in calls[0])
 check('整理要求：固定栏目、疑点三分法、非必要不插图', '## 十三、一句话概括' in book.DEFAULT_RULES and '疑点三分法' in book.DEFAULT_RULES and '每章最多 2 张' in book.DEFAULT_RULES)
 rules = TMP / '规范.md'
@@ -556,7 +566,7 @@ rules.write_text('# 外部书籍与文档整理规范 V9\n只回答原书讲了�
 check('关联知识库里的书籍整理规范', '规范 V9' in book._rules({'book_rules_file': str(rules)}) and '规范 V9' not in book._rules({}))
 llm.complete = orig_complete
 bdoc = ob['doc']
-bdoc['chapters'][0]['md'] = jb['items'][0]['md']
+bdoc['chapters'][0]['md'] = bmd
 bdoc['overview'] = '## 一、书籍基本信息\n\n测试。'
 api.call('save', {'path': str(pdfp), 'doc': bdoc})
 check('书籍整理结果存进旁边的文件', json.loads(docs.sidecar(str(pdfp)).read_text(encoding='utf-8'))['chapters'][0]['md'].startswith('## 一'))
@@ -661,7 +671,8 @@ check('拒绝不匹配的回调', login.accept('http://localhost:1455/auth/callb
 api.call('settings', {'settings': {'chat': 'codex', 'providers': {'codex': {'chat_model': 'x'}}}})
 check('选了 ChatGPT 但没登录时提示', '还没有用 ChatGPT 账号登录' in api.call('chat', {'doc': {}})['error'])
 api.call('settings', {'settings': {'translate': 'claude'}})
-check('Claude 没填密钥时提示', '还没有填写Claude的 API Key' in api.call('translate', {'items': [[0, 'hi']]})['error'])
+tt = run_steps(mp4, ['translate'], any_lang=True, translate_all=True)
+check('Claude 没填密钥时提示', tt['status'] == 'failed' and '还没有填写Claude的 API Key' in stage(tt, 'translate').get('error', ''), tt)
 
 # 缓存清理
 from core import cache  # noqa: E402
@@ -712,8 +723,13 @@ check('导入后设置文件改名，提醒删除', not (bundle / '猛人学习�
 orig_check, orig_complete2 = llm.check, llm.complete
 llm.check = lambda *a, **k: None
 llm.complete = lambda s_, n_, msgs, **k: json.dumps({'改动': {'0': '甲改好了'}, '存疑': {'1': '听不清'}})
-cj = wait(api.call('correct', {'items': [[0, '甲', 1.0], [1, '乙', 2.0]], 'title': 't'})['job'])
-check('AI 校对任务正常完成，推回改动和存疑', cj['status'] == 'done' and {'i': 0, 'text': '甲改好了'} in cj['items'] and {'i': 1, 'doubt': '听不清'} in cj['items'], cj)
+cdoc = MEDIA / '校对测试.mp4'
+shutil.copy(MEDIA / '演示视频.mp4', cdoc)
+docs.save(str(cdoc), dict(docs.new(str(cdoc), {'duration': 40}), segments=[{'start': 1.0, 'end': 2.0, 'text': '甲', 'tr': ''}, {'start': 2.0, 'end': 3.0, 'text': '乙', 'tr': ''}]))
+cj = run_steps(cdoc, ['correct'], allow_no_teacher=True)
+cd = docs.load(str(cdoc))
+check('AI 校对任务正常完成，改动和存疑写进字幕文件', cj['status'] == 'completed' and cd['segments'][0]['text'] == '甲改好了'
+      and cd['doubts'] == [{'t': 2.0, 'reason': '听不清', 'text': '乙'}] and cd['corrected'] and stage(cj, 'correct')['result'] == {'fixed': 1, 'doubts': 1}, (cj, cd))
 llm.check, llm.complete = orig_check, orig_complete2
 
 # 豆包流式识别：边发边收，并报告发送进度

@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TD = ROOT / '.testdata'
 UI = ROOT / 'test-media' / 'ui'
+UI_AI = ROOT / 'test-media' / 'ui-ai'  # 测整理按钮用的另一份视频（不在媒体库里，不影响别的检查）
 SCRIPT = ROOT / 'tests' / 'ui_selftest.js'
 RESULT = SCRIPT.with_suffix('.result.json')
 
@@ -21,7 +22,7 @@ def main():
     subprocess.run([sys.executable, str(ROOT / 'tests' / 'make_test_media.py')], check=True)
     if not (ROOT / 'test-media' / '测试书籍.pdf').exists():
         subprocess.run([sys.executable, str(ROOT / 'tests' / 'make_test_book.py')], check=True)
-    for d in (TD, UI):
+    for d in (TD, UI, UI_AI):
         shutil.rmtree(d, ignore_errors=True)
     RESULT.unlink(missing_ok=True)
     (TD / 'appdata' / '猛人学习').mkdir(parents=True)
@@ -29,6 +30,9 @@ def main():
     (TD / 'appdata' / '猛人学习' / 'settings.json').write_text(
         json.dumps({'storage_dir': str(TD / 'store')}, ensure_ascii=False), encoding='utf-8')
     UI.mkdir(parents=True)
+    UI_AI.mkdir(parents=True)
+    shutil.copy(ROOT / 'test-media' / '演示视频.mp4', UI_AI / 'AI整理测试.mp4')
+    shutil.copy(ROOT / 'test-media' / '测试书籍.pdf', UI_AI / '《AI整理测试书》.pdf')
     for name in ('演示视频.mp4', '演示视频.mp4.猛人字幕.json', '旧格式.avi', '测试书籍.pdf'):
         shutil.copy(ROOT / 'test-media' / name, UI / name)
 
@@ -37,7 +41,7 @@ def main():
         cmd = [str(ROOT / 'dist-next' / '猛人学习' / '猛人学习.exe')]
     else:
         cmd = [sys.executable, str(ROOT / 'app' / 'main.py')]
-    rc = subprocess.run(cmd + [f'--selftest={SCRIPT}', '--selftest-close'], env=env, timeout=400).returncode
+    rc = subprocess.run(cmd + [f'--selftest={SCRIPT}', '--selftest-close', '--fake-ai'], env=env, timeout=400).returncode
     if rc:
         print('程序退出码', rc, hex(rc & 0xffffffff))
 
@@ -47,6 +51,7 @@ def main():
         print(r)
     print(f'通过 {len(results) - len(bad)} / {len(results)}')
     shutil.rmtree(UI, ignore_errors=True)
+    shutil.rmtree(UI_AI, ignore_errors=True)
     RESULT.unlink(missing_ok=True)
     if not bad:
         shutil.rmtree(TD, ignore_errors=True)

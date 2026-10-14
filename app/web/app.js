@@ -470,36 +470,25 @@ function toggleBookEdit(on) {
 function renderChapterViewOnly() { const keep = bookEditing; bookEditing = false; renderChapterView(); bookEditing = keep; }
 async function bookOrganize(indexes) {
   if (!indexes.length) return toast('没有要整理的章节', { error: true });
-  const doc = S.doc;
   try {
-    await flushSave();
-    const r = await api('book_organize', { path: S.path, doc, indexes });
-    let n = 0, adds = 0;
-    const ok = await runJob(r.job, '正在整理…', {
-      onItems: items => {
-        for (const x of items) {
-          const c = doc.chapters[x.i]; if (!c) continue;
-          c.md = x.md; c.updated = new Date().toLocaleString(); n++; adds += x.added;
-          c.note = (x.missing ? `查漏：${x.missing} 页没被引用，补了 ${x.added} 条` : '每一页都有引用') + (x.verified ? `；回页面核对确认了 ${x.verified} 处` : '');
-          if (S.doc === doc) { S.bookSel.i = x.i; renderBook(); }
-        }
-        markDirty(); save();
-      },
-    });
-    if (ok) toast(`整理好了 ${n} 章${adds ? `，查漏补了 ${adds} 条` : ''}。核对后可以点「全书总览」和「剪藏」`, { ms: 8000 });
-    syncLibFromDoc();
-    return ok;
+    const res = await runSteps(['organize'], '正在整理…', { opts: { chapters: indexes } });
+    const out = stepResult(res, 'organize');
+    if (out && out.chapters) S.bookSel.i = indexes[indexes.length - 1];
+    renderDoc();
+    if (!out) return false;
+    if (out.skipped !== undefined) { toast(out.skipped); return true; }
+    toast(`整理好了 ${out.chapters} 章${out.added ? `，查漏补了 ${out.added} 条` : ''}。核对后可以点「全书总览」和「剪藏」`, { ms: 8000 });
+    return true;
   } catch (e) { fail(e); return false; }
 }
 async function bookOverview() {
-  const doc = S.doc;
-  if (!(doc.chapters || []).some(c => (c.md || '').trim())) return toast('还没有整理好的章节', { error: true });
+  if (!(S.doc.chapters || []).some(c => (c.md || '').trim())) return toast('还没有整理好的章节', { error: true });
   try {
-    await flushSave();
-    const r = await api('book_overview', { doc });
-    await runJob(r.job, 'AI 正在写全书总览…', {
-      onDone: job => { doc.overview = job.result.overview; markDirty(); save(); if (S.doc === doc) { S.bookSel.i = -2; renderBook(); } toast('全书总览写好了'); },
-    });
+    const res = await runSteps(['overview'], 'AI 正在写全书总览…', { opts: { allow_partial: true } });
+    const out = stepResult(res, 'overview');
+    if (out && out.skipped === undefined) S.bookSel.i = -2;
+    renderDoc();
+    if (out) toast(out.skipped !== undefined ? out.skipped : '全书总览写好了');
   } catch (e) { fail(e); }
 }
 async function bookAiToc() {
@@ -907,6 +896,90 @@ async function runJob(id, label, { onItems, onDone, onError, onExtra } = {}) {
 }
 $('#jobCancel').onclick = () => { if (S.job) api('cancel', { id: S.job }).catch(() => {}); S.cancelPipeline = true; };
 
+/* ------------------------------------------------------------ 整理步骤 ---- */
+/* 生成字幕、AI 校对、找关键帧、画面复核存疑句、翻译、课程重点、查漏补缺、新术语、整理章节、全书总览，以及一键整理：
+   都交给后台的任务层（app/core/workflow.py），和命令行（Agent）是同一套规则。后台做完直接写进字幕文件，
+   这里只显示进度和边做边出的内容，做完重新读取。一步做到一半失败，这一步什么都不写。 */
+const SOFT_STEPS = new Set(['recheck', 'review']);  // 失败了不影响一键整理后面的步骤
+const stageOf = (task, name) => ((task && task.stages) || []).find(s => s.name === name) || {};
+async function runSteps(steps, label, { opts = {}, redo, onItems, onStart } = {}) {
+  await flushSave();
+  const path = S.path;
+  const r = await api('steps', { path, steps, ...(redo ? { redo } : {}), ...opts });
+  if (onStart) onStart(r.job);
+  const res = { task: null, status: 'error', error: '' };
+  await runJob(r.job, label, {
+    onItems,
+    onDone: job => { res.task = job.result.task; res.status = 'done'; },
+    onError: job => { res.status = job.status; res.error = job.error || ''; },
+  });
+  if (S.path === path) await reloadDoc();
+  return res;
+}
+/* 后台写完字幕文件后重新读取（界面里还没保存的修改先保存；后台期间改过会先问） */
+async function reloadDoc() {
+  if (S.dirty) await save();
+  const r = await api('doc', { path: S.path });
+  S.doc = r.doc; S.rev = r.doc.rev || 0; S.lastSaved = r.doc.updated || S.lastSaved; S.dirty = false; S.docStale = !!r.stale;
+  syncLibFromDoc();
+}
+function renderDoc() {
+  if (S.mode === 'book') { renderBook(); updateButtons(); updateSaveLabel(); return; }
+  renderTeacherSelect(); renderCues(); renderSummary(); renderFrames(); updateButtons(); updateSaveLabel();
+  $('#optReviewed').checked = !!S.doc.reviewed;
+  showPendingBanner();
+}
+/* 一步的结果：失败时提示原因、返回 null；跳过时返回 {skipped: 原因}；完成时返回这一步的结果 */
+function stepResult(res, name) {
+  if (res.status === 'cancelled') return null;  // runJob 已经提示「已取消」
+  if (res.status !== 'done' || !res.task) { fail(new Error(res.error || '没有完成')); return null; }
+  const st = stageOf(res.task, name);
+  if (st.status === 'cancelled') { toast('已取消'); return null; }
+  if (st.status === 'failed') { fail(new Error(st.error || res.task.message || '没有完成')); return null; }
+  if (st.status === 'skipped') return { skipped: st.reason || '' };
+  return st.result || {};
+}
+/* 校对、复核改了的句子标上绿色下划线（这些步骤不增删句子，按位置对得上） */
+function markFixed(before) {
+  S.doc.segments.forEach((s, i) => { if (before[i] !== undefined && s.text !== before[i]) { const el = cueEl(i); if (el) el.classList.add('fixed'); } });
+}
+function dropSnapshot() { S.undo.pop(); $('#btnUndo').disabled = !S.undo.length; }
+/* 边做边显示：识别出来的字幕一句句出现、课程重点边写边显示 */
+function liveView() {
+  const live = { cues: [], text: '' };
+  live.onItems = items => {
+    const cues = items.filter(x => x.kind === 'cue');
+    if (cues.length) {
+      if (!live.cues.length) { S.doc.segments = live.cues; renderCues(); }
+      for (const c of cues) live.cues.push({ start: c.start, end: c.end, text: c.text, tr: '' });
+      cuesInner().insertAdjacentHTML('beforeend', cues.map((c, k) => cueHTML(c, live.cues.length - cues.length + k)).join(''));
+      $('#cueCount').textContent = `${live.cues.length} 句`;
+    }
+    const text = items.filter(x => x.kind === 'text').map(x => x.text).join('');
+    if (text) {
+      if (!live.text) { if (summaryEditing) toggleSummaryEdit(false); if (S.settings.ai_hidden) savePrefs({ ai_hidden: false }); $$('.ai-tabs .tab')[0].click(); }
+      live.text += text;
+      const box = $('#summaryBox');
+      box.innerHTML = md(live.text); if (box.lastElementChild) box.lastElementChild.classList.add('typing'); box.scrollTop = box.scrollHeight;
+    }
+  };
+  return live;
+}
+/* 识别中途出错：已经识别出的部分要不要留下（后台没有写入，留不留由用户决定） */
+function keepPartial(res, live, lang) {
+  const st = stageOf(res.task, 'transcribe');
+  if (!live.cues.length || st.status !== 'failed') return false;
+  if (!confirm(`识别中途出错，已经识别了 ${live.cues.length} 句。\n要保留这部分吗？选「取消」恢复原来的字幕。`)) return false;
+  pushVersion('重新识别前');
+  S.doc.segments = live.cues; S.doc.lang = lang; S.doc.corrected = false; S.doc.reviewed = false;
+  renderDoc(); markDirty();
+  return true;
+}
+function reviewToast(x) {
+  toast(x.added ? `查漏补缺：补了 ${x.added} 条（放进了对应的小节）。字幕被引用约 ${Math.round(x.coverage_before * 100)}% → ${Math.round(x.coverage_after * 100)}%`
+    : `查漏补缺：没有发现漏掉的内容（字幕被引用约 ${Math.round(x.coverage_after * 100)}%）`, { ms: 8000 });
+}
+
 /* ------------------------------------------------------------ 生成字幕 ---- */
 const PROVIDER_LABEL = { doubao: '豆包', siliconflow: '硅基流动', openai: 'OpenAI' };
 function providerHint(p) {
@@ -959,40 +1032,21 @@ function setDocTeacher(id) {
   if (!S.doc || (S.doc.teacher || '') === (id || '')) return;
   S.doc.teacher = id || ''; renderTeacherSelect(); markDirty();
 }
-async function startTranscribe(lang, provider, pending) {
+async function startTranscribe(lang, provider) {
   try {
-    await flushSave();
-    const r = await api('transcribe', { path: S.path, lang, provider, pending, teacher: S.doc.teacher, title: S.doc.title });
-    const before = S.doc.segments;
-    const live = [];
-    if (before.length) { snapshot(); pushVersion('重新识别前'); }
-    S.doc.segments = live; renderCues();
-    return await runJob(r.job, `${PROVIDER_LABEL[r.provider]}识别中…`, {
-      onItems: items => {
-        for (const c of items) live.push({ start: c.start, end: c.end, text: c.text, tr: '' });
-        cuesInner().insertAdjacentHTML('beforeend', items.map((c, k) => cueHTML(c, live.length - items.length + k)).join(''));
-        $('#cueCount').textContent = `${live.length} 句`;
-      },
-      onExtra: extra => {
-        if (extra && extra.task_id && (!S.doc.pending_task || S.doc.pending_task.task_id !== extra.task_id)) {
-          S.doc.pending_task = { ...extra, lang, provider }; save();
-        }
-      },
-      onDone: job => {
-        S.doc.lang = lang; S.doc.provider = `${r.provider}${job.result.model ? ' · ' + job.result.model : ''}`;
-        S.doc.corrected = false; S.doc.reviewed = false; $('#optReviewed').checked = false;
-        delete S.doc.pending_task;
-        renderCues(); markDirty(); save(); showPendingBanner();
-        toast(`字幕生成好了，共 ${live.length} 句`);
-      },
-      onError: job => {
-        if (live.length && job.status === 'error') {
-          fail(new Error(job.error));
-          if (confirm(`识别中途出错，已经识别了 ${live.length} 句。\n要保留这部分吗？选「取消」恢复原来的字幕。`)) { S.doc.lang = lang; renderCues(); markDirty(); return; }
-        } else if (job.status === 'error') fail(new Error(job.error));
-        S.doc.segments = before; if (before.length) { S.undo.pop(); (S.doc.versions || []).shift(); } renderCues();
-      },
-    });
+    const had = S.doc.segments.length;
+    if (had) snapshot();
+    const live = liveView();
+    const res = await runSteps(['transcribe'], `${PROVIDER_LABEL[provider] || ''}识别中…`, { opts: { lang, provider }, onItems: live.onItems });
+    renderDoc();
+    const out = stepResult(res, 'transcribe');
+    if (!out) {
+      if (keepPartial(res, live, lang)) return false;
+      if (had) dropSnapshot();
+      return false;
+    }
+    toast(`字幕生成好了，共 ${out.segments} 句`);
+    return true;
   } catch (e) { fail(e); return false; }
 }
 function showPendingBanner() {
@@ -1045,39 +1099,16 @@ async function startCorrect(auto) {
   const t = teacherById(S.doc.teacher);
   if (!t && !auto && !confirm('这个视频没有指定老师，没有术语表可参考。\n仍然让 AI 只修正明显的错别字吗？\n（可以在顶栏选择老师）')) return false;
   try {
-    await flushSave();
-    const refs = S.doc.segments.slice();
-    const items = refs.map((s, i) => [i, s.text, s.start]).filter(([, txt]) => txt.trim());
-    const r = await api('correct', { items, title: S.doc.title, teacher: S.doc.teacher, frames: (S.doc.frames || []).filter(f => f.note) });
+    const before = S.doc.segments.map(s => s.text);
     snapshot();
-    const oldDoubts = S.doc.doubts || [];
-    const doubts = [];
-    let n = 0;
-    const ok = await runJob(r.job, 'AI 校对中…', {
-      onItems: list => {
-        for (const it of list) {
-          const seg = refs[it.i]; if (!seg) continue;
-          if (it.doubt) { doubts.push({ t: seg.start, reason: it.doubt, text: seg.text }); continue; }
-          recordFix(S.doc, seg, seg.text, it.text, 'ai');
-          seg.text = it.text; n++;
-          const el = cueEl(S.doc.segments.indexOf(seg));
-          if (el) { $('.src', el).textContent = it.text; el.classList.add('fixed'); }
-        }
-        if (list.length) markDirty();
-      },
-    });
-    if (ok) {
-      S.doc.doubts = doubts; S.doc.corrected = true;
-      const fixedNow = $$('.cue.fixed', $('#cues')).map(el => +el.dataset.i);
-      renderCues(); fixedNow.forEach(i => { const el = cueEl(i); if (el) el.classList.add('fixed'); });
-      markDirty(); save();
-      toast((n ? `AI 校对完成，改了 ${n} 句（绿色下划线标出），不满意可以按「撤销」恢复` : 'AI 校对完成，没有发现需要改的地方')
-        + (doubts.length ? `。另有 ${doubts.length} 句存疑（橙色），点字幕栏上方的「存疑」逐句回听` : ''), { ms: 8000 });
-    } else {
-      S.doc.doubts = oldDoubts;
-      if (!n) { S.undo.pop(); $('#btnUndo').disabled = !S.undo.length; }
-    }
-    return ok;
+    const res = await runSteps(['correct'], 'AI 校对中…', { opts: { allow_no_teacher: true } });
+    renderDoc();
+    const out = stepResult(res, 'correct');
+    if (!out || out.skipped !== undefined) { dropSnapshot(); if (out) toast(out.skipped); return !!out; }
+    markFixed(before);
+    toast((out.fixed ? `AI 校对完成，改了 ${out.fixed} 句（绿色下划线标出），不满意可以按「撤销」恢复` : 'AI 校对完成，没有发现需要改的地方')
+      + (out.doubts ? `。另有 ${out.doubts} 句存疑（橙色），点字幕栏上方的「存疑」逐句回听` : ''), { ms: 8000 });
+    return true;
   } catch (e) { fail(e); return false; }
 }
 
@@ -1097,23 +1128,15 @@ function openTranslate() {
 }
 async function startTranslate(all) {
   try {
-    const refs = S.doc.segments.slice();
-    const items = refs.map((s, i) => [i, s.text]).filter(([i, t]) => t.trim() && (all || !refs[i].tr.trim()));
-    if (!items.length) return true;
+    if (!S.doc.segments.some(s => s.text.trim() && (all || !s.tr.trim()))) return true;
     if (all) snapshot();
-    const r = await api('translate', { items, title: S.doc.title, teacher: S.doc.teacher });
-    let n = 0;
-    return await runJob(r.job, '翻译中…', {
-      onItems: pairs => {
-        for (const [i, zh] of pairs) {
-          const seg = refs[i]; if (!seg) continue;
-          seg.tr = zh; n++;
-          const el = cueEl(S.doc.segments.indexOf(seg)); if (el) $('.tr', el).textContent = zh;
-        }
-        markDirty();
-      },
-      onDone: () => { save(); toast(`翻译完成，共 ${n} 句`); if (!S.settings.show_tr) savePrefs({ show_tr: true }); },
-    });
+    const res = await runSteps(['translate'], '翻译中…', { opts: { any_lang: true, translate_all: !!all } });
+    renderDoc();
+    const out = stepResult(res, 'translate');
+    if (!out || out.skipped !== undefined) { if (all) dropSnapshot(); if (out) toast(out.skipped); return !!out; }
+    toast(`翻译完成，共 ${out.translated} 句`);
+    if (!S.settings.show_tr) savePrefs({ show_tr: true });
+    return true;
   } catch (e) { fail(e); return false; }
 }
 
@@ -1160,21 +1183,41 @@ async function runPipeline() {
   setDocTeacher($('#plTeacher').value);
   const lang = $('input[name=plLang]:checked').value;
   const steps = [];
-  if ($('#plAsr').checked) steps.push(['生成字幕', () => startTranscribe(lang, lang === 'en' ? S.settings.asr_en : S.settings.asr_zh)]);
-  if ($('#plCorrect').checked) steps.push(['AI 校对', () => startCorrect(true)]);
-  if ($('#plFrames').checked && !$('#plFrames').disabled) steps.push(['找关键帧', () => findFrames(true)]);
-  if ($('#plRecheck').checked && !$('#plRecheck').disabled) steps.push(['用画面复核存疑句', () => recheckDoubts(true)]);
-  if ($('#plTranslate').checked && !$('#plTranslate').disabled) steps.push(['翻译', () => startTranslate(false)]);
-  if ($('#plSummary').checked) steps.push(['课程重点', () => doSummary()]);
-  if ($('#plClip').checked) steps.push(['剪藏', () => doClip()]);
-  if ($('#plTerms').checked) steps.push(['新术语', () => findTerms(true)]);
-  for (const [name, fn] of steps) {
-    if (S.cancelPipeline) { toast('一键整理已停止'); return; }
-    if (name !== '生成字幕' && !S.doc.segments.length) { toast('没有字幕，一键整理已停止', { error: true }); return; }
-    const ok = await fn();
-    if (!ok) { toast(`「${name}」没有完成，一键整理已停止`, { error: true }); return; }
+  if ($('#plAsr').checked) steps.push('transcribe');
+  if ($('#plCorrect').checked) steps.push('correct');
+  if ($('#plFrames').checked && !$('#plFrames').disabled) steps.push('frames');
+  if ($('#plRecheck').checked && !$('#plRecheck').disabled) steps.push('recheck');
+  if ($('#plTranslate').checked && !$('#plTranslate').disabled) steps.push('translate');
+  if ($('#plSummary').checked) { steps.push('summary'); if (S.settings.auto_review) steps.push('review'); }
+  if ($('#plTerms').checked) steps.push('terms');
+  const clip = $('#plClip').checked;
+  if (!steps.includes('transcribe') && !S.doc.segments.length) { toast('没有字幕，一键整理已停止', { error: true }); return; }
+  let res = null;
+  if (steps.length) {
+    const had = steps.includes('transcribe') && S.doc.segments.length;
+    if (had) snapshot();
+    const live = liveView();
+    try {
+      res = await runSteps(steps, '一键整理…', {
+        opts: { lang, provider: lang === 'en' ? S.settings.asr_en : S.settings.asr_zh, allow_no_teacher: true }, onItems: live.onItems });
+    } catch (e) { fail(e); return; }
+    renderDoc();
+    if (res.status === 'cancelled' || (res.task && res.task.status === 'cancelled')) { toast('一键整理已停止。已经完成的步骤保存好了'); return; }
+    if (res.status !== 'done' || !res.task) { fail(new Error(res.error || '一键整理没有完成')); return; }
+    const bad = res.task.stages.find(s => s.status === 'failed' && !SOFT_STEPS.has(s.name));
+    if (bad) {
+      toast(`「${bad.label}」没有完成：${bad.error || ''}。一键整理已停止，前面完成的步骤已经保存`, { error: true, ms: 10000 });
+      if (bad.name === 'transcribe' && keepPartial(res, live, lang)) return;
+      if (had && bad.name === 'transcribe') dropSnapshot();
+      return;
+    }
+    if (stageOf(res.task, 'translate').status === 'completed' && !S.settings.show_tr) savePrefs({ show_tr: true });
   }
-  toast('一键整理完成。建议检查一遍字幕，打开字幕栏上方的「已校对」后再剪藏。', { ms: 9000 });
+  if (S.cancelPipeline) { toast('一键整理已停止'); return; }
+  if (clip && !(await doClip())) { toast('「剪藏」没有完成，一键整理已停止', { error: true }); return; }
+  if (steps.includes('terms') && S.doc.terms_pending) await openTerms();
+  const warn = res && res.task.warnings.length ? '（' + res.task.warnings.join('；') + '）' : '';
+  toast('一键整理完成。建议检查一遍字幕，打开字幕栏上方的「已校对」后再剪藏。' + warn, { ms: 9000 });
 }
 
 /* ---------------------------------------------------------------- 导出 ---- */
@@ -1200,17 +1243,12 @@ async function findTerms(auto) {
     return !!auto;
   }
   try {
-    await flushSave();
-    const r = await api('terms_suggest', { doc: S.doc });
-    let res = null;
-    const ok = await runJob(r.job, 'AI 正在找这节课的新术语…', { onDone: job => { res = job.result; } });
-    if (!ok || !res) return false;
-    if (!res.terms.length && !res.errors.length) {
-      S.doc.terms_pending = null; markDirty(); save(); updateButtons();
-      toast('没有发现术语表里还没有的新术语');
-      return true;
-    }
-    S.doc.terms_pending = res; markDirty(); save(); updateButtons();
+    const res = await runSteps(['terms'], 'AI 正在找这节课的新术语…');
+    renderDoc();
+    const out = stepResult(res, 'terms');
+    if (!out) return false;
+    if (out.skipped !== undefined) { toast(out.skipped); return true; }
+    if (!S.doc.terms_pending) { toast('没有发现术语表里还没有的新术语'); return true; }
     await openTerms();
     return true;
   } catch (e) { fail(e); return false; }
@@ -1334,21 +1372,13 @@ async function findFrames(auto) {
   if (S.settings.ai_hidden) savePrefs({ ai_hidden: false });
   $$('.ai-tabs .tab')[2].click();
   try {
-    await flushSave();
-    const doc = S.doc;
-    const r = await api('frames_extract', { path: S.path, segments: doc.segments, duration: doc.duration || (S.info && S.info.duration) || 0 });
-    const got = [];
-    return await runJob(r.job, '正在找关键帧…', {
-      onItems: items => { if (S.doc !== doc) return; got.push(...items.filter(f => f.figure)); doc.frames = manual.concat(got); sortFrames(); renderFrames(); },
-      onDone: job => {
-        if (S.doc !== doc) return;
-        doc.frames = manual.concat(job.result.frames || []); sortFrames();
-        renderFrames(); markDirty(); save();
-        const n = (job.result.frames || []).length;
-        toast(n ? `挑出 ${n} 张需要看图才好理解的画面，课程重点里会在必要的地方插图（最多 3 张）` : '没有需要插图的画面（纯文字课件或只有老师讲话的视频很正常）', { ms: 7000 });
-      },
-      onError: job => { if (S.doc === doc) { doc.frames = old; renderFrames(); } if (job.status === 'error') fail(new Error(job.error)); },
-    });
+    const res = await runSteps(['frames'], '正在找关键帧…');
+    renderDoc();
+    const out = stepResult(res, 'frames');
+    if (!out) return false;
+    if (out.skipped !== undefined) { toast(out.skipped, { ms: 7000 }); return true; }
+    toast(out.figures ? `挑出 ${out.figures} 张需要看图才好理解的画面，课程重点里会在必要的地方插图（最多 3 张）` : '没有需要插图的画面（纯文字课件或只有老师讲话的视频很正常）', { ms: 7000 });
+    return true;
   } catch (e) { fail(e); return false; }
 }
 async function describeFrames(list) {
@@ -1389,43 +1419,17 @@ async function captureFrame() {
 }
 /* 用画面复核存疑句：AI 校对后还拿不准的句子，截下说话时的画面再核对一次 */
 async function recheckDoubts(auto) {
-  const doc = S.doc, segs = doc.segments;
-  const list = doubtIndexes();
-  if (!list.length) { if (!auto) toast('没有存疑句'); return true; }
+  if (!doubtIndexes().length) { if (!auto) toast('没有存疑句'); return true; }
   try {
-    await flushSave();
-    const items = list.map(i => {
-      const d = doubtOf(segs[i]);
-      return { i, start: segs[i].start, end: segs[i].end, text: segs[i].text, reason: d ? d.reason : '',
-        before: segs.slice(Math.max(0, i - 2), i).map(s => s.text).join(' '), after: segs.slice(i + 1, i + 3).map(s => s.text).join(' ') };
-    });
-    const r = await api('doubts_recheck', { path: S.path, items, frames: (doc.frames || []).filter(f => f.note) });
+    const before = S.doc.segments.map(s => s.text);
     snapshot();
-    let fixed = 0;
-    const ok = await runJob(r.job, 'AI 正在用画面复核存疑句…', {
-      onItems: res => {
-        for (const x of res) {
-          const seg = segs[x.i]; if (!seg) continue;
-          const d = doubtOf(seg);
-          if (x.text !== undefined) {
-            if (x.text !== seg.text) { recordFix(doc, seg, seg.text, x.text, 'frames'); seg.text = x.text; fixed++; }
-            if (d) doc.doubts = doc.doubts.filter(y => y !== d);
-            if (S.doc === doc) { const el = cueEl(x.i); if (el) { $('.src', el).textContent = seg.text; el.classList.add('fixed'); } }
-          } else if (d && x.doubt) d.reason = x.doubt;
-        }
-        markDirty();
-      },
-    });
-    if (S.doc === doc) {
-      const fixedNow = $$('.cue.fixed', $('#cues')).map(el => +el.dataset.i);
-      renderCues(); fixedNow.forEach(i => { const el = cueEl(i); if (el) el.classList.add('fixed'); });
-    }
-    save();
-    if (ok) {
-      const left = doubtIndexes().length;
-      toast(`用画面复核了 ${list.length} 句存疑句：确认 ${list.length - left} 句（改了 ${fixed} 句，绿色下划线标出）${left ? `，还有 ${left} 句看不清，留给你回听` : ''}`, { ms: 9000 });
-    }
-    return ok || auto;  // 一键整理里复核失败不影响后面的步骤
+    const res = await runSteps(['recheck'], 'AI 正在用画面复核存疑句…');
+    renderDoc();
+    const out = stepResult(res, 'recheck');
+    if (!out || out.skipped !== undefined) { dropSnapshot(); if (out) toast(out.skipped); return !!out || !!auto; }  // 一键整理里复核失败不影响后面的步骤
+    markFixed(before);
+    toast(`用画面复核了 ${out.checked} 句存疑句：确认 ${out.confirmed} 句（改了 ${out.fixed} 句，绿色下划线标出）${out.left ? `，还有 ${out.left} 句看不清，留给你回听` : ''}`, { ms: 9000 });
+    return true;
   } catch (e) { fail(e); return !!auto; }
 }
 function shotOf(el) { const k = el.closest('.shot'); return k && S.doc.frames[+k.dataset.k]; }
@@ -1462,19 +1466,13 @@ function refreshCoverage() {
 async function runReview() {
   if (!S.doc || !(S.doc.summary || '').trim()) return false;
   try {
-    await flushSave();
-    const doc = S.doc;
-    const r = await api('review', { doc });
-    return await runJob(r.job, 'AI 正在对照字幕查漏…', {
-      onDone: job => {
-        const x = job.result;
-        if (S.doc !== doc) return;
-        if (x.added) { doc.summary = x.summary; markDirty(); save(); }
-        renderSummary();
-        toast(x.added ? `查漏补缺：补了 ${x.added} 条（放进了对应的小节）。字幕被引用约 ${Math.round(x.before * 100)}% → ${Math.round(x.after * 100)}%`
-          : `查漏补缺：没有发现漏掉的内容（字幕被引用约 ${Math.round(x.after * 100)}%）`, { ms: 8000 });
-      },
-    });
+    const res = await runSteps(['review'], 'AI 正在对照字幕查漏…');
+    renderDoc();
+    const out = stepResult(res, 'review');
+    if (!out) return false;
+    if (out.skipped !== undefined) { toast(out.skipped); return true; }
+    reviewToast(out);
+    return true;
   } catch (e) { fail(e); return false; }
 }
 function toggleSummaryEdit(on) {
@@ -1514,17 +1512,26 @@ async function doSummary() {
   if (summaryEditing) toggleSummaryEdit(false);
   if (S.settings.ai_hidden) savePrefs({ ai_hidden: false });
   $$('.ai-tabs .tab')[0].click();
-  const box = $('#summaryBox');
   $('#btnSummary').textContent = '停止';
-  box.innerHTML = '<div class="typing muted">AI 正在阅读字幕…</div>';
-  let ok = false;
+  $('#summaryBox').innerHTML = '<div class="typing muted">AI 正在阅读字幕…</div>';
+  const steps = S.settings.auto_review ? ['summary', 'review'] : ['summary'];  // 生成后自动查漏补缺（查漏失败不影响课程重点本身）
+  const live = liveView();
+  let res;
   try {
-    const text = await streamAI({ mode: 'summary', doc: S.doc }, t => { box.innerHTML = md(t); if (box.lastElementChild) box.lastElementChild.classList.add('typing'); box.scrollTop = box.scrollHeight; });
-    if (text.trim()) { S.doc.summary = text.trim(); markDirty(); save(); ok = true; }
-  } catch (e) { if (e.name !== 'AbortError') fail(e); }
-  renderSummary();
-  if (ok && S.settings.auto_review) await runReview();  // 查漏失败不影响课程重点本身
-  return ok;
+    res = await runSteps(steps, 'AI 正在整理课程重点…', {
+      onItems: live.onItems,
+      onStart: id => { S.chatAbort = { abort() { api('cancel', { id }).catch(() => {}); } }; },
+    });
+  } catch (e) { fail(e); return false; } finally { S.chatAbort = null; }
+  renderDoc();
+  const out = stepResult(res, 'summary');
+  if (!out) return false;
+  if (steps.includes('review')) {
+    const rv = stageOf(res.task, 'review');
+    if (rv.status === 'completed') reviewToast(rv.result || {});
+    else if (rv.status === 'failed') toast('查漏补缺没有完成：' + (rv.error || '') + '（课程重点已经保存，可以再点「查漏补缺」）', { error: true, ms: 8000 });
+  }
+  return true;
 }
 async function sendChat(q) {
   q = (q || '').trim(); if (!q || !S.doc) return;

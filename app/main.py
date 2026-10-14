@@ -125,6 +125,10 @@ def main():
         return
     if not selftest and not appdata.is_virtualized():
         appdata.adopt_virtual()  # 以前被转存走的设置、媒体库搬回来
+    if selftest and '--fake-ai' in sys.argv:  # 界面自测：识别和 AI 换成假的，不联网、不花钱
+        from core import fake_ai
+        fake_ai.install()
+        log.info('自测：用假的识别和 AI')
     from core import cache
     threading.Thread(target=cache.cleanup, daemon=True, name='cache-cleanup').start()
     api = Api()

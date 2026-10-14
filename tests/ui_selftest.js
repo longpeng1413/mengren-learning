@@ -232,6 +232,56 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     await startCorrect(true);
     ok('AI 校对没设置时提示', toasts().some(t => t.includes('还没有填写')), toasts());
 
+    // 整理按钮和一键整理都交给后台任务层（和命令行 / Agent 同一套规则）。识别和 AI 是假的（--fake-ai），不联网
+    const aiBase = base.replace(/ui\\$/, 'ui-ai\\');
+    const keepPath = S.path;
+    await api('settings', { settings: { providers: { deepseek: { key: 'sk-fake' }, openai: { key: 'sk-fake' }, doubao: { key: 'fake' } },
+      vision: 'openai', chat: 'deepseek', correct: 'deepseek', translate: 'deepseek', asr_zh: 'doubao', asr_en: 'openai', auto_review: true } });
+    await loadSettings();
+    await window.openPath(aiBase + 'AI整理测试.mp4');
+    ok('整理：打开还没有字幕的视频', await until(() => S.doc && S.doc.title === 'AI整理测试' && !S.doc.segments.length));
+    setDocTeacher(tr.teacher.id);
+    ok('生成字幕：后台识别并写进字幕文件，界面重新读取', await startTranscribe('zh', 'doubao') && S.doc.segments.length === 4 && S.doc.lang === 'zh'
+      && S.rev > 0 && S.doc.steps && S.doc.steps.transcribe && S.doc.teacher === tr.teacher.id && document.querySelectorAll('.cue').length === 4, S.doc);
+    ok('AI 校对：改的句子绿色下划线、存疑标橙色', await startCorrect(true) && S.doc.segments[0].text.startsWith('（AI 校对过）')
+      && !!document.querySelector('.cue.fixed') && document.querySelectorAll('.cue.doubt').length === 1 && S.doc.corrected, S.doc.segments);
+    ok('AI 校对：校对前存了历史版本，改动记进 fixes（积累术语表用）', S.doc.versions[0].reason === 'AI 校对前' && S.doc.fixes.some(f => f.by === 'ai'));
+    undo();
+    ok('AI 校对：可以撤销', S.doc.segments[0].text === '大家好，今天讲峰级。' && await until(() => !S.dirty && !S.saving));
+    await startCorrect(true);
+    ok('画面复核存疑句：确认后去掉存疑标记', await recheckDoubts(false) && !document.querySelector('.cue.doubt') && S.doc.segments[1].text.endsWith('（画面确认）'), S.doc.segments);
+    ok('找关键帧', await findFrames(true) && S.doc.frames.length === 1 && S.doc.frames[0].note === '假 AI 挑的图');
+    ok('课程重点：后台写好，自动查漏补缺', await doSummary() && S.doc.summary.includes('## 一、风险') && S.doc.summary.includes('查漏补上的一条')
+      && $('#summaryBox').textContent.includes('截断亏损') && $('#btnSummary').textContent === '重新生成', S.doc.summary);
+    ok('翻译：中文字幕自己选了翻译也照样翻', await startTranslate(false) && S.doc.segments.every(s => s.tr.startsWith('中文：')));
+    const termsP = findTerms(false);
+    ok('新术语：放进待勾选并打开对话框', await until(() => document.querySelector('#dlgTerms').open) && S.doc.terms_pending.terms[0].term === '假AI新术语');
+    document.querySelector('#dlgTerms').close('drop'); await termsP;
+    ok('新术语：不要就清掉', !S.doc.terms_pending);
+    openPipeline();
+    ['plAsr', 'plCorrect', 'plFrames', 'plRecheck', 'plSummary', 'plTerms'].forEach(id => { document.getElementById(id).checked = true; });
+    document.getElementById('plClip').checked = false;
+    document.querySelector('#dlgPipeline').close('ok');
+    ok('一键整理：一次交给后台，做完打开新术语对话框', await until(() => document.querySelector('#dlgTerms').open, 30000));
+    document.querySelector('#dlgTerms').close('drop');
+    ok('一键整理：完成，重新识别前的字幕存了历史版本', await until(() => toasts().some(t => t.includes('一键整理完成')), 10000)
+      && S.doc.versions.some(v => v.reason === '重新识别前') && S.doc.corrected && S.doc.summary.includes('## 一、风险') && !S.job, toasts());
+    const tasksNow = await api('doc', { path: S.path });
+    ok('一键整理：整理结果和磁盘上的一致', tasksNow.doc.rev === S.rev && tasksNow.doc.summary === S.doc.summary);
+    await api('settings', { settings: { chat: 'claude' } });  // Claude 没填 Key：课程重点会失败
+    await loadSettings();
+    const sumBefore = S.doc.summary;
+    ok('失败时：提示原因，课程重点保持原样', !(await doSummary()) && toasts().some(t => t.includes('Claude')) && S.doc.summary === sumBefore, toasts());
+    await api('settings', { settings: { chat: 'deepseek' } });
+    await loadSettings();
+    await window.openPath(aiBase + '《AI整理测试书》.pdf');
+    ok('书：打开', await until(() => S.mode === 'book' && (S.doc.chapters || []).length === 2));
+    ok('书：整理选中的章节', await bookOrganize([0]) && S.doc.chapters[0].md.includes('假 AI 整理') && !S.doc.chapters[1].md);
+    await bookOverview();
+    ok('书：章节没全部整理完也可以先写全书总览', S.doc.overview.includes('假 AI 写的总览'));
+    await window.openPath(keepPath);
+    ok('回到原来的视频', await until(() => S.path === keepPath && S.mode === 'media'));
+
     // 设置窗口
     openSettings('codex');
     ok('设置：ChatGPT 账号登录', document.querySelector('#codexBox').textContent.includes('用 ChatGPT 账号登录'));

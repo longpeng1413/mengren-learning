@@ -10,8 +10,8 @@
 一步做到一半失败，这一步什么都不写（不会出现「报错了，结果却出现了一半」）。
 已经做完的步骤再运行时跳过（看字幕文件里的结果和 steps 记录），除非 force。
 
-过渡期注意：界面那边同样的合并规则还在 app/web/app.js（startTranscribe、startCorrect、findFrames、recheckDoubts、
-doSummary、findTerms、bookOrganize…），改规则要两边一起改；之后会把界面也改成调用这里。
+界面上的整理按钮和「一键整理」也调这里（bridge.do_steps，caller='gui'），所以整理规则只有这一份：
+改规则只改这里，不要在 app/web/app.js 里另写一套。
 """
 import os
 import re
@@ -149,14 +149,14 @@ def allowed(path):
     return any(os.path.normcase(os.path.abspath(x)) == p for x in lib['files'])
 
 
-def resolve(target):
-    """文件路径或 video_id → 媒体库里的文件路径。"""
+def resolve(target, check_library=True):
+    """文件路径或 video_id → 媒体库里的文件路径。check_library=False（界面调用）：用户在界面里打开的任何文件都可以。"""
     t = str(target or '').strip().strip('"')
     if not t:
         raise WorkError('not_found', '没有指定视频')
     if os.path.isfile(t):
         path = os.path.abspath(t)
-        if not allowed(path):
+        if check_library and not allowed(path):
             raise WorkError('not_in_library', f'这个文件不在猛人学习的媒体库里：{path}。请先在软件左边的媒体库添加它所在的文件夹')
         return path
     hits = [x for x in library_items() if x['video_id'] == t.lower()]
@@ -185,6 +185,11 @@ def _load(path):
     if not d.get('teacher'):
         d['teacher'] = library.folder_teacher(path)
     return d, int(d.get('rev') or 0)
+
+
+def load_doc(path):
+    """界面整理完一步后重新读取用的：和任务层看到的是同一份。"""
+    return _load(path)[0]
 
 
 def _save(path, doc, rev):
@@ -273,6 +278,14 @@ def vision_provider(s, need=True):
     return ''
 
 
+def _vision_or_skip(s):
+    """能看图的 AI；没设好时跳过这一步，原因写清楚（例如「DeepSeek 不能看图」），和一键整理一样不算失败。"""
+    try:
+        return vision_provider(s, need=True)
+    except llm.LlmError as e:
+        raise _Skip(f'{e}（这一步先跳过）')
+
+
 def _model_of(s, name):
     p = s['providers'].get(name) or {}
     return f'{config.PROVIDER_NAMES.get(name, name)} · {p.get("chat_model") or ""}'.rstrip(' ·')
@@ -284,7 +297,7 @@ class _Skip(Exception):
 
 
 class Ctx:
-    def __init__(self, path, task, opts):
+    def __init__(self, path, task, opts, on_items=None):
         self.path = path
         self.task = task
         self.opts = opts
@@ -292,6 +305,12 @@ class Ctx:
         self.settings = config.load()
         self.cancel = task.cancel
         self.lo, self.hi = 0.0, 1.0
+        self._on_items = on_items
+
+    def emit(self, items):
+        """边做边给界面看的东西（识别出的字幕、正在写的课程重点），只用来显示，不写盘。"""
+        if self._on_items and items:
+            self._on_items(items)
 
     def doc(self):
         return _load(self.path)[0]
@@ -342,7 +361,11 @@ def st_transcribe(ctx):
                 doc['pending_task'] = dict(extra, lang=lang, provider=provider)
             _apply(ctx.path, keep)
 
-    asr.recognise(ctx.path, info['duration'], provider, lang, s, ctx.cancel, on_progress, cues.extend, pending, teacher,
+    def on_cues(part):
+        cues.extend(part)
+        ctx.emit([{'kind': 'cue', 'start': c['start'], 'end': c['end'], 'text': c['text']} for c in part])
+
+    asr.recognise(ctx.path, info['duration'], provider, lang, s, ctx.cancel, on_progress, on_cues, pending, teacher,
                   d.get('title') or Path(ctx.path).stem)
     ctx.check_cancel()
 
@@ -370,7 +393,7 @@ def st_correct(ctx):
     d = ctx.doc()
     _need_segments(d)
     teacher = ctx.teacher(d)
-    if not teacher:
+    if not teacher and not ctx.opts.get('allow_no_teacher'):  # 界面里用户确认过「只修正明显的错别字」时照样校对
         raise _Skip('这节课没有指定老师（术语表），和一键整理一样不做 AI 校对')
     if d.get('corrected') and not ctx.force:
         raise _Skip('已经校对过')
@@ -425,9 +448,7 @@ def st_frames(ctx):
     if not info.get('has_video'):
         raise _Skip('音频文件，没有画面')
     s = ctx.settings
-    name = vision_provider(s, need=False)
-    if not name:
-        raise _Skip('还没有设置能看图的「画面识别」AI，和一键整理一样跳过')
+    name = _vision_or_skip(s)
     if (d.get('frames') or 'frames' in _steps(d)) and not ctx.force:
         raise _Skip('已经挑过插图')
     ctx.task.stage('frames').update(model=_model_of(s, name))
@@ -452,9 +473,7 @@ def st_recheck(ctx):
     if not info.get('has_video'):
         raise _Skip('音频文件，没有画面')
     s = ctx.settings
-    name = vision_provider(s, need=False)
-    if not name:
-        raise _Skip('还没有设置能看图的「画面识别」AI，和一键整理一样跳过')
+    name = _vision_or_skip(s)
     if 'recheck' in _steps(d) and not ctx.force:
         raise _Skip('已经复核过')
     segs = d['segments']
@@ -503,10 +522,11 @@ def st_recheck(ctx):
 def st_translate(ctx):
     d = ctx.doc()
     _need_segments(d)
-    if (d.get('lang') or _lang(ctx, d)) != 'en':
+    if (d.get('lang') or _lang(ctx, d)) != 'en' and not ctx.opts.get('any_lang'):  # 界面里用户自己选了翻译时照样翻
         raise _Skip('中文字幕，不用翻译')
     segs = d['segments']
-    todo = [(i, x['text']) for i, x in enumerate(segs) if x['text'].strip() and (ctx.force or not str(x.get('tr') or '').strip())]
+    every = ctx.force or ctx.opts.get('translate_all')  # 全部重新翻译；否则只翻还没有译文的
+    todo = [(i, x['text']) for i, x in enumerate(segs) if x['text'].strip() and (every or not str(x.get('tr') or '').strip())]
     if not todo:
         raise _Skip('已经都有译文')
     s = ctx.settings
@@ -552,6 +572,7 @@ def st_summary(ctx):
     parts = []
     for piece in llm.stream(s, name, messages, ctx.cancel):
         parts.append(piece)
+        ctx.emit([{'kind': 'text', 'text': piece}])
         if len(parts) % 40 == 0:
             ctx.progress(min(0.9, 0.05 + len(''.join(parts)) / 20000), 'AI 正在整理课程重点…')
     ctx.check_cancel()
@@ -572,7 +593,7 @@ def st_review(ctx):
     summary = (d.get('summary') or '').strip()
     if not summary:
         raise _Skip('还没有课程重点')
-    if not ctx.settings.get('auto_review', True):
+    if not ctx.settings.get('auto_review', True) and not ctx.force:
         raise _Skip('设置里关掉了「自动查漏补缺」')
     if 'review' in _steps(d) and not ctx.force:
         raise _Skip('已经查漏过')
@@ -656,7 +677,11 @@ def st_chapters(ctx):
 def st_organize(ctx):
     d = ctx.doc()
     chs = d.get('chapters') or []
-    todo = [i for i, c in enumerate(chs) if ctx.force or not (c.get('md') or '').strip()]
+    pick = ctx.opts.get('chapters')  # 界面里勾选的章节（不管整理过没有）
+    if pick:
+        todo = sorted({int(i) for i in pick if 0 <= int(i) < len(chs)})
+    else:
+        todo = [i for i, c in enumerate(chs) if ctx.force or not (c.get('md') or '').strip()]
     if not chs:
         raise WorkError('no_subtitles', '这本书没有分出章节')
     if not todo:
@@ -706,7 +731,7 @@ def st_overview(ctx):
     chs = d.get('chapters') or []
     if not any((c.get('md') or '').strip() for c in chs):
         raise WorkError('no_subtitles', '还没有整理好的章节')
-    if not all((c.get('md') or '').strip() for c in chs):
+    if not all((c.get('md') or '').strip() for c in chs) and not ctx.opts.get('allow_partial'):  # 界面里用户可以先写
         raise WorkError('no_subtitles', '还有章节没整理完，整理完才写全书总览', True)
     if (d.get('overview') or '').strip() and not ctx.force:
         raise _Skip('已经有全书总览')
@@ -744,12 +769,21 @@ def stages_for(path, steps=None, skip=None):
     return wanted
 
 
+GUI_OPTIONS = ('allow_no_teacher', 'any_lang', 'translate_all', 'chapters', 'allow_partial')
+
+
 def process(target, steps=None, skip=None, redo=(), lang=None, provider=None, model='cloud',
-            on_progress=None, cancel=None, caller='cli'):
+            on_progress=None, cancel=None, caller='cli', on_items=None, check_library=True, **more):
     """整理一节课（或一本书）。返回任务记录（dict）。不抛出异常：失败写在记录里。
-    redo：这几步已经做过也重做（其余做过的照样跳过）。"""
+    redo：这几步已经做过也重做（其余做过的照样跳过）。
+    界面调用时（caller='gui'）：check_library=False，on_items 收边做边显示的内容；
+    more 里是界面上用户自己选的：allow_no_teacher（没选老师也校对）、any_lang（中文也翻译）、translate_all（全部重新翻译）、
+    chapters（只整理这几章）、allow_partial（章节没整理完也写全书总览）。"""
+    bad = [k for k in more if k not in GUI_OPTIONS]
+    if bad:
+        raise TypeError('不认识的参数：' + ', '.join(bad))
     try:
-        path = resolve(target)
+        path = resolve(target, check_library)
     except WorkError as e:
         return _failed_lookup(target, e)
     kind = 'book' if kind_of(path) == 'book' else 'video'
@@ -759,7 +793,7 @@ def process(target, steps=None, skip=None, redo=(), lang=None, provider=None, mo
         return _failed_lookup(target, e)
     forced = tuple(x for x in (redo or ()) if x in stages)
     opts = {'steps': stages, 'redo': list(forced), 'lang': lang, 'provider': provider,
-            'model': model or 'cloud', 'caller': caller}
+            'model': model or 'cloud', 'caller': caller, **{k: v for k, v in more.items() if v}}
     task = tasks.Task(kind, path, video_id(path), Path(path).stem, dict(opts), stages, LABELS)
     if cancel is not None:
         task.cancel = cancel
@@ -785,7 +819,7 @@ def process(target, steps=None, skip=None, redo=(), lang=None, provider=None, mo
             if task.cancel.is_set():
                 status, err = CANCELLED, {'error_code': 'cancelled', 'retryable': False, 'message': '已取消'}
                 break
-            ctx = Ctx(path, task, dict(opts, force=name in forced))
+            ctx = Ctx(path, task, dict(opts, force=name in forced), on_items)
             ctx.lo, ctx.hi = n / len(stages), (n + 1) / len(stages)
             ok, e = _run_stage(ctx, name)
             if ok:
@@ -873,6 +907,24 @@ def resume(task_id, on_progress=None, cancel=None):
 
 
 # ------------------------------------------------------------------ 状态 ----
+def brief(task):
+    """任务记录 → 给 Agent 和界面看的结果（success / error_code / retryable 等放在最外层）。"""
+    err = task.get('error') or {}
+    failed = next((s for s in task.get('stages') or [] if s.get('status') in ('failed', 'cancelled')), None)
+    return {
+        'success': task.get('status') == 'completed',
+        'task_id': task.get('task_id'), 'video_id': task.get('video_id'), 'path': task.get('path'), 'title': task.get('title'),
+        'kind': task.get('kind'), 'status': task.get('status'),
+        'stage': err.get('stage') or (failed or {}).get('name') or task.get('stage'),
+        'error_code': err.get('error_code'), 'message': err.get('message') or (task.get('message') if task.get('status') == 'completed' else None),
+        'retryable': err.get('retryable'), 'warnings': task.get('warnings') or [], 'seconds': task.get('seconds'),
+        'stages': [{k: s.get(k) for k in ('name', 'label', 'status', 'reason', 'error_code', 'error', 'retryable', 'retries', 'model', 'result',
+                                          'started', 'finished')} for s in task.get('stages') or []],
+        'state': (task.get('outputs') or {}).get('state'),
+        'subtitle_file': (task.get('outputs') or {}).get('subtitle_file'),
+    }
+
+
 def summarize(path):
     """这节课现在的整理情况（给 Agent 看，也写进任务记录）。"""
     try:

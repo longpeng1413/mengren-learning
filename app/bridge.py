@@ -35,7 +35,7 @@ class Api:
             out = fn(body or {})
             out.setdefault('ok', True)
             return out
-        except (asr.AsrError, llm.LlmError, media.MediaError, book.BookError, OSError, ValueError, codex_auth.AuthError) as e:
+        except (asr.AsrError, llm.LlmError, media.MediaError, book.BookError, OSError, ValueError, codex_auth.AuthError, tasks.WorkError) as e:
             log.warning('%s 失败：%s', name, e)
             return {'ok': False, 'error': str(e)}
         except Exception as e:
@@ -159,104 +159,60 @@ class Api:
             raise ValueError('任务不存在')
         return {'job': job.snapshot(int(b.get('since') or 0))}
 
+    def do_steps(self, b):
+        """界面上的整理按钮（生成字幕、AI 校对、找关键帧、画面复核存疑句、翻译、课程重点、查漏补缺、新术语、
+        整理章节、全书总览，以及一键整理）都走这里：交给任务层 workflow.process，和命令行（Agent）是同一套规则。
+        结果由后台写进字幕文件，界面在任务结束后重新读取（do_doc）。job.items 里是边做边显示的内容。"""
+        path = os.path.abspath(str(b.get('path') or ''))
+        if not os.path.isfile(path):
+            raise ValueError('文件不见了：' + path)
+        steps = [str(x) for x in b.get('steps') or []]
+        if not steps:
+            raise ValueError('没有要做的步骤')
+        workflow.stages_for(path, steps)  # 步骤名写错直接报错
+        redo = [str(x) for x in (b['redo'] if 'redo' in b else steps)]  # 界面上点了就是要做，做过也重做
+        more = {k: b[k] for k in workflow.GUI_OPTIONS if b.get(k)}
+        if 'transcribe' in steps:
+            config.update({'last_lang': b.get('lang') or 'zh', 'last_teacher': workflow.load_doc(path).get('teacher') or ''})
+
+        def run(job):
+            t = workflow.process(path, steps=steps, redo=redo, lang=b.get('lang'), provider=b.get('provider'), caller='gui',
+                                 check_library=False, cancel=job.cancel, on_items=job.push,
+                                 on_progress=lambda d: job.report(d.get('progress') or 0, d.get('message')), **more)
+            return {'task': workflow.brief(t)}
+        return {'job': jobs.start('steps', run).id}
+
+    def do_doc(self, b):
+        """重新读取字幕文件（整理完一步后界面用）。"""
+        path = os.path.abspath(str(b.get('path') or ''))
+        if not os.path.isfile(path):
+            raise ValueError('文件不见了：' + path)
+        d = workflow.load_doc(path)
+        return {'doc': d, 'stale': docs.clip_stale(d) if d.get('kind') != 'book' else False, 'busy': tasks.busy(docs.media_key(path))}
+
     def do_cancel(self, b):
         job = jobs.get(b.get('id'))
         if job:
             job.cancel.set()
         return {}
 
-    def do_transcribe(self, b):
-        path, lang = b.get('path'), b.get('lang') if b.get('lang') in ('zh', 'en') else 'zh'
-        s = config.load()
-        provider = b.get('provider') or (s['asr_en'] if lang == 'en' else s['asr_zh'])
-        if provider not in ('openai', 'siliconflow', 'doubao'):
-            raise ValueError('未知的识别服务')
-        pending = b.get('pending') if isinstance(b.get('pending'), dict) else None
-        if pending and pending.get('model'):
-            s['providers']['doubao']['model'] = pending['model']
-        asr.check_ready(s, provider)
-        info = media.probe(path)
-        teacher = config.get_teacher(b.get('teacher'))
-        config.update({'last_lang': lang, 'last_teacher': b.get('teacher') or ''})
-
-        def run(job):
-            cues = asr.recognise(path, info['duration'], provider, lang, s, job.cancel, job.report, job.push, pending,
-                                 teacher, b.get('title') or Path(path).stem)
-            model = s['providers']['doubao']['model'] if provider == 'doubao' else s['providers'][provider].get('asr_model')
-            return {'count': len(cues), 'provider': provider, 'model': model, 'lang': lang}
-        return {'job': jobs.start('transcribe', run).id, 'provider': provider}
-
-    def do_translate(self, b):
-        s = config.load()
-        name = s['translate']
-        items = [(int(i), str(t)) for i, t in (b.get('items') or []) if str(t).strip()]
-        if not items:
-            raise ValueError('没有需要翻译的字幕')
-        llm.check(s, name)  # 先检查密钥
-        teacher = config.get_teacher(b.get('teacher'))
-
-        def run(job):
-            llm.translate_all(s, name, items, b.get('title') or '', teacher, job.cancel, job.report,
-                              lambda part: job.push([[k, v] for k, v in sorted(part.items())]))
-            return {'provider': name}
-        return {'job': jobs.start('translate', run).id}
-
     def do_chat(self, b):
-        """AI 回答以任务形式逐段产出，界面轮询拼接。"""
+        """AI 问答以任务形式逐段产出，界面轮询拼接。（课程重点走 do_steps）"""
         s = config.load()
         name = s['chat']
         llm.check(s, name)
         d = b.get('doc') or {}
         teacher = config.get_teacher(d.get('teacher'))
         messages = [{'role': 'system', 'content': llm.system_prompt(d, teacher)}]
-        if b.get('mode') == 'summary':
-            template = (teacher or {}).get('template') or s.get('summary_template') or llm.DEFAULT_TEMPLATE
-            boundary = docs.source_boundary(d, media.tail_problem(d['media']) if d.get('media') and os.path.isfile(d['media']) else '')
-            messages = llm.summary_messages(d, teacher, template, boundary)
-        else:
-            for m in (b.get('messages') or [])[-20:]:
-                if m.get('role') in ('user', 'assistant') and m.get('content'):
-                    messages.append({'role': m['role'], 'content': str(m['content'])})
+        for m in (b.get('messages') or [])[-20:]:
+            if m.get('role') in ('user', 'assistant') and m.get('content'):
+                messages.append({'role': m['role'], 'content': str(m['content'])})
 
         def run(job):
             for piece in llm.stream(s, name, messages, job.cancel):
                 job.push([piece])
             return {}
         return {'job': jobs.start('chat', run).id}
-
-    def do_review(self, b):
-        """查漏补缺：对照完整字幕，把课程重点漏掉的内容补进对应小节。"""
-        s = config.load()
-        name = s['chat']
-        llm.check(s, name)
-        d = b.get('doc') or {}
-        summary = str(b.get('summary') or d.get('summary') or '')
-        if not summary.strip():
-            raise ValueError('还没有课程重点')
-        teacher = config.get_teacher(d.get('teacher'))
-
-        def run(job):
-            job.report(0.05, 'AI 正在对照字幕查漏…')
-            out, n, before, after = llm.review_summary(s, name, d, teacher, summary)
-            return {'summary': out, 'added': n, 'before': round(before, 3), 'after': round(after, 3)}
-        return {'job': jobs.start('review', run).id}
-
-    def do_terms_suggest(self, b):
-        """从这节课里找新术语和识别错误（校对改动 + 完整字幕），去掉术语表里已有的，交给用户勾选。"""
-        d = b.get('doc') or {}
-        teacher = config.get_teacher(d.get('teacher'))
-        if not teacher:
-            raise ValueError('先在顶栏选择老师，才知道和哪份术语表比对、加进哪份术语表')
-        if not d.get('segments'):
-            raise ValueError('还没有字幕')
-        s = config.load()
-        name = s['chat']
-        llm.check(s, name)
-
-        def run(job):
-            job.report(0.05, 'AI 正在找这节课的新术语…')
-            return llm.suggest_terms(s, name, d, teacher)
-        return {'job': jobs.start('terms', run).id}
 
     def do_terms_add(self, b):
         """把勾选的新术语和识别错误加进老师的术语表（关联了 Obsidian 文件就写进文件，先备份）。"""
@@ -330,28 +286,6 @@ class Api:
             subprocess.Popen(['explorer', '/select,', os.path.normpath(target)])
         return {}
 
-    # ------------------------------------------------------------ AI 校对 ----
-    def do_correct(self, b):
-        s = config.load()
-        name = s['correct']
-        llm.check(s, name)
-        raw = [x for x in (b.get('items') or []) if len(x) >= 2 and str(x[1]).strip()]
-        items = [(int(x[0]), str(x[1])) for x in raw]
-        times = {int(x[0]): float(x[2]) for x in raw if len(x) >= 3}
-        if not items:
-            raise ValueError('没有需要校对的字幕')
-        teacher = config.get_teacher(b.get('teacher'))
-        shots = [f for f in (b.get('frames') or []) if isinstance(f, dict)]
-
-        def run(job):
-            def push(part):
-                fixed, doubts = part
-                job.push([{'i': k, 'text': v} for k, v in sorted(fixed.items())] +
-                         [{'i': k, 'doubt': v} for k, v in sorted(doubts.items())])
-            llm.correct_all(s, name, items, b.get('title') or '', teacher, job.cancel, job.report, push, times, shots)
-            return {'provider': name}
-        return {'job': jobs.start('correct', run).id}
-
     # ------------------------------------------------------------ 书籍 ----
     @staticmethod
     def _book_info(info, d=None):
@@ -396,60 +330,6 @@ class Api:
             return {'chapters': book.ai_chapters(s, name, info)}
         return {'job': jobs.start('book', run).id}
 
-    def do_book_organize(self, b):
-        """整理选中的章节（一章一章来，每章整理完再查漏）。"""
-        path = b.get('path')
-        if not path or not os.path.isfile(path):
-            raise ValueError('文件不见了')
-        d = b.get('doc') or {}
-        todo = [int(i) for i in b.get('indexes') or []]
-        chapters = d.get('chapters') or []
-        if not todo:
-            raise ValueError('没有选择要整理的章节')
-        s = config.load()
-        name = s['chat']
-        llm.check(s, name)
-        vision = name not in llm.VISION_NOTE
-        info = book.read(path)
-        if 'shift' in d:
-            info = dict(info, shift=d['shift'])
-        teacher = config.get_teacher(d.get('teacher'))
-
-        def run(job):
-            for k, i in enumerate(todo):
-                if job.cancel.is_set():
-                    break
-                c = chapters[i]
-                lo, hi = k / len(todo), (k + 1) / len(todo)
-
-                def prog(f, m=None):
-                    job.report(lo + (hi - lo) * f, (m or '') + (f'（第 {k + 1}/{len(todo)} 章）' if len(todo) > 1 else ''))
-                md = book.organize_chapter(s, name, path, info, c, d, teacher, vision, prog, job.cancel, chapters)
-                prog(0.92, f'正在查漏「{c["title"]}」…')
-                md, added, missing = book.review_chapter(s, name, info, c, md, d, teacher)
-                prog(0.96, f'正在回页面核对「{c["title"]}」里需要确认的地方…')
-                md, verified = book.verify_doubts(s, name, path, info, c, md, d, teacher, vision)
-                job.push([{'i': i, 'md': md, 'added': added, 'missing': missing, 'verified': verified}])
-            return {'vision': vision}
-        return {'job': jobs.start('book', run).id}
-
-    def do_book_overview(self, b):
-        d = b.get('doc') or {}
-        s = config.load()
-        name = s['chat']
-        llm.check(s, name)
-        chapters = d.get('chapters') or []
-
-        def run(job):
-            job.report(0.1, 'AI 正在写全书总览…')
-            files = book.chapter_files(chapters)
-            info = book.read(d['media'])
-            shift = d.get('shift', info.get('shift'))
-            for c in chapters:
-                c['range'] = book.range_ref(c['start'], c['end'], shift)
-            return {'overview': book.overview(s, name, d, chapters, files)}
-        return {'job': jobs.start('book', run).id}
-
     def do_book_clip(self, b):
         d = b.get('doc') or {}
         ob = config.load()['obsidian']
@@ -460,25 +340,6 @@ class Api:
     # ------------------------------------------------------------ 画面 ----
     def _vision(self, s, need=True):
         return workflow.vision_provider(s, need)
-
-    def do_frames_extract(self, b):
-        """找关键帧并写画面记录。没有能看图的 AI 时，只截候选画面。"""
-        path = b.get('path')
-        if not path or not os.path.isfile(path):
-            raise ValueError('视频文件不见了')
-        s = config.load()
-        name = self._vision(s, need=not b.get('no_ai'))
-        segs = b.get('segments') or []
-        duration = float(b.get('duration') or 0)
-
-        def run(job):
-            try:
-                out = frames.extract(s, name, path, duration, segs, job.cancel, job.report,
-                                     lambda part: job.push(part))
-            except frames.Cancelled:
-                return {'frames': []}
-            return {'frames': out, 'ai': bool(name)}
-        return {'job': jobs.start('frames', run).id}
 
     def do_frames_describe(self, b):
         """给指定的画面写（或重写）画面记录。"""
@@ -499,26 +360,6 @@ class Api:
                 return {'frames': []}
             return {'frames': out}
         return {'job': jobs.start('frames', run).id}
-
-    def do_doubts_recheck(self, b):
-        """用画面复核存疑句：截下每句说话时的画面（常有烧录字幕），能确认的改正，看不清的继续存疑。"""
-        path = b.get('path')
-        if not path or not os.path.isfile(path):
-            raise ValueError('视频文件不见了')
-        s = config.load()
-        name = self._vision(s)
-        items = [x for x in (b.get('items') or []) if isinstance(x, dict) and 'i' in x and x.get('text')]
-        if not items:
-            raise ValueError('没有存疑句')
-        shots = [f for f in (b.get('frames') or []) if isinstance(f, dict)]
-
-        def run(job):
-            try:
-                out = frames.recheck_doubts(s, name, path, items[:60], shots, job.cancel, job.report, on_part=lambda part: job.push(part))
-            except frames.Cancelled:
-                return {'n': 0}
-            return {'n': len(out)}
-        return {'job': jobs.start('recheck', run).id}
 
     def do_frame_url(self, b):
         path = b.get('path')
