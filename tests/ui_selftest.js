@@ -319,9 +319,18 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('改名：电脑上的文件和媒体库一起改', await renameNode(libNode(top.path + '\\预告.avi')) && !!libNode(top.path + '\\预告（改过名）.avi')
       && !libNode(top.path + '\\预告.avi'));
     window.prompt = origPrompt;
+    const isShut = name => headOf(name).parentElement.classList.contains('collapsed');
+    const topName = top.name;
+    headOf('资料').click();  // 先收起，再打开里面的书
     await window.openPath(top.path + '\\资料\\补充.epub');
     ok('打开电子书（EPUB）：分出章节，显示类型', await until(() => S.mode === 'book' && (S.doc.chapters || []).length === 2) && $('#bkInfo').textContent.includes('电子书（EPUB）'), $('#bkInfo').textContent);
-    ok('打开的课所在的文件夹自动展开', !headOf('资料').parentElement.classList.contains('collapsed'));
+    ok('打开的课所在的文件夹自动展开', !isShut('资料') && !libNode(top.path + '\\资料').collapsed);
+    headOf('资料').click();
+    ok('正在看的课所在的文件夹也能收起', isShut('资料'));
+    headOf(topName).click();
+    ok('正在看的课所在的最上层文件夹也能收起', isShut(topName));
+    headOf(topName).click(); headOf('资料').click();
+    ok('再点又展开', !isShut(topName) && !isShut('资料'));
     await window.openPath(keepPath);
     await loadLibrary((await api('library_remove', { kind: 'folder', path: top.path })).groups);
 

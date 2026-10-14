@@ -244,7 +244,7 @@ function libMatch(n, q, chain) {
 }
 function folderHTML(n, depth, parent, q, chain) {
   const kids = n.children.filter(c => libMatch(c, q, chain + ' ' + n.name));
-  const open = q || !n.collapsed || insideDir(S.path, n.path);  // 正在看的课所在的文件夹自动展开
+  const open = q || !n.collapsed;  // 打开课时 revealInLibrary 已经把它所在的文件夹展开；之后用户想收起就能收起
   const t = n.teacher && teacherById(n.teacher);
   return `<div class="lib-group ${open ? '' : 'collapsed'} ${n.top ? 'top' : ''}">
     <div class="lib-ghead" data-folder="${esc(n.path)}" draggable="true" data-drag="${esc(n.path)}" data-parent="${esc(parent)}"
@@ -262,6 +262,20 @@ function folderHTML(n, depth, parent, q, chain) {
 }
 function nodeHTML(n, depth, parent, q, chain) {
   return n.type === 'folder' ? folderHTML(n, depth, parent, q, chain) : itemHTML(n, depth, parent);
+}
+/* 打开一节课时把它所在的各层文件夹展开一次（记住），方便看到它在哪。
+   以前是每次画列表都强制展开，结果正在看的课所在的文件夹（连最上层）点了收不起来。 */
+function revealInLibrary(path) {
+  let changed = false;
+  const walk = nodes => {
+    for (const n of nodes || []) {
+      if (n.type !== 'folder' || !insideDir(path, n.path)) continue;
+      if (n.collapsed) { n.collapsed = false; changed = true; api('library_set', { path: n.path, collapsed: false }).catch(() => {}); }
+      walk(n.children);
+    }
+  };
+  walk(S.lib);
+  if (changed) renderLibrary();
 }
 function renderLibrary() {
   const q = $('#libSearch').value.trim().toLowerCase();
@@ -459,6 +473,7 @@ window.openPath = async function (path) {
     setMode('media');
     S.resumeAt = d.position || 0;
     S.path = d.path; S.doc = d.doc; S.info = d.info; S.undo = []; S.active = -1; S.dirty = false;
+    revealInLibrary(d.path);
     // 换课时关掉单句循环：「存疑 / 回听」会自动打开它，以前一直开着，换到别的课就一直循环同一句
     $('#optLoop').checked = false; S.loopIdx = null; updateLoopHint();
     S.docStale = libFiles().some(it => it.stale && it.path.toLowerCase() === d.path.toLowerCase());
@@ -512,6 +527,7 @@ function bookShift() { const s = S.doc.shift; return s === null || s === undefin
 function pageRef(n) { const s = bookShift(); return s !== null && n - s >= 1 ? `P${n - s}` : `PDF 第 ${n} 页`; }
 function openBook(d) {
   S.path = d.path; S.doc = d.doc; S.info = { has_video: false, book: d.book }; S.book = d.book; S.viewer = d.viewer;
+  revealInLibrary(d.path);
   S.undo = []; S.dirty = false; S.lastSaved = d.doc.updated || null; S.rev = d.doc.rev || 0; S.bookSel = S.bookSel && S.bookSel.path === d.path ? S.bookSel : { path: d.path, i: -1 };
   S.bookChecked = new Set();
   setMode('book');
