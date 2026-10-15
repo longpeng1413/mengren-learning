@@ -416,7 +416,8 @@ def terms_from_markdown(text):
             while i < len(lines) and lines[i].strip().startswith('|'):
                 cells = [c.strip() for c in lines[i].strip().strip('|').split('|')]
                 if len(cells) >= 2 and cells[0] and cells[1]:
-                    wrongs = [w.strip() for w in re.split(r'[、,，/]', cells[0]) if w.strip() and '部分' not in w and '等' != w]
+                    # 中文逗号不拆：「原起初，趋势」是识别出来的一整段（拆开会多出「趋势 => 原始趋势」），去掉逗号当一个错写
+                    wrongs = [w.strip().replace('，', '') for w in re.split(r'[、,/]', cells[0]) if w.strip() and '部分' not in w and '等' != w]
                     wrongs = [re.sub(r'等$', '', w) for w in wrongs]
                     right = cells[1]
                     clean = re.split(r'[（(，,]', right)[0].strip().strip('“”"')

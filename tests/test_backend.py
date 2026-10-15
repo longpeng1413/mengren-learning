@@ -427,6 +427,9 @@ check('校对改动 → 换掉的字（拆分、删字不算）', [(x['wrong'], 
 md_terms = '| 术语 | 首次出现 | 老师原话 |\n| --- | --- | --- |\n| 棍态 | 《第4课》[01:00] | 原话 |\n\n| ASR常见识别 | 正确术语 | 出处 |\n| --- | --- | --- |\n| 风机线 | 峰级线 | 《第4课》[05:13] |\n'
 tm = llm.terms_from_markdown(md_terms)
 check('术语表文档：逐课补充的新术语表和识别错误表都认得', '棍态' in tm and '风机线 => 峰级线' in tm, tm)
+tm3 = llm.parse_terms(llm.terms_from_markdown('| ASR常见识别 | 正确术语 | 出处 |\n| --- | --- | --- |\n| 圆你就、原起初，趋势 | 原始趋势 | x |\n'))
+check('识别错误表：错写里的中文逗号不拆开（不会多出「趋势 => 原始趋势」）', ('原起初趋势', '原始趋势') in tm3[1]
+      and not any(w == '趋势' for w, _ in tm3[1]), tm3)
 
 from core import glossary  # noqa: E402
 base = '---\ntitle: 术语表\n---\n\n# 一、峰\n\n正确写法：\n\n> **峰**\n\n# 二、级\n\n正确写法：\n\n> **级**\n'
@@ -977,6 +980,19 @@ check('录音文件 1.0 标准版：同样的提交 + 查询，用 1.0 的资源
       and res_ids[-1] == 'volc.bigasr.auc', (calls_, res_ids[-1:]))
 _rq.post, asr.time.sleep = orig_post, orig_sleep
 mp3.unlink()
+
+# 选择文件对话框的筛选写法：pywebview 只认「文字和空格 (*.扩展名;…)」，说明里有「/」等符号会直接报错、打不开对话框
+# （2026-10-15 关联术语表文件时出过「Markdown / 文本 (*.md;*.txt) is not a valid file filter」）
+import ast, re  # noqa: E402,E401
+from webview.util import parse_file_type  # noqa: E402
+bad = []
+for node in ast.walk(ast.parse((ROOT / 'app' / 'bridge.py').read_text(encoding='utf-8'))):
+    if isinstance(node, ast.Constant) and isinstance(node.value, str) and re.search(r'\(\*\.[^)]*\)$', node.value):
+        try:
+            parse_file_type(node.value)
+        except ValueError:
+            bad.append(node.value)
+check('选择文件对话框的筛选写法都是对的', not bad, bad)
 
 # 代码里没有写错的变量名（pyflakes）
 import importlib.util  # noqa: E402

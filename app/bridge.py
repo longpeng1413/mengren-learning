@@ -76,7 +76,7 @@ class Api:
     def do_pick_file(self, b):
         """选一个文件，只返回路径。"""
         import webview
-        types = ('Markdown / 文本 (*.md;*.txt)', '所有文件 (*.*)') if b.get('kind') == 'text' else ('所有文件 (*.*)',)
+        types = ('文本文件 (*.md;*.txt)', '所有文件 (*.*)') if b.get('kind') == 'text' else ('所有文件 (*.*)',)
         r = self._window.create_file_dialog(webview.FileDialog.OPEN, file_types=types)
         return {'path': r[0] if r else None}
 
@@ -230,7 +230,7 @@ class Api:
         path = str(b.get('path') or '')
         if not path:
             import webview
-            r = self._window.create_file_dialog(webview.FileDialog.OPEN, file_types=('Markdown / 文本 (*.md;*.txt)', '所有文件 (*.*)'))
+            r = self._window.create_file_dialog(webview.FileDialog.OPEN, file_types=('文本文件 (*.md;*.txt)', '所有文件 (*.*)'))
             if not r:
                 return {'path': None}
             path = r[0]
