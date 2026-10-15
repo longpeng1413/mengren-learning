@@ -430,6 +430,11 @@ check('术语表文档：逐课补充的新术语表和识别错误表都认得'
 tm3 = llm.parse_terms(llm.terms_from_markdown('| ASR常见识别 | 正确术语 | 出处 |\n| --- | --- | --- |\n| 圆你就、原起初，趋势 | 原始趋势 | x |\n'))
 check('识别错误表：错写里的中文逗号不拆开（不会多出「趋势 => 原始趋势」）', ('原起初趋势', '原始趋势') in tm3[1]
       and not any(w == '趋势' for w, _ in tm3[1]), tm3)
+tm4 = llm.parse_terms(llm.terms_from_markdown('| 直接替换的错写 | 正确术语 |\n| --- | --- |\n| 风极线、风级线 | 峰级线 |\n| 托破旋 | 拓扑学 |\n'))
+check('术语表文档：「直接替换」表识别完直接替换（不当成参考）', ('风极线', '峰级线') in tm4[2] and ('托破旋', '拓扑学') in tm4[2]
+      and not tm4[1] and llm.apply_fixes('这条风级线', tm4[2]) == '这条峰级线', tm4)
+tm5 = llm.parse_terms('风极 => 峰级\n托破旋 =>! 拓扑学\n风极 => 峰级\n托破旋 =>! 拓扑学')
+check('手写的和文件里的同一条只算一次', tm5[1] == [('风极', '峰级')] and tm5[2] == [('托破旋', '拓扑学')], tm5)
 
 from core import glossary  # noqa: E402
 base = '---\ntitle: 术语表\n---\n\n# 一、峰\n\n正确写法：\n\n> **峰**\n\n# 二、级\n\n正确写法：\n\n> **级**\n'

@@ -371,17 +371,19 @@ def parse_terms(text):
         if w not in seen and len(w) <= 30:
             seen.add(w)
             out.append(w)
-    return out, hints, forced
+    # 手写的和关联文件里的可能有同一条（例如直接替换两边都写了），去掉重复，免得 AI 提示里出现两遍
+    return out, list(dict.fromkeys(hints)), list(dict.fromkeys(forced))
 
 
 def terms_from_markdown(text):
     """从 Obsidian 里的术语表文档（比如《课程术语表 V1.1》）读出软件能用的术语表写法：
     - 小节里写了「正确写法 / 标准写法」的，小节标题或加粗的写法就是术语；
     - 「--hotwords "a,b,c"」里的热词；
-    - 表头含「ASR / 误识 / 识别」的表格：左列是常见识别错误，右列是正确写法（只作 AI 参考，不直接替换）。
+    - 表头含「ASR / 误识 / 识别」的表格：左列是常见识别错误，右列是正确写法（只作 AI 参考，不直接替换）；
+    - 表头第一格含「直接替换」的表格：左列错写、右列正确写法，识别完直接替换（「错写 =>! 正确」，只放确定不会误伤的长词）。
     返回软件术语表格式的多行文字。"""
     text = text or ''
-    words, hints = [], []
+    words, hints, forced = [], [], []
     # 1. 小节
     parts = re.split(r'(?m)^(#{1,4})\s+(.+?)\s*$', text)
     for k in range(1, len(parts) - 2, 3):
@@ -409,6 +411,17 @@ def terms_from_markdown(text):
                 w = lines[i].strip().strip('|').split('|')[0].strip().strip('*“”"')
                 if w and len(w) <= 20:
                     words.append(w)
+                i += 1
+            continue
+        if '直接替换' in first and i + 1 < len(lines) and re.match(r'^\s*\|[\s:|-]+\|\s*$', lines[i + 1]):
+            i += 2
+            while i < len(lines) and lines[i].strip().startswith('|'):
+                cells = [c.strip() for c in lines[i].strip().strip('|').split('|')]
+                if len(cells) >= 2 and cells[0] and cells[1]:
+                    wrongs = [w.strip() for w in re.split(r'[、,，/]', cells[0]) if w.strip()]
+                    right = cells[1].strip('“”"')
+                    if wrongs and right and len(right) <= 20:
+                        forced.append((wrongs, right))
                 i += 1
             continue
         if head.startswith('|') and re.search(r'ASR|误识|识别|错误', head) and i + 1 < len(lines) and re.match(r'^\s*\|[\s:|-]+\|\s*$', lines[i + 1]):
@@ -439,6 +452,7 @@ def terms_from_markdown(text):
     for wrongs, right, note in hints:
         if wrongs:
             rows.append(f'{", ".join(wrongs)} => {right}' + (f'　# {note}' if note else ''))
+    rows += [f'{", ".join(wrongs)} =>! {right}' for wrongs, right in forced]
     return '\n'.join(rows)
 
 
