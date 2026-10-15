@@ -1464,11 +1464,23 @@ function frameUrl(t, small) {
   if (!S.frameUrls[key]) S.frameUrls[key] = api('frame_url', { path: S.path, t, small }).then(r => r.url).catch(() => { delete S.frameUrls[key]; return ''; });
   return S.frameUrls[key];
 }
+const REDRAW_LABEL = 'AI辅助理解图｜根据老师讲解和画面整理，非原画面';
+/* AI辅助理解图在软件里怎么显示：SVG 直接显示（剪藏前后台已清理过）；Mermaid 显示代码，剪藏到 Obsidian 后显示成图 */
+function redrawHTML(r) {
+  if (!r || !r.code) return '';
+  if (r.kind === 'svg') return `<img class="redraw-svg" alt="" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(r.code)}">`;
+  return `<pre class="redraw-code" title="流程图代码：剪藏到 Obsidian 后会显示成图">${esc(r.code)}</pre>`;
+}
 function hydrateFigures(root) {
   if (!S.path) return;
-  $$('[data-ft] img', root).forEach(img => {
-    const t = +img.closest('[data-ft]').dataset.ft;
+  $$('[data-ft]', root).forEach(fig => {
+    const t = +fig.dataset.ft, img = fig.querySelector('img');
     const shot = (S.doc.frames || []).find(f => Math.abs(f.t - t) <= 3);
+    if (shot && shot.redraw && shot.redraw.code) {
+      img.outerHTML = redrawHTML(shot.redraw);
+      fig.querySelector('figcaption').insertAdjacentHTML('beforeend', `　<b>${REDRAW_LABEL}</b>${shot.redraw.kind === 'mermaid' ? '（流程图，剪藏到 Obsidian 后显示成图）' : ''}`);
+      return;
+    }
     frameUrl(shot ? shot.t : t, false).then(u => { if (u) img.src = u; });
   });
 }
@@ -1480,9 +1492,13 @@ function shotHTML(f, i) {
         <label class="check" title="课程重点里可以插这张图"><input type="checkbox" data-fig ${f.figure ? 'checked' : ''}> 可插图</label>
         ${f.why ? `<span class="why" title="${esc(f.why)}">${esc(f.manual ? '手动截取' : f.why).slice(0, 24)}</span>` : (f.manual ? '<span class="why">手动截取</span>' : '')}
         <span class="grow"></span>
-        <button data-redo title="让 AI 重新写这张图的说明">重新识别</button><button data-del title="删除这张画面">删除</button></div>
+        ${f.redraw ? '<span class="redraw-tag" title="画面看不清，剪藏时用 AI 重画的图代替截图">AI 重画</span>' : ''}
+        <button data-redo title="让 AI 重新写这张图的说明">重新识别</button>${f.redraw
+          ? '<button data-unredraw title="不用 AI 重画的图，剪藏时插原截图">改用原截图</button>'
+          : '<button data-redraw title="画面看不清时，让 AI 依据老师的讲解重画一张清楚的示意图（标注为 AI辅助理解图）">AI 重画</button>'}<button data-del title="删除这张画面">删除</button></div>
       <textarea data-note spellcheck="false" placeholder="${f.note === undefined ? '还没有说明，点「补写说明」让 AI 写一句，或者自己写' : ''}">${esc(f.note || '')}</textarea>
       ${f.caption ? `<div class="cap">画面字幕：「${esc(f.caption)}」</div>` : ''}
+      ${f.redraw ? `<div class="redraw-box"><div class="cap">${REDRAW_LABEL}${f.redraw.note ? '：' + esc(f.redraw.note) : ''}</div>${redrawHTML(f.redraw)}</div>` : ''}
     </div></div>`;
 }
 function renderFrames() {
@@ -1534,6 +1550,28 @@ async function describeFrames(list) {
     return await runJob(r.job, 'AI 正在写图片说明…', {
       onItems: apply,
       onDone: job => { apply(job.result.frames || []); markDirty(); save(); toast('图片说明写好了'); },
+      onError: job => { renderFrames(); if (job.status === 'error') fail(new Error(job.error)); },
+    });
+  } catch (e) { renderFrames(); fail(e); return false; }
+}
+async function redrawFrames(list) {
+  const doc = S.doc;
+  if (!list.length) return false;
+  list.forEach(f => { const el = $(`.shot[data-k="${doc.frames.indexOf(f)}"]`); if (el) el.classList.add('busy'); });
+  try {
+    await flushSave();
+    const r = await api('frames_redraw', { path: S.path, frames: list.map(f => ({ t: f.t, note: f.note || '' })), segments: doc.segments });
+    return await runJob(r.job, 'AI 正在重画看不清的画面…', {
+      onDone: job => {
+        let n = 0;
+        for (const x of job.result.frames || []) {
+          const f = (doc.frames || []).find(y => Math.abs(y.t - x.t) < 0.01);
+          if (f && x.redraw) { f.redraw = x.redraw; f.figure = true; n++; }
+        }
+        if (S.doc === doc) { renderFrames(); renderSummary(); }
+        if (n) { markDirty(); save(); }
+        toast(n ? '重画好了，剪藏时用这张 AI辅助理解图代替截图' : 'AI 拿不准画面上是什么，没有重画（剪藏时继续用原截图）', { ms: 6000 });
+      },
       onError: job => { renderFrames(); if (job.status === 'error') fail(new Error(job.error)); },
     });
   } catch (e) { renderFrames(); fail(e); return false; }
@@ -2267,9 +2305,12 @@ function bind() {
   fb.addEventListener('change', e => { const f = e.target.matches('[data-fig]') && shotOf(e.target); if (f) { f.figure = e.target.checked; markDirty(); } });
   fb.addEventListener('click', async e => {
     const f = shotOf(e.target); if (!f) return;
+    if (e.target.matches('.redraw-svg')) { showLightbox(e.target.src); return; }
     if (e.target.matches('img')) { showLightbox(await frameUrl(f.t, false)); return; }
     if (e.target.matches('[data-del]')) { S.doc.frames = S.doc.frames.filter(x => x !== f); renderFrames(); markDirty(); return; }
     if (e.target.matches('[data-redo]') && !S.job) describeFrames([f]);
+    if (e.target.matches('[data-redraw]') && !S.job) redrawFrames([f]);
+    if (e.target.matches('[data-unredraw]')) { delete f.redraw; delete f.unclear; renderFrames(); renderSummary(); markDirty(); }
   });
   $('#summaryBox').addEventListener('click', async e => {
     const img = e.target.closest('.shot-fig img'); if (img && img.src) showLightbox(img.src);

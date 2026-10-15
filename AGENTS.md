@@ -32,7 +32,7 @@
 
 - 新增字段可以，但读取时要给旧文件缺的字段兜底；
 - 不要改名或删除已有字段（`segments`、`summary`、`chat`、`versions`、`teacher`、`reviewed`、`corrected`、`clip`、`pending_task`、`doubts` 等）；（`pending_task` 是以前豆包闲时版留下的「还在处理」记录，闲时版 2026-10-14 去掉了，重新识别时删掉它）
-- `frames` 是可插的图：`[{t: 秒, why: 为什么挑这张, note: 一句话说明, caption: 旧版的画面字幕（新版不再写）, figure: 可插图, manual: 手动截取}]`。截图本身不存，放在缓存 `frames/` 里，需要时按时间重新截（`frames.grab`）；
+- `frames` 是可插的图：`[{t: 秒, why: 为什么挑这张, note: 一句话说明, caption: 旧版的画面字幕（新版不再写）, figure: 可插图, manual: 手动截取, unclear: 要插但画面看不清, redraw: AI辅助理解图 {kind: 'mermaid'|'svg', code, note}}]`。截图本身不存，放在缓存 `frames/` 里，需要时按时间重新截（`frames.grab`）；
 - `doubts` 是 AI 校对标出的存疑句：`[{t: 句子开始时间, reason: 原因, text: 原句}]`，按开始时间对应到字幕（`segments` 每段只存 4 个字段，`clean_segments` 会去掉别的字段，所以不能把标记放进段里）；
 - 每段的格式是 `{start, end, text, tr}`，秒为单位。
 - `clip` 是剪藏记录 `{path, time, hash}`：`hash` 是 `doc.note_hash`（会写进笔记的内容的指纹），之后内容变了，媒体库显示「待更新剪藏」（`doc.clip_stale`）。1.7.2 以前剪藏的没有 hash，不提示。剪藏不会自动更新 Obsidian（用户选的是「提醒」，不是自动同步）。`clip.file_hash` 是写出去的笔记文件的指纹（`doc.note_fingerprint`，不算属性里的 status）：重新剪藏前如果笔记在 Obsidian 里改过（没有指纹的旧剪藏看文件修改时间），`doc.clip` 返回 `conflict`，界面让用户确认，确认后（`force`）先备份到 `%APPDATA%\猛人学习\backups\笔记` 再覆盖。软件不从 Obsidian 读回改动。
@@ -164,6 +164,7 @@
   - **播放规则**（2026-10-14 用户要求「所有平台的格式都应该自动支持」，用内置播放器逐个实测 56 种格式定的，见 `tests/test_playback.py`）：WebView2 能直接放 mp4 / mov / m4v / f4v / webm / **mkv** 外壳里的 H.264 / AV1 / VP9 / VP8 + AAC / MP3 / Opus / Vorbis / FLAC / PCM（YouTube 下的 mkv AV1+Opus 直接放，以前误判成要重新编码，很慢）。放不了的分开处理（`make_playable`）：画面是 H.264 / AV1 / VP9 就原样复制、只换 mp4 外壳（几秒）；声音是 AAC / MP3 / Opus / FLAC 就复制，否则（AC3、WMA、AMR…）只转声音；只有画面本身放不了（H.265、xvid、WMV、RealVideo、MPEG-2…）才用 libx264 重新编码。改 `PLAY_*` / `COPY_*` 前先跑 `test_playback.py`。这台电脑的 NVIDIA 显卡编码器用不了（远程桌面虚拟显卡），软件编码 veryfast 约 15 倍速，够用。
   - 插图原则（用户明确要求）：**非必要不插图**，知识库要小、便于以后 AI 蒸馏。课程重点最多 3 张，只插文字确实说不清的；剪藏时图片缩到 960 宽、压缩（`doc._small_copy`）。
   - `frames.py`：关键帧。候选按 15 秒一段挑「最像背景」的小图（避开老师走动挡屏），加上老师说「请看」的时间；能看图的 AI 先筛选、再确认并写一句说明，只留 `figure` 为真的，超过 8 张时 `frames.pick` 按说明去重（只看文字）。用户 2026-10 明确：识别画面**只为插必要的图**，不要照录课件、板书，不要写大段画面记录。课程重点里写 `![[画面 mm:ss]]`，剪藏时 `doc.place_figures` 换成截图并复制到笔记旁边的 `image/`。只用豆包识别的字幕（`.猛人学习.json`），不读用户以前本地模型生成的 `.srt`。
+  - **AI辅助理解图**（2026-10-15，用户定的规则在知识库视频规范第八节、书籍规范第五节）：`describe` 顺便判断「要插但画面本身看不清」（`unclear`）；`extract` 在 `pick` 之后对这几张（最多 `REDRAW_LIMIT` 3 张）调 `frames.redraw`，AI 依据画面和前后 40 秒字幕重画：关系图写 Mermaid（`clean_mermaid` 校验），形状图写 SVG（`doc.sanitize_svg` 去掉脚本、事件、外部链接和外部图片）；AI 说「不画」（拿不准）就不加 `redraw`，继续用截图。剪藏时 `place_figures` 遇到有 `redraw` 的画面，写 `doc.REDRAW_LABEL` 标注一行 + Mermaid 代码块（Obsidian 自己画），或把 SVG 存进 `image/` 再嵌入。界面画面页可以对单张点「AI 重画」（`bridge.do_frames_redraw`）或「改用原截图」（删掉 `redraw`）；软件里 SVG 直接显示，Mermaid 显示代码。书籍不走这条：`book.FIGURE_RULE` 允许 AI 在原图看不清时直接写 Mermaid 代码块 + 标注。**规则要求只重画讲过 / 画过的，不补规则、条件、因果**，改提示词时不要放松。
   - 一键整理的顺序是用户定的：先 AI 按术语表校对，再找关键帧，再「用画面复核存疑句」（`frames.recheck_doubts`：截下每句存疑句说话时的画面，长句每 3 秒一张，最多 4 张，看烧录字幕和课件核对）。不要把找关键帧挪回校对前面。
   - AI 消息内容可以是图文混排 `[{'type': 'text'|'image', …}]`，`llm.stream` 按各家格式转换（`_to_openai` / `_to_codex` / `_to_claude` / `_to_gemini`）。
   - `config.py`：设置、老师、媒体库、播放进度和存放位置。缓存和日志默认放软件目录下的「缓存（可随时删除）」「日志（可随时删除）」，可以自定义（`storage_dir`，重启生效），软件目录不可写时退回 LOCALAPPDATA。

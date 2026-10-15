@@ -364,6 +364,25 @@ class Api:
             return {'frames': out}
         return {'job': jobs.start('frames', run).id}
 
+    def do_frames_redraw(self, b):
+        """让 AI 重画指定的画面（AI辅助理解图）。返回每张的 redraw（AI 说不画的没有 redraw）。"""
+        path = b.get('path')
+        if not path or not os.path.isfile(path):
+            raise ValueError('视频文件不见了')
+        s = config.load()
+        name = self._vision(s)
+        todo = [{'t': float(f['t']), 'note': str(f.get('note') or '')} for f in (b.get('frames') or []) if isinstance(f, dict) and 't' in f]
+        if not todo:
+            raise ValueError('没有要重画的画面')
+
+        def run(job):
+            try:
+                out = frames.redraw(s, name, path, todo, b.get('segments') or [], job.cancel, job.report)
+            except frames.Cancelled:
+                return {'frames': []}
+            return {'frames': [{'t': f['t'], 'redraw': f.get('redraw')} for f in out]}
+        return {'job': jobs.start('frames', run).id}
+
     def do_frame_url(self, b):
         path = b.get('path')
         if not path or not os.path.isfile(path):

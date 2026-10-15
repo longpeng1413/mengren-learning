@@ -631,8 +631,49 @@ def _small_copy(src: Path, dest: Path):
     shutil.copy2(src, dest)
 
 
+REDRAW_LABEL = '**AI辅助理解图｜根据老师讲解和画面整理，非原画面**'
+
+
+def sanitize_svg(code) -> str:
+    """AI 写的 SVG 放进知识库前清一遍：只留 <svg>…</svg>，去掉脚本、事件、外部链接和外部资源。不像 SVG 返回空。"""
+    s = re.sub(r'^\s*```(?:svg|xml)?\s*|\s*```\s*$', '', str(code or '').strip())
+    i, j = s.find('<svg'), s.rfind('</svg>')
+    if i < 0 or j < i:
+        return ''
+    s = s[i:j + 6]
+    if len(s) > 200000:
+        return ''
+    for tag in ('script', 'foreignObject', 'iframe', 'object', 'embed', 'audio', 'video', 'image'):
+        s = re.sub(rf'(?is)<\s*{tag}\b.*?(?:</\s*{tag}\s*>|/>)', '', s)
+        s = re.sub(rf'(?is)<\s*/?\s*{tag}\b[^>]*>', '', s)
+    s = re.sub(r'(?i)\s+on\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', s)
+    s = re.sub(r'(?i)\s+(?:xlink:)?href\s*=\s*("(?!#)[^"]*"|\'(?!#)[^\']*\')', '', s)
+    s = re.sub(r'(?i)url\(\s*[\'"]?(?!#)[^)]*\)', 'none', s)
+    s = re.sub(r'(?i)@import[^;]*;?|javascript:', '', s)
+    if 'xmlns=' not in s[:400]:
+        s = s.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"', 1)
+    return s
+
+
+def _redraw_block(f, t, note_dir: Path, title):
+    """AI辅助理解图写进笔记：标注一行 + Mermaid 代码块，或 image 文件夹里的 SVG。"""
+    r = f.get('redraw') or {}
+    head = f'{REDRAW_LABEL}（[{fmt(t)}]）'
+    if r.get('kind') == 'mermaid' and r.get('code'):
+        return f'{head}\n\n```mermaid\n{r["code"].strip()}\n```'
+    svg = sanitize_svg(r.get('code')) if r.get('kind') == 'svg' else ''
+    if not svg:
+        return None
+    name = f'{safe_name(title)}__{fmt(t).replace(":", "-")}__AI辅助理解图.svg'
+    dest = note_dir / 'image' / name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(svg, encoding='utf-8')
+    return f'{head}\n![[image/{name}]]'
+
+
 def place_figures(summary, frames_list, note_dir: Path, title, shot):
-    """把课程重点里的 ![[画面 mm:ss]] 换成真正的图片：截图复制到笔记旁边的 image 文件夹。"""
+    """把课程重点里的 ![[画面 mm:ss]] 换成真正的图片：截图复制到笔记旁边的 image 文件夹；
+    这张画面有 AI辅助理解图（redraw）的，放重画的图，不放看不清的截图。"""
     if not summary or not _FIG.search(summary):
         return summary
 
@@ -643,6 +684,10 @@ def place_figures(summary, frames_list, note_dir: Path, title, shot):
             if abs(float(x.get('t', 0)) - t) <= 3 and (f is None or abs(float(x['t']) - t) < abs(float(f['t']) - t)):
                 f = x
         real_t = float(f['t']) if f else float(t)
+        if f and f.get('redraw'):
+            block = _redraw_block(f, real_t, note_dir, title)
+            if block:
+                return block
         if shot is None:
             return f'（画面 {m.group(1)}）'
         try:

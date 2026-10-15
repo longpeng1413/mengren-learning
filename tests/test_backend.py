@@ -410,6 +410,48 @@ dm = frames.describe({}, 'codex', mp4, [{'t': 5.0, 'manual': True}], [])
 llm.complete = orig_c
 check('手动截取的画面：写一句说明，默认可插', dm[0]['figure'] and dm[0]['note'] == '一页文字课件' and not dm[0].get('caption'), dm)
 
+# AI辅助理解图（2026-10-15）：画面看不清时 AI 依据讲解重画（Mermaid 或 SVG），剪藏时代替截图
+bad_svg = ('```svg\n<svg width="10" height="10" onload="alert(1)"><script>alert(2)</script><a href="https://evil.example/x">'
+           '<rect width="10" height="10" fill="url(https://evil.example/p.png)"/></a><image href="file:///C:/x.png"/><use href="#ok"/></svg>\n```')
+clean_svg = docs.sanitize_svg(bad_svg)
+check('AI 画的 SVG：去掉脚本、事件、外部链接和外部图片，保留图内引用', clean_svg.startswith('<svg xmlns=') and 'script' not in clean_svg
+      and 'onload' not in clean_svg and 'evil' not in clean_svg and '<image' not in clean_svg and 'href="#ok"' in clean_svg, clean_svg)
+check('不是 SVG / Mermaid 的不要', docs.sanitize_svg('这不是图') == '' and frames.clean_mermaid('随便写的') == ''
+      and frames.clean_mermaid('```mermaid\nflowchart LR\n A-->B\n```') == 'flowchart LR\n A-->B')
+orig_c = llm.complete
+llm.complete = lambda *a, **k: json.dumps({'画面': [{'图': 1, '说明': '模糊的手画结构', '插图': True, '看不清': True},
+                                                   {'图': 2, '说明': '清楚的走势', '插图': True, '看不清': False},
+                                                   {'图': 3, '说明': '纯文字课件', '插图': False, '看不清': True}]})
+dd = frames.describe({}, 'codex', mp4, [{'t': 5.0}, {'t': 10.0}, {'t': 15.0}], [])
+check('判断画面看不清：只有要插的图才算', dd[0]['unclear'] and not dd[1]['unclear'] and not dd[2]['unclear'], dd)
+
+
+def fake_redraw_ai(settings, name, messages, json_mode=False):
+    txt = json.dumps(messages, ensure_ascii=False)
+    if '（00:05）' in txt:
+        return json.dumps({'画': True, '类型': 'mermaid', '代码': '```mermaid\nflowchart LR\n  A[破级] --> B[首峰]\n```', '说明': '破级到首峰'})
+    if '（00:10）' in txt:
+        return json.dumps({'画': True, '类型': 'svg', '代码': '<svg width="100" height="50" onclick="x()"><path d="M0 50 L50 0" stroke="#000"/></svg>'})
+    return json.dumps({'画': False, '原因': '老师没讲清楚'})
+
+
+llm.complete = fake_redraw_ai
+rd = frames.redraw({}, 'codex', mp4, [{'t': 5.0, 'note': 'a', 'figure': True}, {'t': 10.0, 'note': 'b', 'figure': True},
+                                      {'t': 15.0, 'note': 'c', 'figure': True}], [])
+llm.complete = orig_c
+check('AI 重画：关系图写成 Mermaid，形状图写成 SVG（清理过），拿不准的不画', rd[0]['redraw']['kind'] == 'mermaid'
+      and rd[0]['redraw']['code'].startswith('flowchart LR') and rd[1]['redraw']['kind'] == 'svg' and 'onclick' not in rd[1]['redraw']['code']
+      and 'redraw' not in rd[2], rd)
+check('课程重点知道哪张已经有 AI辅助理解图', '（00:05）' not in frames.notes_text(rd) and '已有 AI辅助理解图' in frames.notes_text(rd))
+note_dir = TMP / 'redraw-note'
+placed = docs.place_figures('要点一\n![[画面 00:05]]\n要点二\n![[画面 00:10]]\n要点三\n![[画面 00:15]]', rd, note_dir, '测试课',
+                            lambda t: frames.grab(mp4, t))
+svg_file = note_dir / 'image' / '测试课__00-10__AI辅助理解图.svg'
+check('剪藏：有重画的放 AI辅助理解图并标注（Mermaid 代码块 / SVG 文件），没有的放截图',
+      placed.count('AI辅助理解图｜根据老师讲解和画面整理，非原画面') == 2 and '```mermaid\nflowchart LR' in placed
+      and '![[image/测试课__00-10__AI辅助理解图.svg]]' in placed and svg_file.read_text(encoding='utf-8').startswith('<svg')
+      and '![[image/测试课__00-15.jpg]]' in placed and (note_dir / 'image' / '测试课__00-15.jpg').is_file(), placed)
+
 # 课程重点：老师自述、口述与课件不一致、未讲明
 T = llm.DEFAULT_TEMPLATE
 check('课程重点：老师自述（含课程安排）一律保留并标「老师自述：」', '老师自述一律保留，不评价、不核实、不删除' in T and '课程安排也按老师自述处理' in T and '原创' in T and '出版社' in T)

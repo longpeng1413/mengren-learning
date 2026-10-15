@@ -251,6 +251,22 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     await startCorrect(true);
     ok('画面复核存疑句：确认后去掉存疑标记', await recheckDoubts(false) && !document.querySelector('.cue.doubt') && S.doc.segments[1].text.endsWith('（画面确认）'), S.doc.segments);
     ok('找关键帧', await findFrames(true) && S.doc.frames.length === 1 && S.doc.frames[0].note === '假 AI 挑的图');
+    {  // AI辅助理解图：画面看不清时 AI 重画
+      ok('AI辅助理解图：画面页标「AI 重画」，显示重画的流程图代码', !!document.querySelector('.shot .redraw-tag')
+        && document.querySelector('.shot .redraw-code').textContent.includes('破级') && !!document.querySelector('[data-unredraw]'));
+      const keep = S.doc.summary;
+      S.doc.summary = '## 一、开头\n- 要点 [00:03]\n![[画面 00:03]]'; renderSummary();
+      ok('AI辅助理解图：课程重点预览显示重画的图和标注，不显示截图', await until(() => {
+        const fig = document.querySelector('#summaryBox .shot-fig');
+        return fig && fig.querySelector('.redraw-code') && fig.textContent.includes('AI辅助理解图｜根据老师讲解和画面整理，非原画面');
+      }));
+      document.querySelector('[data-unredraw]').click();
+      ok('改用原截图：去掉重画的图', !S.doc.frames[0].redraw && !!document.querySelector('[data-redraw]') && !document.querySelector('.shot .redraw-tag'));
+      document.querySelector('[data-redraw]').click();
+      ok('点「AI 重画」：重画一张（假 AI 画 SVG），画面页和课程重点预览都显示', await until(() => S.doc.frames[0].redraw && S.doc.frames[0].redraw.kind === 'svg'
+        && document.querySelector('.shot .redraw-svg') && document.querySelector('#summaryBox .redraw-svg'), 15000));
+      S.doc.summary = keep; renderSummary();
+    }
     ok('课程重点：后台写好，自动查漏补缺', await doSummary() && S.doc.summary.includes('## 一、风险') && S.doc.summary.includes('查漏补上的一条')
       && $('#summaryBox').textContent.includes('截断亏损') && $('#btnSummary').textContent === '重新生成', S.doc.summary);
     ok('课程重点刚生成：不提醒重新生成', document.querySelector('#summaryStale').hidden && S.summaryChanges === 0);
