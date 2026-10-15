@@ -16,6 +16,8 @@ from . import codex_auth
 from .config import PROVIDER_NAMES
 
 OPENAI_COMPAT = ('openai', 'deepseek', 'ark', 'siliconflow')
+# 额度用完（包括 ChatGPT 账号的 5 小时用量限额 usage_limit_reached）：报「额度不足」，任务马上停、不重试
+QUOTA_RE = r'balance|quota|insufficient|余额|额度|usage[ _]limit'
 
 
 class LlmError(Exception):
@@ -54,7 +56,7 @@ def _raise_for(r, name):
     label = PROVIDER_NAMES[name]
     if r.status_code in (401, 403):
         raise LlmError(f'{label}鉴权失败：{msg}')
-    if r.status_code == 402 or re.search(r'balance|quota|insufficient|余额|额度|usage limit', msg, re.I):
+    if r.status_code == 402 or re.search(QUOTA_RE, msg, re.I):
         raise LlmError(f'{label}额度不足：{msg}')
     if r.status_code == 404:
         raise LlmError(f'{label}找不到这个模型，请在设置里换一个：{msg}')
@@ -152,7 +154,9 @@ def _post_stream(url, name, settings, **kw):
             last = str(e)[:200]
             time.sleep(2 ** attempt)
             continue
-        if r.status_code in (429, 500, 502, 503, 504) and attempt < 2:
+        if r.status_code == 429 and re.search(QUOTA_RE, r.text, re.I):
+            _raise_for(r, name)  # 额度用完：重试也没用
+        if r.status_code in (429, 500, 502, 503, 504, 529) and attempt < 2:
             last = f'HTTP {r.status_code}'
             r.close()
             time.sleep(2 ** attempt + 1)
@@ -160,6 +164,20 @@ def _post_stream(url, name, settings, **kw):
         _raise_for(r, name)
         return r
     raise LlmError(f'连接{PROVIDER_NAMES[name]}失败：{last}')
+
+
+def _codex_error(d):
+    """ChatGPT 回答到一半（HTTP 200 之后）在数据流里报的错。额度用完单独认出来；
+    「servers are currently overloaded」这类原样带上，由 tasks 归为可重试。"""
+    err = (d.get('response') or {}).get('error') or d.get('error') or d
+    if isinstance(err, dict):
+        msg, code = str(err.get('message') or ''), str(err.get('code') or err.get('type') or '')
+    else:
+        msg, code = str(err), ''
+    text = (f'{msg}（{code}）' if code and code not in msg else msg or code)[:240]
+    if re.search(QUOTA_RE, f'{msg} {code}', re.I):
+        return LlmError('ChatGPT 额度不足：' + text)
+    return LlmError('ChatGPT 出错：' + text)
 
 
 def stream(settings, name, messages, cancel=None, json_mode=False):
@@ -202,8 +220,7 @@ def stream(settings, name, messages, cancel=None, json_mode=False):
                 if t == 'response.output_text.delta' and isinstance(d.get('delta'), str):
                     yield d['delta']
                 elif t in ('response.failed', 'error'):
-                    err = (d.get('response') or {}).get('error') or d.get('error') or {}
-                    raise LlmError('ChatGPT 出错：' + str(err.get('message') if isinstance(err, dict) else err)[:240])
+                    raise _codex_error(d)
         return
 
     if name == 'claude':

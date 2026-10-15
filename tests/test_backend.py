@@ -746,6 +746,7 @@ llm.check, llm.complete = orig_check, orig_complete2
 # 豆包流式识别：边发边收，并报告发送进度
 import gzip, queue, struct, wave  # noqa: E402,E401
 import websocket  # noqa: E402
+from core import tasks  # noqa: E402
 
 
 class FakeWS:
@@ -781,14 +782,77 @@ check('流式识别拿到最终结果', st[0].startswith('你好世界') and st[
 check('流式识别报告发送进度，最后到 100%', seen_p and seen_p[-1] == 1.0 and len(seen_p) == 60, (len(seen_p), seen_p[-1:]))
 check('流式识别 20 倍速：12 秒音频不到 2 秒发完', time.time() - t0 < 2, time.time() - t0)
 
-# 豆包：只留三种模型，几个账号 × 三种模型按顺序自动换（2026-10-14）
-check('豆包只留三种模型，顺序是流式 2.0 → 极速版 1.0 → 录音文件 2.0',
-      list(asr.DOUBAO_MODELS) == ['stream2', 'flash', 'std2'] and asr.DOUBAO_ORDER == ('stream2', 'flash', 'std2'))
+# 流式识别中途收到服务端 55 开头的错误：只重发出错的那一段（2026-10-15，实测发到 92% 时出过 55000000 remote or network error）
+conns = []
+
+
+class FlakyWS(FakeWS):
+    def __init__(self, err):
+        super().__init__()
+        self.err = err
+        conns.append(self)
+
+    def recv(self):
+        if self.err and self.n == 3:  # 发到一半出错
+            self.n += 1
+            body = gzip.compress(self.err[1].encode())
+            return bytes([0x11, 0xF0, 0x11, 0]) + struct.pack('>II', self.err[0], len(body)) + body
+        return super().recv()
+
+
+HICCUP = (55000000, '{"error":"kiteX processing ... remote or network error[remote]: error_code=1204"}')
+plan_ws = []
+websocket.create_connection = lambda *a, **k: FlakyWS(plan_ws.pop(0) if plan_ws else None)
+orig_wait = asr._retry_wait
+asr._retry_wait = lambda *a, **k: 0.01
+plan_ws[:] = [HICCUP]
+a1 = asr.doubao_stream(ss, wav12, 0, 6, 'zh', threading.Event())
+n1 = len(conns)
+a2 = asr.doubao_stream(ss, wav12, 6, 12, 'zh', threading.Event())
+check('流式识别：一段中途出 55 错误，只重发这一段（连了 2 次），下一段照常只连 1 次',
+      a1[0].startswith('你好世界') and a2[0].startswith('你好世界') and n1 == 2 and len(conns) == 3, (n1, len(conns)))
+conns.clear()
+plan_ws[:] = [(55000001, 'account balance insufficient')]
+try:
+    asr.doubao_stream(ss, wav12, 0, 6, 'zh', threading.Event()); e_ = None
+except asr.AsrError as e:
+    e_ = e
+check('流式识别：55 错误里说的是额度用完，马上停、不重发', isinstance(e_, asr.QuotaError) and len(conns) == 1
+      and tasks.classify(e_)[:2] == ('quota', False), (e_, len(conns)))
+conns.clear()
+plan_ws[:] = [HICCUP] * (asr.RETRIES + 1)
+try:
+    asr.doubao_stream(ss, wav12, 0, 6, 'zh', threading.Event()); e_ = None
+except asr.AsrError as e:
+    e_ = e
+check('流式识别：一直出 55 错误，重发几次后放弃，报成可以重试的错误', e_ is not None and len(conns) == asr.RETRIES + 1
+      and '55000000' in str(e_) and tasks.classify(e_)[:2] == ('overloaded', True), (e_, len(conns)))
+conns.clear()
+plan_ws[:] = [(45000001, 'invalid audio format')]
+try:
+    asr.doubao_stream(ss, wav12, 0, 6, 'zh', threading.Event()); e_ = None
+except asr.AsrError as e:
+    e_ = e
+check('流式识别：别的错误（45 开头）不重发', e_ is not None and len(conns) == 1 and not isinstance(e_, asr.QuotaError), (e_, len(conns)))
+asr._retry_wait = orig_wait
+websocket.create_connection = orig_conn
+
+# ChatGPT 回答到一半在数据流里报的错：太忙可以重试，用量限额马上停
+busy = llm._codex_error({'type': 'response.failed', 'response': {'error': {'code': 'server_is_overloaded',
+                         'message': 'Our servers are currently overloaded. Please try again later.'}}})
+limit = llm._codex_error({'type': 'error', 'error': {'type': 'usage_limit_reached', 'message': 'The usage limit has been reached'}})
+check('ChatGPT 数据流里的「太忙」：可以重试', str(busy).startswith('ChatGPT 出错') and tasks.classify(busy)[:2] == ('overloaded', True), busy)
+check('ChatGPT 数据流里的用量限额：认成额度不足，不重试', str(limit).startswith('ChatGPT 额度不足') and tasks.classify(limit)[:2] == ('quota', False), limit)
+
+# 豆包：只留四种模型，几个账号 × 每种模型按顺序自动换（2026-10-14；1.0 标准版 2026-10-15 加回）
+check('豆包只留四种模型，顺序是流式 2.0 → 极速版 1.0 → 录音文件 1.0 → 录音文件 2.0',
+      list(asr.DOUBAO_MODELS) == ['stream2', 'flash', 'std1', 'std2'] and asr.DOUBAO_ORDER == ('stream2', 'flash', 'std1', 'std2')
+      and asr.DOUBAO_MODELS['std1']['resource'] == 'volc.bigasr.auc' and asr.DOUBAO_MODELS['std1']['kind'] == 'task')
 dp = {'key': 'main-key-123456', 'name': '', 'more_keys': [{'id': 'b1', 'name': '小号', 'key': 'second-key-123456'},
                                                           {'id': 'b2', 'name': '', 'key': ''}], 'spent': {'main|stream2': '2026-10-14'}}
 check('账号：主账号叫「账号 1」，没填密钥的备用账号不算', [(a['id'], a['name']) for a in asr.doubao_accounts(dp)] == [('main', '账号 1'), ('b1', '小号')])
 check('顺序：每种模型先把所有账号用完再换下一种，跳过用完的',
-      [(a['id'], m) for a, m in asr.doubao_plan(dp)] == [('b1', 'stream2'), ('main', 'flash'), ('b1', 'flash'), ('main', 'std2'), ('b1', 'std2')])
+      [(a['id'], m) for a, m in asr.doubao_plan(dp)] == [('b1', 'stream2'), ('main', 'flash'), ('b1', 'flash'), ('main', 'std1'), ('b1', 'std1'), ('main', 'std2'), ('b1', 'std2')])
 try:
     asr.check_ready({'providers': {'doubao': {'more_keys': [{'id': 'x', 'key': 'k'}]}}}, 'doubao'); e_ = ''
 except asr.AsrError as e:
@@ -863,7 +927,7 @@ check('导入不含密钥的设置：保留这台电脑上的备用账号密钥'
 
 # 录音文件 2.0：直接发 base64 音频，不用对象存储；403 但说的是额度时算额度用完
 import requests as _rq  # noqa: E402
-sent_body, calls_ = {}, []
+sent_body, calls_, res_ids = {}, [], []
 
 
 class FakeResp:
@@ -876,6 +940,7 @@ class FakeResp:
 
 def fake_post(url, json=None, headers=None, **k):
     calls_.append(url.rsplit('/', 1)[-1])
+    res_ids.append((headers or {}).get('X-Api-Resource-Id'))
     if url.endswith('submit'):
         sent_body.update(json)
         return FakeResp(200, '20000000')
@@ -904,6 +969,12 @@ try:
 except asr.AsrError as e:
     e_ = e
 check('401 密钥不对：算鉴权失败', isinstance(e_, asr.AuthError) and '录音文件识别 2.0' in str(e_), e_)
+calls_.clear()
+_rq.post = fake_post
+ts1 = asr.with_account(config.load(), {'key': 'k', 'app_id': '', 'access_token': ''}, 'std1')
+txt1, _ = asr.doubao_task(ts1, mp3, 'zh', threading.Event())
+check('录音文件 1.0 标准版：同样的提交 + 查询，用 1.0 的资源编号', txt1 == '你好。' and calls_ == ['submit', 'query', 'query']
+      and res_ids[-1] == 'volc.bigasr.auc', (calls_, res_ids[-1:]))
 _rq.post, asr.time.sleep = orig_post, orig_sleep
 mp3.unlink()
 

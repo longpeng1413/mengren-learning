@@ -1807,7 +1807,7 @@ function renderDoubaoAccounts() {
   const p = S.settings.providers.doubao;
   $('#doubaoOrder').innerHTML = `<p class="hint">按这个顺序自动用，额度用完自动换下一个。每种模型先把所有账号的额度用完，再换下一种：</p><ol>${
     S.doubaoOrder.map(k => `<li><b>${esc(S.doubaoModels[k].name)}</b>：${esc(S.doubaoModels[k].note)}</li>`).join('')
-  }</ol><p class="hint">这三种都要先在火山引擎控制台「豆包语音 → 开通管理」里开通。</p>`;
+  }</ol><p class="hint">这几种都要先在火山引擎控制台「豆包语音 → 开通管理」里开通。</p>`;
   $('#dbMore').innerHTML = (p.more_keys || []).map((a, i) => dbRowHTML(a, i + 2)).join('');
   const spent = Object.entries(p.spent || {});
   $('#dbSpent').innerHTML = spent.length ? `<div class="label strong">额度用完了的</div>${spent.map(([k, day]) => {

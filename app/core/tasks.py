@@ -63,9 +63,12 @@ ERROR_CODES = {
 _RULES = [  # (错误码, 能否重试, 错误信息里的关键词)
     ('config', False, r'还没有|请先填写|未知的 AI 服务|未知的识别服务|不能看图|对象存储|存储桶|Access Key|找不到 ff(mpeg|probe)|请先安装 ffmpeg'),
     ('auth', False, r'鉴权失败|拒绝访问'),
-    ('quota', False, r'额度|欠费|太频繁'),
+    ('quota', False, r'额度|欠费|太频繁|usage[ _]limit|insufficient_quota'),  # ChatGPT 5 小时用量限额也在这里：马上停，不重试
     ('model', False, r'找不到这个模型'),
     ('bad_output', True, r'格式不对'),
+    # 服务方太忙、内部临时出错：ChatGPT「servers are currently overloaded」、HTTP 502/503/504/529、豆包 55 开头的错误码
+    ('overloaded', True, r'overload|try again later|temporarily unavailable|HTTP 5(0[234]|29)\b|（5(0[234]|29)）|（55\d{6}）'
+                         r'|remote or network error|服务.{0,4}(繁忙|过载)'),
     ('network', True, r'连接.*失败|超时|timed? ?out|HTTP 5\d\d|（5\d\d）|Connection|网络'),
     ('not_found', False, r'找不到这个文件|文件不见了|不见了'),
 ]

@@ -30,8 +30,8 @@ LABELS = {'transcribe': '生成字幕', 'correct': 'AI 校对', 'frames': '找�
           'translate': '翻译', 'summary': '课程重点', 'review': '查漏补缺', 'terms': '新术语',
           'chapters': '分章', 'organize': '逐章整理', 'overview': '全书总览'}
 SOFT = {'recheck', 'review'}  # 失败了不影响后面的步骤（界面的一键整理也是这样）
-RETRIES = 2                   # 网络、接口临时出错时，这一步自动重做几次
-RETRY_WAIT = (5, 20)
+RETRIES = 3                   # 网络、接口临时出错时，这一步自动重做几次
+RETRY_WAIT = (10, 60, 180)    # 每次重做前等多久（秒）：ChatGPT「太忙」往往要等几分钟才好，所以逐步加长
 VERSIONS_KEEP = 5
 
 
@@ -879,14 +879,27 @@ def _run_stage(ctx, name):
                 wait = RETRY_WAIT[min(tries, len(RETRY_WAIT) - 1)]
                 tries += 1
                 st['retries'] = tries
-                task.progress(None, f'{LABELS[name]}出错（{err["message"][:80]}），{wait} 秒后第 {tries} 次重试…')
-                log.warning('Agent 任务 %s：「%s」出错，%d 秒后重试：%s', task.id, LABELS[name], wait, err['message'])
-                if ctx.cancel.wait(wait):
-                    continue
+                log.warning('Agent 任务 %s：「%s」出错，%s秒后第 %d 次重试：%s', task.id, LABELS[name], wait, tries, err['message'])
+                if _retry_pause(ctx, name, err, wait, tries):  # 等的时候取消了：不再试
+                    err = {'error_code': 'cancelled', 'retryable': False, 'message': '已取消'}
+                    task.end_stage(name, CANCELLED, error=err)
+                    return False, err
                 ctx.settings = config.load()
                 continue
             task.end_stage(name, FAILED, error=err)
             return False, err
+
+
+def _retry_pause(ctx, name, err, wait, n):
+    """重试前等 wait 秒，进度里倒数「X 秒后第 N 次重试」。等的时候取消了返回 True。"""
+    end = time.monotonic() + wait
+    while True:
+        left = end - time.monotonic()
+        if left <= 0:
+            return False
+        ctx.task.progress(None, f'{LABELS[name]}出错（{err["message"][:80]}），{max(1, round(left))} 秒后第 {n} 次重试…')
+        if ctx.cancel.wait(min(left, 5)):
+            return True
 
 
 def _failed_lookup(target, e):

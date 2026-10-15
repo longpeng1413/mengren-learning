@@ -3,11 +3,11 @@
 支持三家服务：
 - OpenAI（whisper-1，返回句子级时间戳）；
 - 硅基流动（OpenAI 兼容接口，只返回文字，按停顿切成短段后按句长分配时间）；
-- 豆包（火山引擎），只留用户实测后选的三种（DOUBAO_MODELS），可以填几个账号，按 DOUBAO_ORDER 自动换：
+- 豆包（火山引擎），只留用户实测后选的四种（DOUBAO_MODELS），可以填几个账号，按 DOUBAO_ORDER 自动换：
   * 流式识别 2.0（bigmodel_nostream）：WebSocket 直接发送本地音频；
   * 录音文件识别 1.0 极速版：一次请求直接上传音频（base64），单次 ≤2 小时 / 100MB；
-  * 录音文件识别 2.0 标准版：提交 + 查询。官方文档只写了传公网链接，实测直接发 base64（audio.data）也可以，
-    所以不需要对象存储（TOS）。
+  * 录音文件识别 1.0 / 2.0 标准版：提交 + 查询（两个版本接口一样，只是资源编号不同）。官方文档只写了传公网链接，
+    实测直接发 base64（audio.data）也可以，所以不需要对象存储（TOS）。
 """
 import base64
 import gzip
@@ -32,20 +32,24 @@ from .config import CACHE_DIR, PROVIDER_NAMES
 RETRIES = 3
 TIMEOUT = 600
 
-# 用户 2026-10-14 用同一节已校对的 18 分钟课（带 61 个术语热词）实测后定的：只留这三种，按 DOUBAO_ORDER 的顺序用。
-# 流式 2.0 的「峰」「级」认错最少（192 个里错 10，另外两种错 30 多）；录音文件 2.0 标准版和 1.0 极速版错法几乎一样，
-# 极速版快得多，所以排在标准版前面。并发版每个账号只送 1 小时、闲时版要等很久、1.0 流式和标准版不如 2.0，都去掉了。
+# 用户 2026-10-14 用同一节已校对的 18 分钟课（带 61 个术语热词）实测后定的，按 DOUBAO_ORDER 的顺序用。
+# 流式 2.0 的「峰」「级」认错最少（192 个里错 10，另外几种错 20～30）；录音文件 2.0 标准版和 1.0 极速版错法几乎一样，
+# 极速版快得多，所以排在标准版前面。2026-10-15 加回录音文件 1.0 标准版：和 2.0 标准版错法几乎一样（错 28 / 29），
+# 但用户的账号送了 120 小时，所以排在 2.0 标准版前面。并发版每个账号只送 1 小时、闲时版要等很久、1.0 流式不如 2.0，都去掉了。
 # 流式 2.0 不加路数提速（用户要质量第一；实测 8 路能快 3 倍多，但没看出质量有没有差别，不冒险）。
 DOUBAO_MODELS = {
     'stream2': {'name': '流式识别 2.0（小时版）', 'short': '流式识别 2.0', 'resource': 'volc.seedasr.sauc.duration', 'kind': 'stream',
                 'note': '识别最准（交易术语认错最少）。18 分钟的课约 3 分钟。'},
     'flash':   {'name': '录音文件识别 1.0 · 极速版', 'short': '极速版 1.0', 'resource': 'volc.bigasr.auc_turbo', 'kind': 'flash',
                 'note': '几秒钟就好，准确度和录音文件识别 2.0 差不多。'},
+    'std1':    {'name': '录音文件识别 1.0 · 标准版', 'short': '录音文件识别 1.0', 'resource': 'volc.bigasr.auc', 'kind': 'task',
+                'submit': '/auc/bigmodel/submit', 'query': '/auc/bigmodel/query',
+                'note': '准确度和录音文件识别 2.0 差不多。18 分钟的课约 2 分钟。'},
     'std2':    {'name': '录音文件识别 2.0 · 标准版', 'short': '录音文件识别 2.0', 'resource': 'volc.seedasr.auc', 'kind': 'task',
                 'submit': '/auc/bigmodel/submit', 'query': '/auc/bigmodel/query',
                 'note': '18 分钟的课约 1 分半。'},
 }
-DOUBAO_ORDER = ('stream2', 'flash', 'std2')
+DOUBAO_ORDER = ('stream2', 'flash', 'std1', 'std2')
 
 class AsrError(Exception):
     pass
@@ -245,6 +249,17 @@ def doubao_check(code, message):
     raise AsrError(f'豆包识别失败（{code}）：{(message or "")[:160]}')
 
 
+class _ServerHiccup(AsrError):
+    """豆包服务端内部临时出错（55 开头的错误码，例如 55000000 remote or network error）：重发这一段就好。"""
+
+
+def _stream_error(code, message):
+    """流式识别数据流中途收到的错误帧。55 开头、又不是额度问题的，交给 doubao_stream 只重发这一段。"""
+    if str(code).startswith('55') and not re.search(QUOTA_WORDS, message or '', re.I):
+        raise _ServerHiccup(f'豆包识别失败（{code}）：{(message or "")[:160]}')
+    doubao_check(code, message)
+
+
 def doubao_denied(message, model):
     """HTTP 401 / 403：多半是密钥不对或没开通，但额度用完时也可能这样回，看说明文字分开。"""
     if re.search(QUOTA_WORDS, message or '', re.I):
@@ -404,7 +419,7 @@ def doubao_stream(settings, wav: Path, start: float, end: float, language, cance
             ws.send_binary(_frame(0x1, 0x0, 0x1, json.dumps(body).encode()))
             kind, _, data = _parse_frame(ws.recv())
             if kind == 'error':
-                doubao_check(data['code'], data['message'])
+                _stream_error(data['code'], data['message'])
             total = max(len(pcm), 1)
 
             # 发送和接收分开：以前每发一包都要等服务端回一包，实际只有一两倍速，长视频进度又不动，看起来像卡住了
@@ -428,12 +443,20 @@ def doubao_stream(settings, wav: Path, start: float, end: float, language, cance
                     raise Cancelled('已取消')
                 kind, flags, data = _parse_frame(ws.recv())
                 if kind == 'error':
-                    doubao_check(data['code'], data['message'])
+                    _stream_error(data['code'], data['message'])
                 if data.get('result'):
                     latest = data
                 if flags & 0x02:  # 最后一包的结果
                     break
             return doubao_utterances(latest)
+        except _ServerHiccup as e:
+            # 服务端临时出错：只重发这一段（别的段照常），不用整节课从头识别。重试完还不行就报原来的错（可重试）
+            log.warning('豆包流式识别 %.0f~%.0f 秒这一段服务端出错，第 %d 次重发：%s', start, end, attempt + 1, e)
+            if attempt >= RETRIES:
+                raise
+            if cancel.wait(_retry_wait(attempt + 2)):
+                raise Cancelled('已取消')
+            continue
         except (OSError, websocket.WebSocketException) as e:
             last_err = str(e)[:200]
             if attempt < RETRIES:
@@ -456,7 +479,7 @@ def _ws_proxy(settings):
 
 
 def doubao_task(settings, mp3: Path, language, cancel, context=''):
-    """录音文件识别 2.0 标准版：提交（直接带 base64 音频）→ 轮询结果。"""
+    """录音文件识别 1.0 / 2.0 标准版：提交（直接带 base64 音频）→ 轮询结果。"""
     p = settings['providers']['doubao']
     model = DOUBAO_MODELS[p['model']]
     base = p['base_url'].rstrip('/')
@@ -567,7 +590,7 @@ def recognise(media_path, duration, provider, language, settings, cancel, progre
         return cues
     plan = doubao_plan(settings['providers']['doubao'])
     if not plan:
-        raise QuotaError('豆包额度不足或账户欠费：所有账号的三种识别模型都标记成用完了。'
+        raise QuotaError('豆包额度不足或账户欠费：所有账号的几种识别模型都标记成用完了。'
                          '充值或买了资源包以后，到「设置 → 豆包语音」点「重新启用」')
     notes, quota = [], False
     for k, (account, model) in enumerate(plan):
@@ -686,7 +709,7 @@ def _recognise_once(media_path, duration, provider, language, settings, cancel, 
 
 
 def test_provider(settings, name):
-    """用一段 1.5 秒的音频测试密钥和模型能不能用。豆包：每个账号的三种模型都试，能用的顺便取消「用完了」的标记。"""
+    """用一段 1.5 秒的音频测试密钥和模型能不能用。豆包：每个账号的每种模型都试，能用的顺便取消「用完了」的标记。"""
     check_ready(settings, name)
     tmp = Path(tempfile.mkdtemp(dir=CACHE_DIR if CACHE_DIR.exists() else None))
     try:

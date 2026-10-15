@@ -147,6 +147,7 @@ llm.complete = fake_complete
 llm.stream = fake_stream
 frames.extract = fake_extract
 frames.recheck_doubts = fake_recheck
+RETRY_REAL = wf.RETRY_WAIT
 wf.RETRY_WAIT = (0.05, 0.05)
 
 # ------------------------------------------------------------ 查找 ----
@@ -216,8 +217,8 @@ t2 = wf.process(L2)
 st2 = {s['name']: s for s in t2['stages']}
 check('中途失败：停在出错的那一步', t2['status'] == 'failed' and t2['error']['stage'] == 'summary' and st2['summary']['status'] == 'failed'
       and st2['terms']['status'] == 'pending', t2['error'])
-check('网络错误：可以重试，自动重试了 2 次', t2['error']['error_code'] == 'network' and t2['error']['retryable'] and st2['summary']['retries'] == 2
-      and calls['summary'] - c0['summary'] == 3)
+check('网络错误：可以重试，自动重试了 3 次', t2['error']['error_code'] == 'network' and t2['error']['retryable'] and st2['summary']['retries'] == 3
+      and calls['summary'] - c0['summary'] == 4)
 d2 = docs.load(L2)
 check('失败前完成的步骤已经保存', d2['corrected'] and len(d2['segments']) == 4 and not d2.get('summary'))
 FAIL.pop('summary')
@@ -233,12 +234,47 @@ t3 = wf.process(L3, steps=['transcribe', 'correct'])
 check('临时出错：自动重试后成功', t3['status'] == 'completed' and t3['stages'][1]['retries'] == 1 and docs.load(L3)['corrected'])
 FAIL.pop('correct', None)
 
+# ChatGPT「太忙」（数据流里的错误）：等一会儿自动重试，进度里写「X 秒后第 N 次重试」
+check('重试等待逐步加长：10 秒、1 分钟、3 分钟', wf.RETRIES == 3 and tuple(RETRY_REAL) == (10, 60, 180))
+FAIL['correct'] = [2, llm.LlmError('ChatGPT 出错：Our servers are currently overloaded. Please try again later.')]
+msgs = []
+t3b = wf.run_step(L3, 'correct', force=True, on_progress=lambda d: msgs.append(d.get('message') or ''))
+check('ChatGPT 太忙：自动重试 2 次后成功', t3b['status'] == 'completed' and t3b['stages'][0]['retries'] == 2, t3b.get('error'))
+check('重试时进度写清楚「X 秒后第 N 次重试」', any('秒后第 1 次重试' in m for m in msgs)
+      and any('第 2 次重试' in m for m in msgs), msgs[-6:])
+FAIL.pop('correct', None)
+
+# 额度用完（ChatGPT 5 小时用量限额）：马上停，不重试
+for i, quota_err in enumerate([llm.LlmError('ChatGPT 额度不足：You have hit your usage limit（usage_limit_reached）'),
+                               asr.QuotaError('豆包额度不足或账户欠费：所有账号的几种识别模型都标记成用完了')]):
+    stage_ = 'correct' if i == 0 else 'transcribe'
+    FAIL[stage_] = [99, quota_err]
+    c3 = calls.copy()
+    tq = wf.run_step(L3, stage_, force=True)
+    n_calls = calls['correct' if i == 0 else 'asr'] - c3['correct' if i == 0 else 'asr']
+    check(f'额度用完（{"ChatGPT" if i == 0 else "豆包"}）：马上停、不重试', tq['status'] == 'failed' and tq['error']['error_code'] == 'quota'
+          and not tq['error']['retryable'] and tq['stages'][0]['retries'] == 0 and n_calls == 1, (tq.get('error'), n_calls))
+    FAIL.pop(stage_)
+
+# 等着重试的时候取消：不再试
+wf.RETRY_WAIT = (30,)
+FAIL['correct'] = [99, llm.LlmError('ChatGPT 出错：Our servers are currently overloaded. Please try again later.')]
+stop = threading.Event()
+threading.Timer(0.5, stop.set).start()
+c4, t_0 = calls.copy(), time.time()
+tc = wf.run_step(L3, 'correct', force=True, cancel=stop)
+check('等着重试时取消：马上停，不会再多试一次', tc['status'] == 'cancelled' and calls['correct'] - c4['correct'] == 1
+      and time.time() - t_0 < 10, (tc['status'], calls['correct'] - c4['correct'], time.time() - t_0))
+FAIL.pop('correct')
+wf.RETRY_WAIT = (0.05, 0.05)
+
 # AI 校对失败：什么都不写（不会出现「报错了，结果却出现了一半」）
 seg_before = json.dumps(docs.load(L3)['segments'], ensure_ascii=False)
+ver_before = len(docs.load(L3).get('versions') or [])
 FAIL['correct'] = [99, llm.LlmError('校对结果格式不对，请重试或换一个 AI 服务')]
 t4 = wf.run_step(L3, 'correct', force=True)
 check('AI 校对失败：字幕一句都没改，也没多出历史版本', t4['status'] == 'failed' and t4['error']['error_code'] == 'bad_output'
-      and json.dumps(docs.load(L3)['segments'], ensure_ascii=False) == seg_before and len(docs.load(L3).get('versions') or []) == 1)
+      and json.dumps(docs.load(L3)['segments'], ensure_ascii=False) == seg_before and len(docs.load(L3).get('versions') or []) == ver_before)
 FAIL.pop('correct')
 
 # 不可重试的错误
@@ -248,6 +284,16 @@ t5 = wf.run_step(L3, 'summary')
 check('缺 API Key：不重试，错误码 config', t5['status'] == 'failed' and t5['error']['error_code'] == 'config' and not t5['error']['retryable']
       and t5['stages'][0]['retries'] == 0 and calls['summary'] == c2['summary'])
 config.update({'chat': 'deepseek'})
+check('错误分类：服务方太忙、临时出错可以重试', all(tasks.classify(e)[:2] == ('overloaded', True) for e in [
+    llm.LlmError('ChatGPT 出错：Our servers are currently overloaded. Please try again later.'),
+    llm.LlmError('ChatGPT 出错：Service temporarily unavailable'),
+    llm.LlmError('DeepSeek出错（HTTP 503）：busy'), llm.LlmError('Claude 出错（529）：Overloaded'), llm.LlmError('OpenAI出错（HTTP 502）：x'),
+    asr.AsrError('豆包识别失败（55000000）：{"error":"kiteX processing ... remote or network error[remote]: error_code=1204"}'),
+    asr.AsrError('豆包识别失败（55000031）：server busy')]), [tasks.classify(e)[:2] for e in [llm.LlmError('Claude 出错（529）：Overloaded')]])
+check('错误分类：额度问题不重试（即使也说了「稍后再试」）', all(tasks.classify(e)[:2] == ('quota', False) for e in [
+    llm.LlmError('ChatGPT 额度不足：You have hit your usage limit. Try again later.'),
+    llm.LlmError('ChatGPT 出错：usage_limit_reached'),
+    asr.QuotaError('豆包额度不足或账户欠费：x')]))
 check('错误分类', tasks.classify(llm.LlmError('DeepSeek鉴权失败：bad key'))[:2] == ('auth', False)
       and tasks.classify(asr.AsrError('豆包额度不足或账户欠费：x'))[:2] == ('quota', False)
       and tasks.classify(asr.AsrError('连接豆包失败：timeout'))[:2] == ('network', True)

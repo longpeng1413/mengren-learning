@@ -349,7 +349,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     document.querySelector('#tName').value = tOld; await saveTeacher();
     ok('设置：可以关联术语表文件；没有「笔记里的称呼」（笔记不写老师）', document.querySelector('#tFile').textContent === '没有关联' && !!document.querySelector('#tFilePick') && !document.querySelector('#tDisplay'));
     showSection('doubao');
-    ok('设置：豆包只列三种模型、按顺序自动换；没有模型下拉框和对象存储', document.querySelectorAll('#doubaoOrder li').length === 3
+    ok('设置：豆包只列四种模型、按顺序自动换；没有模型下拉框和对象存储', document.querySelectorAll('#doubaoOrder li').length === 4
        && document.querySelector('#doubaoOrder li').textContent.includes('流式识别 2.0') && !document.querySelector('#doubaoModel')
        && !document.querySelector('[data-k="providers.doubao.tos_ak"]'));
     document.querySelector('#dbAdd').click();
