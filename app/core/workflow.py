@@ -51,24 +51,28 @@ def kind_of(path):
 
 # ------------------------------------------------------------- 找视频 ----
 def _state(it, kind):
+    pending = it.get('pending') or []
     if kind == 'book':
         b = it.get('book') or {}
         if it.get('clipped'):
             return '已剪藏'
         if b.get('total') and b.get('done') == b.get('total'):
-            return '已整理'
+            return '待补完' if pending else '已整理'
         return f'整理了 {b.get("done", 0)}/{b.get("total", 0)} 章' if b.get('done') else '未处理'
     if it.get('clipped'):
         return '已剪藏'
     if it.get('reviewed'):
         return '已校对'
     if it.get('summary'):
-        return '已整理'
+        return '待补完' if pending else '已整理'  # 有课程重点，但查漏、新术语等还没做完（例如中途额度用完）
     return '有字幕' if it.get('subs') else '未处理'
 
 
 def _todo(it, kind):
-    if kind == 'book':
+    """还没整理完：按一键整理默认的步骤，还有要做的（媒体库列表里已经算好的 pending，见 pending_steps）。"""
+    if 'pending' in it:
+        return bool(it['pending'])
+    if kind == 'book':  # 万一没算出来（读设置出错）：退回只看有没有整理结果
         b = it.get('book') or {}
         return not b.get('total') or b.get('done', 0) < b.get('total', 0)
     return not it.get('summary')
@@ -84,7 +88,8 @@ def library_items():
                 'video_id': video_id(it['path']), 'course_id': course_id(g.get('path')), 'course': g.get('name') or '',
                 'course_path': g.get('path') or '', 'sub': it.get('sub') or '', 'index': n, 'name': it.get('name') or '',
                 'path': it['path'], 'kind': kind, 'duration': round(float(it.get('duration') or 0), 1),
-                'state': _state(it, kind), 'todo': _todo(it, kind), 'subtitles': it.get('subs', 0),
+                'state': _state(it, kind), 'todo': _todo(it, kind), 'pending_steps': list(it.get('pending') or []),
+                'subtitles': it.get('subs', 0),
                 'summary': bool(it.get('summary')), 'reviewed': bool(it.get('reviewed')), 'clipped': bool(it.get('clipped')),
                 'summary_outdated': (it.get('summary_changes') or 0) >= docs.SUMMARY_STALE_AT,
                 'teacher': it.get('teacher') or '',
@@ -279,12 +284,12 @@ def vision_provider(s, need=True):
     return ''
 
 
-def _vision_or_skip(s):
-    """能看图的 AI；没设好时跳过这一步，原因写清楚（例如「DeepSeek 不能看图」），和一键整理一样不算失败。"""
+def _vision_check(s):
+    """能看图的 AI → (名字, '')；没设好 → ('', 跳过的原因)，原因写清楚（例如「DeepSeek 不能看图」），和一键整理一样不算失败。"""
     try:
-        return vision_provider(s, need=True)
+        return vision_provider(s, need=True), ''
     except llm.LlmError as e:
-        raise _Skip(f'{e}（这一步先跳过）')
+        return '', f'{e}（这一步先跳过）'
 
 
 def _model_of(s, name):
@@ -297,6 +302,202 @@ class _Skip(Exception):
     """这一步不需要做，原因写在 message 里。"""
 
 
+class Facts:
+    """判断一步要不要做时，字幕文件以外要知道的：有没有指定老师、有没有画面、能看图的 AI 设好没有、设置。
+    真正整理时（Ctx.facts）用到才去查（例如探测视频有没有画面）；列「还没整理完」时（scan_facts）整个媒体库共用一份，
+    不探测文件、不读术语表文件，所以快。has_video / vision / toc 可以给值，也可以给「用到时再算」的函数。"""
+
+    def __init__(self, settings, opts=None, teacher=None, has_video=True, vision=None, toc=None):
+        self.settings = settings
+        self.opts = opts or {}
+        self._v = {'teacher': teacher, 'has_video': has_video, 'vision': vision, 'toc': toc}
+
+    def _get(self, k):
+        v = self._v[k]
+        if callable(v):
+            v = self._v[k] = v()
+        return v
+
+    def teacher(self):
+        """老师档案（没指定或档案已删除时是 None）"""
+        return self._get('teacher')
+
+    def has_video(self):
+        return bool(self._get('has_video'))
+
+    def vision(self):
+        """(能看图的 AI, '') 或 ('', 跳过的原因)"""
+        return self._get('vision') or _vision_check(self.settings)
+
+    def toc(self):
+        """书的目录；列「还没整理完」时不读书（None = 不知道，当作没有）"""
+        return self._get('toc')
+
+    def lang(self, d):
+        t = self.teacher() or {}
+        lang = self.opts.get('lang') or d.get('lang') or t.get('lang') or self.settings.get('last_lang') or 'zh'
+        return lang if lang in ('zh', 'en') else 'zh'
+
+
+def _old_summary(d):
+    """课程重点是以前（还没有 steps 记录时）在软件里生成的：当时的一键整理已经挑过插图、复核过、查漏过、找过新术语，都当作做过。"""
+    return bool((d.get('summary') or '').strip()) and 'summary' not in _steps(d)
+
+
+def why_skip(name, d, f, force=False):
+    """这一步现在要不要做：不用做返回原因，要做返回 None。
+    **真正整理时（各个 st_* 开头）和判断「还差哪几步」（pending_steps）用的都是这一个函数**，规则只写在这里。
+    d 是字幕文件（要做的步骤调用前已经确认有字幕），f 是 Facts，force：做过也重做。"""
+    st = _steps(d)
+    summary = (d.get('summary') or '').strip()
+    old = _old_summary(d)
+    if name == 'transcribe':
+        if d.get('segments') and not force:
+            return '已经有字幕（要重新识别：--steps transcribe --force）'
+    elif name == 'correct':
+        if not f.teacher() and not f.opts.get('allow_no_teacher'):  # 界面里用户确认过「只修正明显的错别字」时照样校对
+            return '这节课没有指定老师（术语表），和一键整理一样不做 AI 校对'
+        if d.get('corrected') and not force:
+            return '已经校对过'
+    elif name in ('frames', 'recheck'):
+        if not f.has_video():
+            return '音频文件，没有画面'
+        why = f.vision()[1]
+        if why:
+            return why
+        if name == 'frames':
+            if (d.get('frames') or 'frames' in st or old) and not force:
+                return '已经挑过插图'
+        else:
+            if ('recheck' in st or old) and not force:
+                return '已经复核过'
+            if not d.get('_maybe_doubts') and not any(doubt_of(d, x) for x in d.get('segments') or []):
+                return NO_DOUBTS
+    elif name == 'translate':
+        if (d.get('lang') or f.lang(d)) != 'en' and not f.opts.get('any_lang'):  # 界面里用户自己选了翻译时照样翻
+            return '中文字幕，不用翻译'
+        every = force or f.opts.get('translate_all')  # 全部重新翻译；否则只翻还没有译文的
+        if not any(x['text'].strip() and (every or not str(x.get('tr') or '').strip()) for x in d.get('segments') or []):
+            return '已经都有译文'
+    elif name == 'summary':
+        if summary and not force:
+            return '已经有课程重点'
+    elif name == 'review':
+        if not summary:
+            return '还没有课程重点'
+        if not f.settings.get('auto_review', True) and not force:
+            return '设置里关掉了「自动查漏补缺」'
+        if 'review' in st and not force:
+            return '已经查漏过'
+        if old and not force:
+            return '课程重点是以前在软件里生成的（当时已经自动查漏）'
+    elif name == 'terms':
+        if not f.teacher():
+            return '这节课没有指定老师（术语表），和一键整理一样不找新术语'
+        if not force and ('terms' in st or d.get('terms_pending') or old):
+            return '已经找过新术语' + ('（等你在软件里勾选）' if d.get('terms_pending') else '')
+    elif name == 'chapters':
+        chs = d.get('chapters') or []
+        if any((c.get('md') or '').strip() for c in chs):
+            return '已经有整理好的章节，保持现在的分章'
+        if chs and not (_paged(chs) and not f.toc()):
+            return f'用软件认出的 {len(chs)} 章'
+    elif name == 'organize':
+        chs = d.get('chapters') or []
+        pick = f.opts.get('chapters')  # 界面里勾选的章节（不管整理过没有）
+        if chs and not pick and not any(force or not (c.get('md') or '').strip() for c in chs):
+            return '每一章都整理过了'
+    elif name == 'overview':
+        if (d.get('overview') or '').strip() and not force:
+            return '已经有全书总览'
+    return None
+
+
+NO_DOUBTS = '没有存疑句'
+
+
+def _pretend(name, d):
+    """判断「还差哪几步」时，假装这一步做完了（只改内存里的副本，不写文件），好接着判断后面的步骤。效果和真的做完一样。"""
+    st = _steps(d)
+    if name == 'transcribe':
+        d['segments'] = [{'start': 0, 'end': 1, 'text': '…', 'tr': ''}]
+        d['corrected'] = False
+        d['steps'] = {'transcribe': 1}
+    elif name == 'correct':
+        d['corrected'] = True
+        d['_maybe_doubts'] = True  # 校对完可能标出存疑句，复核要做
+        st.pop('recheck', None)
+        st['correct'] = 1
+    elif name == 'translate':
+        d['segments'] = [dict(x, tr=x.get('tr') or '…') for x in d.get('segments') or []]
+    elif name == 'summary':
+        d['summary'] = '…'
+        st.pop('review', None)
+        st['summary'] = 1
+    elif name == 'chapters':
+        d['chapters'] = d.get('chapters') or [{'title': '…', 'md': ''}]
+    elif name == 'organize':
+        d['chapters'] = [dict(c, md=c.get('md') or '…') for c in d.get('chapters') or [{}]]
+    elif name == 'overview':
+        d['overview'] = '…'
+    else:  # frames、recheck、review、terms
+        st[name] = 1
+
+
+def pending_steps(d, kind, f, stages=None, redo=()):
+    """按一键整理默认的步骤（或 stages 指定的几步），这节课还要做哪几步。返回 ([要做的步骤], {不做的步骤: 原因})。
+    从第一步往后：用 why_skip 看这一步要不要做，要做的就假装做完（_pretend），再看下一步。
+    所以失败过的步骤（包括「复核存疑句」「查漏」这种失败了不影响后面的）都算没做完。不读写任何文件。"""
+    d = dict(d or {})
+    d['steps'] = dict(d['steps']) if isinstance(d.get('steps'), dict) else {}
+    todo, skipped = [], {}
+    for name in stages or (BOOK_STAGES if kind == 'book' else VIDEO_STAGES):
+        why = why_skip(name, d, f, force=name in redo)
+        if why:
+            skipped[name] = why
+        else:
+            todo.append(name)
+            _pretend(name, d)
+    return todo, skipped
+
+
+def scan_facts():
+    """列整个媒体库时共用的：设置、老师档案、能看图的 AI 设好没有（只准备一次）。"""
+    s = config.load()
+    return {'settings': s, 'teachers': {t['id']: t for t in config.load_teachers()}, 'vision': _vision_check(s)}
+
+
+def pending_in_scan(path, d, env, folder_teacher=''):
+    """媒体库列表用：这节课（或这本书）还要做哪几步。d 是已经读出来的字幕文件（没有就是 None），不再读任何文件。"""
+    kind = kind_of(path)
+    tid = (d or {}).get('teacher') or folder_teacher
+    f = Facts(env['settings'], teacher=env['teachers'].get(tid) if tid else None, has_video=kind != 'audio', vision=env['vision'])
+    return pending_steps(d, 'book' if kind == 'book' else 'video', f)[0]
+
+
+def facts_for(path, d, settings=None, opts=None, probe=True):
+    """一节课（一本书）的 Facts：有没有画面要探测视频、书的目录要读书，都是用到才做。
+    probe=False（界面显示「待补完」）：和媒体库列表一样按扩展名判断有没有画面。"""
+    s = settings or config.load()
+    tid = d.get('teacher') or library.folder_teacher(path)
+    return Facts(s, opts, teacher=lambda: config.get_teacher(tid, resolve=False) if tid else None,
+                 has_video=(lambda: media.probe(path).get('has_video')) if probe else kind_of(path) != 'audio',
+                 vision=lambda: _vision_check(s), toc=lambda: book.read(path).get('toc'))
+
+
+def pending_now(path, d):
+    """界面打开、重新读取一节课时：还差哪几步（媒体库的「待补完」跟着更新）。"""
+    kind = 'book' if kind_of(path) == 'book' else 'video'
+    return pending_steps(d, kind, facts_for(path, d, probe=False))[0]
+
+
+def plan(path, steps=None, skip=None, redo=(), opts=None):
+    """预览（info、process --dry-run）：这次会真正做哪几步。返回 ([步骤], {不做的步骤: 原因})。"""
+    d = docs.load(path) or {}
+    kind = 'book' if kind_of(path) == 'book' else 'video'
+    return pending_steps(d, kind, facts_for(path, d, opts=opts), stages_for(path, steps, skip), tuple(redo or ()))
+
+
 class Ctx:
     def __init__(self, path, task, opts, on_items=None):
         self.path = path
@@ -307,6 +508,17 @@ class Ctx:
         self.cancel = task.cancel
         self.lo, self.hi = 0.0, 1.0
         self._on_items = on_items
+
+    def facts(self, d):
+        return facts_for(self.path, d, self.settings, self.opts)
+
+    def skip_check(self, name, d):
+        """这一步不用做就跳过（原因见 why_skip），要做就返回 Facts（里面已经查过的不会再查）"""
+        f = self.facts(d)
+        why = why_skip(name, d, f, self.force)
+        if why:
+            raise _Skip(why)
+        return f
 
     def emit(self, items):
         """边做边给界面看的东西（识别出的字幕、正在写的课程重点），只用来显示，不写盘。"""
@@ -327,20 +539,13 @@ class Ctx:
             raise WorkError('cancelled', '已取消')
 
 
-def _lang(ctx, d):
-    t = ctx.teacher(d) or {}
-    lang = ctx.opts.get('lang') or d.get('lang') or t.get('lang') or ctx.settings.get('last_lang') or 'zh'
-    return lang if lang in ('zh', 'en') else 'zh'
-
-
 def st_transcribe(ctx):
     d = ctx.doc()
     if (ctx.opts.get('model') or 'cloud') == 'local':
         raise WorkError('not_supported', '本地模型识别还没有接入，现在只能用云端识别（model=cloud）')
-    if d.get('segments') and not ctx.force:
-        raise _Skip('已经有字幕（要重新识别：--steps transcribe --force）')
+    f = ctx.skip_check('transcribe', d)
     s = ctx.settings
-    lang = _lang(ctx, d)
+    lang = f.lang(d)
     provider = ctx.opts.get('provider') or (s['asr_en'] if lang == 'en' else s['asr_zh'])
     if provider not in ('openai', 'siliconflow', 'doubao'):
         raise WorkError('config', '未知的识别服务：' + str(provider))
@@ -400,11 +605,8 @@ def _need_segments(d):
 def st_correct(ctx):
     d = ctx.doc()
     _need_segments(d)
+    ctx.skip_check('correct', d)
     teacher = ctx.teacher(d)
-    if not teacher and not ctx.opts.get('allow_no_teacher'):  # 界面里用户确认过「只修正明显的错别字」时照样校对
-        raise _Skip('这节课没有指定老师（术语表），和一键整理一样不做 AI 校对')
-    if d.get('corrected') and not ctx.force:
-        raise _Skip('已经校对过')
     s = ctx.settings
     name = s['correct']
     llm.check(s, name)
@@ -452,13 +654,9 @@ def st_correct(ctx):
 def st_frames(ctx):
     d = ctx.doc()
     _need_segments(d)
+    name = ctx.skip_check('frames', d).vision()[0]
     info = media.probe(ctx.path)
-    if not info.get('has_video'):
-        raise _Skip('音频文件，没有画面')
     s = ctx.settings
-    name = _vision_or_skip(s)
-    if (d.get('frames') or 'frames' in _steps(d)) and not ctx.force:
-        raise _Skip('已经挑过插图')
     ctx.task.stage('frames').update(model=_model_of(s, name))
     try:
         got = frames.extract(s, name, ctx.path, float(d.get('duration') or info['duration'] or 0), d['segments'], ctx.cancel, ctx.progress)
@@ -477,18 +675,15 @@ def st_frames(ctx):
 def st_recheck(ctx):
     d = ctx.doc()
     _need_segments(d)
-    info = media.probe(ctx.path)
-    if not info.get('has_video'):
-        raise _Skip('音频文件，没有画面')
+    try:
+        name = ctx.skip_check('recheck', d).vision()[0]
+    except _Skip as e:
+        if str(e) == NO_DOUBTS:  # 记下「复核过」，以后不再算没做完
+            _apply(ctx.path, lambda doc: _steps(doc).__setitem__('recheck', tasks.now()))
+        raise
     s = ctx.settings
-    name = _vision_or_skip(s)
-    if 'recheck' in _steps(d) and not ctx.force:
-        raise _Skip('已经复核过')
     segs = d['segments']
     idx = [i for i, x in enumerate(segs) if doubt_of(d, x)]
-    if not idx:
-        _apply(ctx.path, lambda doc: _steps(doc).__setitem__('recheck', tasks.now()))
-        raise _Skip('没有存疑句')
     ctx.task.stage('recheck').update(model=_model_of(s, name))
     items = [{'i': i, 'start': segs[i]['start'], 'end': segs[i]['end'], 'text': segs[i]['text'], 'reason': doubt_of(d, segs[i]).get('reason', ''),
               'before': ' '.join(x['text'] for x in segs[max(0, i - 2):i]), 'after': ' '.join(x['text'] for x in segs[i + 1:i + 3])}
@@ -530,13 +725,10 @@ def st_recheck(ctx):
 def st_translate(ctx):
     d = ctx.doc()
     _need_segments(d)
-    if (d.get('lang') or _lang(ctx, d)) != 'en' and not ctx.opts.get('any_lang'):  # 界面里用户自己选了翻译时照样翻
-        raise _Skip('中文字幕，不用翻译')
+    ctx.skip_check('translate', d)
     segs = d['segments']
     every = ctx.force or ctx.opts.get('translate_all')  # 全部重新翻译；否则只翻还没有译文的
     todo = [(i, x['text']) for i, x in enumerate(segs) if x['text'].strip() and (every or not str(x.get('tr') or '').strip())]
-    if not todo:
-        raise _Skip('已经都有译文')
     s = ctx.settings
     name = s['translate']
     llm.check(s, name)
@@ -566,8 +758,7 @@ def st_translate(ctx):
 def st_summary(ctx):
     d = ctx.doc()
     _need_segments(d)
-    if (d.get('summary') or '').strip() and not ctx.force:
-        raise _Skip('已经有课程重点')
+    ctx.skip_check('summary', d)
     s = ctx.settings
     name = s['chat']
     llm.check(s, name)
@@ -600,14 +791,7 @@ def st_summary(ctx):
 def st_review(ctx):
     d = ctx.doc()
     summary = (d.get('summary') or '').strip()
-    if not summary:
-        raise _Skip('还没有课程重点')
-    if not ctx.settings.get('auto_review', True) and not ctx.force:
-        raise _Skip('设置里关掉了「自动查漏补缺」')
-    if 'review' in _steps(d) and not ctx.force:
-        raise _Skip('已经查漏过')
-    if 'summary' not in _steps(d) and not ctx.force:
-        raise _Skip('课程重点是以前在软件里生成的（当时已经自动查漏）')
+    ctx.skip_check('review', d)
     s = ctx.settings
     name = s['chat']
     llm.check(s, name)
@@ -630,12 +814,8 @@ def st_review(ctx):
 def st_terms(ctx):
     d = ctx.doc()
     _need_segments(d)
+    ctx.skip_check('terms', d)
     teacher = ctx.teacher(d)
-    if not teacher:
-        raise _Skip('这节课没有指定老师（术语表），和一键整理一样不找新术语')
-    st = _steps(d)
-    if not ctx.force and ('terms' in st or d.get('terms_pending') or (not st and (d.get('summary') or '').strip())):
-        raise _Skip('已经找过新术语' + ('（等你在软件里勾选）' if d.get('terms_pending') else ''))
     s = ctx.settings
     name = s['chat']
     llm.check(s, name)
@@ -658,12 +838,8 @@ def _paged(chs):
 
 def st_chapters(ctx):
     d = ctx.doc()
+    ctx.skip_check('chapters', d)
     info = book.read(ctx.path)
-    chs = d.get('chapters') or []
-    if any((c.get('md') or '').strip() for c in chs):
-        raise _Skip('已经有整理好的章节，保持现在的分章')
-    if chs and not (_paged(chs) and not info.get('toc')):
-        raise _Skip(f'用软件认出的 {len(chs)} 章')
     s = ctx.settings
     name = s['chat']
     llm.check(s, name)
@@ -693,8 +869,9 @@ def st_organize(ctx):
         todo = [i for i, c in enumerate(chs) if ctx.force or not (c.get('md') or '').strip()]
     if not chs:
         raise WorkError('no_subtitles', '这本书没有分出章节')
+    ctx.skip_check('organize', d)
     if not todo:
-        raise _Skip('每一章都整理过了')
+        raise _Skip('没有要整理的章节')
     s = ctx.settings
     name = s['chat']
     llm.check(s, name)
@@ -742,8 +919,7 @@ def st_overview(ctx):
         raise WorkError('no_subtitles', '还没有整理好的章节')
     if not all((c.get('md') or '').strip() for c in chs) and not ctx.opts.get('allow_partial'):  # 界面里用户可以先写
         raise WorkError('no_subtitles', '还有章节没整理完，整理完才写全书总览', True)
-    if (d.get('overview') or '').strip() and not ctx.force:
-        raise _Skip('已经有全书总览')
+    ctx.skip_check('overview', d)
     s = ctx.settings
     name = s['chat']
     llm.check(s, name)
@@ -992,7 +1168,9 @@ def info(target):
             out['warning'] = tail
     d = docs.load(path) or {}
     out['teacher'] = d.get('teacher') or library.folder_teacher(path)
-    out['processed'] = bool(out['state'].get('summary_chars') or out['state'].get('overview'))
-    out['next_steps'] = [s for s in stages_for(path)]
+    todo, skipped = plan(path)
+    out['processed'] = not todo  # 一键整理默认的步骤都做完了
+    out['next_steps'] = todo     # 还要做的（做过的、不用做的不算）
+    out['skipped_steps'] = skipped
     out['recent_tasks'] = [{k: t.get(k) for k in ('task_id', 'status', 'created', 'finished')} for t in tasks.recent(5, path)]
     return out

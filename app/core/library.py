@@ -23,6 +23,7 @@ from pathlib import Path
 
 from . import config, doc as docs
 from .book import LIB_EXT
+from .log import log
 from .media import AUDIO_EXT, MEDIA_EXT
 
 MAX_FILES = 3000
@@ -109,8 +110,9 @@ def save(lib):
     config.save_library(lib)
 
 
-def _status(path, positions):
-    """一个文件在列表里要显示的状态：有没有字幕、剪藏过没有、看到哪里。"""
+def _status(path, positions, env=None):
+    """一个文件在列表里要显示的状态：有没有字幕、剪藏过没有、看到哪里。
+    给了 env（_scan_env）时还算出 pending：按一键整理默认的步骤还要做哪几步（用已经读出来的字幕文件，不多读文件）。"""
     item = {'path': path, 'name': Path(path).stem, 'ext': Path(path).suffix.lower()[1:]}
     side = docs.stored_file(path)
     d = None
@@ -133,6 +135,9 @@ def _status(path, positions):
         item['reviewed'] = bool(d.get('reviewed'))
         item['teacher'] = d.get('teacher') or ''
         item['duration'] = d.get('duration') or 0
+    if env is not None:
+        from . import workflow  # workflow 也用 library，放这里免得互相引用
+        item['pending'] = workflow.pending_in_scan(path, d, env['facts'], _bound_teacher(env['binds'], path))
     pos = positions.get(os.path.abspath(path).lower())
     if pos:
         item['pos'] = pos.get('t', 0)
@@ -178,7 +183,7 @@ def _ctime(path):
         return 0
 
 
-def _tree(path, lib, positions, budget, top=False):
+def _tree(path, lib, positions, budget, top=False, env=None):
     """一个文件夹的树：{type, path, name, top, teacher, collapsed, missing, count, num, children}。没有任何可列文件的子文件夹不显示。"""
     k = _key(path)
     conf = lib['dirs'].get(k, {})
@@ -191,14 +196,14 @@ def _tree(path, lib, positions, budget, top=False):
     for d in dirs:
         if budget[0] <= 0:
             break
-        child = _tree(d.path, lib, positions, budget)
+        child = _tree(d.path, lib, positions, budget, env=env)
         if child['count']:
             entries.append(dict(child, ctime=_ctime(d.path), fname=d.name))
     for f in files:
         if budget[0] <= 0:
             break
         budget[0] -= 1
-        entries.append(dict(_status(f['path'], positions), type='file', ctime=f['ctime'], fname=f['name']))
+        entries.append(dict(_status(f['path'], positions, env), type='file', ctime=f['ctime'], fname=f['name']))
     ordered = arrange([dict(e, name=e['fname'], label=e['name']) for e in entries], lib['orders'].get(k))
     node['children'] = [dict(e, name=e['label'], num=bool(number_key(e['fname']))) for e in ordered]
     for e in node['children']:
@@ -212,6 +217,7 @@ def view():
     lib = load()
     positions = config.get_positions()
     budget = [MAX_FILES]
+    env = _scan_env(lib)
     by_key = {_key(f['path']): f for f in lib['folders']}
     files = {_key(p): p for p in lib['files']}
     out = []
@@ -219,11 +225,11 @@ def view():
         k = _key(p)
         if k in by_key:
             f = by_key[k]
-            node = _tree(f['path'], lib, positions, budget, top=True)
+            node = _tree(f['path'], lib, positions, budget, top=True, env=env)
             node.update(name=f.get('name') or node['name'], teacher=f.get('teacher') or '', collapsed=bool(f.get('collapsed')))
             out.append(node)
         elif k in files and os.path.isfile(files[k]):
-            out.append(dict(_status(files[k], positions), type='file', top=True, fname=Path(files[k]).name, num=False))
+            out.append(dict(_status(files[k], positions, env), type='file', top=True, fname=Path(files[k]).name, num=False))
     return out
 
 
@@ -383,11 +389,29 @@ def reorder(parent, names):
     save(lib)
 
 
-def folder_teacher(media_path):
-    """视频所在文件夹绑定的老师：自己没绑定就沿用最近一层上级的（加进来的文件夹和下层文件夹都算）。"""
-    lib = load()
+def _scan_env(lib):
+    """列整个媒体库时只准备一次的东西：设置、老师档案、各层文件夹绑定的老师。"""
+    from . import workflow
+    try:
+        facts = workflow.scan_facts()
+    except Exception:  # noqa: BLE001  读设置出错时不显示「待补完」，列表照样能用
+        log.exception('媒体库：准备「还差哪几步」的判断出错')
+        return None
+    return {'facts': facts, 'binds': _teacher_binds(lib)}
+
+
+def _teacher_binds(lib):
     binds = {_key(f['path']): f.get('teacher') for f in lib['folders'] if f.get('teacher')}
     binds.update({k: v.get('teacher') for k, v in lib['dirs'].items() if v.get('teacher')})
+    return binds
+
+
+def folder_teacher(media_path):
+    """视频所在文件夹绑定的老师：自己没绑定就沿用最近一层上级的（加进来的文件夹和下层文件夹都算）。"""
+    return _bound_teacher(_teacher_binds(load()), media_path)
+
+
+def _bound_teacher(binds, media_path):
     d = os.path.dirname(_key(media_path))
     while True:
         if binds.get(d):

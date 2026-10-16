@@ -125,7 +125,7 @@ class Api:
         if not d.get('teacher'):
             d['teacher'] = library.folder_teacher(path)
         out = {'path': path, 'info': info, 'doc': d, 'plan': plan, 'position': config.get_position(path),
-               'busy': tasks.busy(docs.media_key(path)), 'summary_changes': docs.summary_changes(d)}
+               'busy': tasks.busy(docs.media_key(path)), 'summary_changes': docs.summary_changes(d), 'pending': workflow.pending_now(path, d)}
         cached = media.playable_path(path, info)
         if plan == 'direct':
             out['src'] = file_url(path)
@@ -190,7 +190,7 @@ class Api:
             raise ValueError('文件不见了：' + path)
         d = workflow.load_doc(path)
         return {'doc': d, 'stale': docs.clip_stale(d) if d.get('kind') != 'book' else False, 'busy': tasks.busy(docs.media_key(path)),
-                'summary_changes': docs.summary_changes(d)}
+                'summary_changes': docs.summary_changes(d), 'pending': workflow.pending_now(path, d)}
 
     def do_cancel(self, b):
         job = jobs.get(b.get('id'))
@@ -307,7 +307,8 @@ class Api:
             d['teacher'] = library.folder_teacher(path)
         config.add_recent(path, d.get('title') or Path(path).stem)
         return {'path': path, 'kind': 'book', 'doc': d, 'book': self._book_info(info, d),
-                'viewer': file_url(path) if info['kind'] == 'pdf' else None, 'busy': tasks.busy(docs.media_key(path))}
+                'viewer': file_url(path) if info['kind'] == 'pdf' else None, 'busy': tasks.busy(docs.media_key(path)),
+                'pending': workflow.pending_now(path, d)}
 
     def do_book_pages(self, b):
         """Word / 文本在左边显示：每「页」的文字和图片。"""

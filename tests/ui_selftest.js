@@ -277,6 +277,13 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('点提醒里的「重新生成」：用改好的字幕重新写，提醒消失', await until(() => !S.job && S.summaryChanges === 0 && document.querySelector('#summaryStale').hidden, 15000));
     ok('媒体库标「重点待更新」', itemHTML({ path: 'x.mp4', name: 'x', summary: true, summary_changes: 5 }).includes('重点待更新')
       && !itemHTML({ path: 'x.mp4', name: 'x', summary: true, summary_changes: 2 }).includes('重点待更新'));
+    ok('媒体库标「待补完」：有课程重点但一键整理还差几步（悬停写明差哪几步）',
+      itemHTML({ path: 'x.mp4', name: 'x', summary: true, pending: ['review', 'terms'] }).includes('待补完')
+      && itemHTML({ path: 'x.mp4', name: 'x', summary: true, pending: ['review', 'terms'] }).includes('查漏补缺、新术语')
+      && !itemHTML({ path: 'x.mp4', name: 'x', summary: true, pending: [] }).includes('待补完')
+      && !itemHTML({ path: 'x.mp4', name: 'x', subs: 5, pending: ['correct', 'summary'] }).includes('待补完')
+      && itemHTML({ path: 'x.pdf', name: 'x', book: { done: 2, total: 2 }, pending: ['overview'] }).includes('待补完')
+      && !itemHTML({ path: 'x.pdf', name: 'x', book: { done: 1, total: 2 }, pending: ['organize', 'overview'] }).includes('待补完'));
     ok('翻译：中文字幕自己选了翻译也照样翻', await startTranslate(false) && S.doc.segments.every(s => s.tr.startsWith('中文：')));
     const termsP = findTerms(false);
     ok('新术语：放进待勾选并打开对话框', await until(() => document.querySelector('#dlgTerms').open) && S.doc.terms_pending.terms[0].term === '假AI新术语');
@@ -292,6 +299,8 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       && S.doc.versions.some(v => v.reason === '重新识别前') && S.doc.corrected && S.doc.summary.includes('## 一、风险') && !S.job, toasts());
     const tasksNow = await api('doc', { path: S.path });
     ok('一键整理：整理结果和磁盘上的一致', tasksNow.doc.rev === S.rev && tasksNow.doc.summary === S.doc.summary);
+    ok('一键整理后：「还差哪几步」跟着更新（媒体库的「待补完」用它）', Array.isArray(S.pending) && JSON.stringify(S.pending) === JSON.stringify(tasksNow.pending)
+      && !S.pending.includes('summary') && !S.pending.includes('review'), [S.pending, tasksNow.pending]);
     await api('settings', { settings: { chat: 'claude' } });  // Claude 没填 Key：课程重点会失败
     await loadSettings();
     const sumBefore = S.doc.summary;

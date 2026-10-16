@@ -152,7 +152,10 @@ def task_text(c):
 
 def item_text(x):
     m, s = divmod(int(x.get('duration') or 0), 60)
-    return f'{x["video_id"]}  {x["course"]}{" / " + x["sub"] if x["sub"] else ""}  #{x["index"]}  {x["name"]}  [{x["state"]}]' + (f'  {m}:{s:02d}' if m or s else '')
+    from core.workflow import LABELS
+    left = [LABELS.get(n, n) for n in x.get('pending_steps') or []] if x.get('state') != '未处理' else []
+    return (f'{x["video_id"]}  {x["course"]}{" / " + x["sub"] if x["sub"] else ""}  #{x["index"]}  {x["name"]}  [{x["state"]}]'
+            + (f'  {m}:{s:02d}' if m or s else '') + (f'  还差：{"、".join(left)}' if left else ''))
 
 
 # ---------------------------------------------------------------- 命令 ----
@@ -223,11 +226,14 @@ def cmd_process(a, out, wf):
         out.result({'success': True, 'count': 0, 'results': [], 'message': '没有需要整理的'}, '没有需要整理的')
         return EXIT_OK
     if a.dry_run:
-        plan = [{'path': p, 'video_id': wf.video_id(p), 'kind': wf.kind_of(p), 'steps': wf.stages_for(p, steps or None, skip or None),
-                 'state': wf.summarize(p)} for p in paths]
+        plan = []
+        for p in paths:  # 只列这次真正会做的步骤（做过的、不用做的不列，原因在 skipped 里）
+            todo, skipped = wf.plan(p, steps or None, skip or None, redo=steps if a.force else (), opts={'lang': a.lang})
+            plan.append({'path': p, 'video_id': wf.video_id(p), 'kind': wf.kind_of(p), 'steps': todo, 'skipped': skipped,
+                         'state': wf.summarize(p)})
         out.result({'success': True, 'count': len(plan), 'dry_run': True, 'plan': plan},
-                   '\n'.join(f'{x["video_id"]}  {Path(x["path"]).name}：{"、".join(wf.LABELS[s] for s in x["steps"])}' for x in plan)
-                   + f'\n共 {len(plan)} 个（只是预览，没有执行；做过的步骤执行时会自动跳过）')
+                   '\n'.join(f'{x["video_id"]}  {Path(x["path"]).name}：{"、".join(wf.LABELS[s] for s in x["steps"]) or "都做过了"}' for x in plan)
+                   + f'\n共 {len(plan)} 个（只是预览，没有执行；只列还要做的步骤）')
         return EXIT_OK
 
     def make(p, cancel):
@@ -293,7 +299,7 @@ def parser():
     sel = argparse.ArgumentParser(add_help=False)
     sel.add_argument('--course', help='课程：媒体库里的文件夹名或子文件夹名（包含即可）')
     sel.add_argument('--index', type=int, help='这个课程里的第几个（从 1 开始，和软件左边列表顺序一样）')
-    sel.add_argument('--todo', action='store_true', help='只要还没整理的（没有课程重点 / 书还有章节没整理）')
+    sel.add_argument('--todo', action='store_true', help='只要还没整理完的：一键整理默认的步骤还有没做完的（包括有课程重点、但查漏或新术语中途失败的；书还有章节或全书总览没写）')
     sel.add_argument('--since', help='只要这天以后新增的：today、yesterday 或 2026-10-14')
     sel.add_argument('--kind', choices=['video', 'book'], help='只要视频（含音频）或只要书')
     run_opts = argparse.ArgumentParser(add_help=False)

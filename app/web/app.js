@@ -217,6 +217,16 @@ function libNode(path, nodes = S.lib) {
   return null;
 }
 const insideDir = (path, dir) => !!path && !!dir && path.toLowerCase().startsWith(dir.toLowerCase().replace(/[\\/]+$/, '') + '\\');
+/* 整理步骤的中文名（和 workflow.LABELS 一样） */
+const STEP_LABEL = { transcribe: '生成字幕', correct: 'AI 校对', frames: '找关键帧', recheck: '用画面复核存疑句', translate: '翻译',
+  summary: '课程重点', review: '查漏补缺', terms: '新术语', chapters: '分章', organize: '逐章整理', overview: '全书总览' };
+/* 有整理结果、但一键整理默认的步骤还没做完（例如写完课程重点后额度用完，查漏、新术语没做）：标「待补完」 */
+function pendingTag(it) {
+  const left = it.pending || [];
+  const done = it.book ? it.book.total && it.book.done === it.book.total : it.summary;
+  if (!done || !left.length) return '';
+  return `<span class="tag warn" title="一键整理还差：${left.map(n => STEP_LABEL[n] || n).join('、')}。打开后用一键整理（做过的步骤会自动跳过），或让 AI 用命令行 --todo 接着整理">待补完</span>`;
+}
 function itemHTML(it, depth = 0, parent = '') {
   const tags = [];
   if (it.book) tags.push(`<span class="tag ${it.book.done ? 'ok' : ''}">整理 ${it.book.done}/${it.book.total}</span>`);
@@ -224,6 +234,7 @@ function itemHTML(it, depth = 0, parent = '') {
   if (it.summary) tags.push((it.summary_changes || 0) >= SUMMARY_STALE_AT
     ? `<span class="tag warn" title="生成课程重点之后，字幕又改了 ${it.summary_changes} 句。打开这节课，在课程重点上方点「重新生成」">重点待更新</span>`
     : '<span class="tag acc">重点</span>');
+  if (pendingTag(it)) tags.push(pendingTag(it));
   if (it.reviewed) tags.push('<span class="tag ok">已校对</span>');
   if (it.clipped) tags.push(it.stale ? '<span class="tag warn" title="剪藏后在软件里又改过字幕或课程重点。再点一次「剪藏」，Obsidian 里的笔记才会更新">待更新剪藏</span>'
     : '<span class="tag" title="Obsidian 里的笔记和软件里的内容一致">已剪藏</span>');
@@ -303,11 +314,11 @@ function syncLibFromDoc() {
   if (!S.doc) return;
   if (S.doc.kind === 'book') {
     const chs = S.doc.chapters || [];
-    patchLib(S.path, { book: { done: chs.filter(c => (c.md || '').trim()).length, total: chs.length }, clipped: !!S.doc.clip });
+    patchLib(S.path, { book: { done: chs.filter(c => (c.md || '').trim()).length, total: chs.length }, clipped: !!S.doc.clip, pending: S.pending || [] });
     return;
   }
   patchLib(S.path, { subs: S.doc.segments.length, summary: !!(S.doc.summary || '').trim(), clipped: !!S.doc.clip, stale: !!S.docStale, reviewed: !!S.doc.reviewed, duration: S.doc.duration,
-    summary_changes: S.summaryChanges || 0 });
+    summary_changes: S.summaryChanges || 0, pending: S.pending || [] });
 }
 function showCtx(x, y, html, bindings) {
   const m = $('#ctxMenu');
@@ -477,7 +488,7 @@ window.openPath = async function (path) {
     // 换课时关掉单句循环：「存疑 / 回听」会自动打开它，以前一直开着，换到别的课就一直循环同一句
     $('#optLoop').checked = false; S.loopIdx = null; updateLoopHint();
     S.docStale = libFiles().some(it => it.stale && it.path.toLowerCase() === d.path.toLowerCase());
-    S.lastSaved = d.doc.updated || null; S.rev = d.doc.rev || 0; S.summaryChanges = d.summary_changes || 0;
+    S.lastSaved = d.doc.updated || null; S.rev = d.doc.rev || 0; S.summaryChanges = d.summary_changes || 0; S.pending = d.pending || [];
     $('#btnUndo').disabled = true;
     $('#empty').hidden = true; $('#stageMain').hidden = false;
     $('#fileTitle').textContent = d.doc.title; $('#fileTitle').title = d.path; document.title = `${d.doc.title} - 猛人学习`;
@@ -526,7 +537,7 @@ function setMode(mode) {
 function bookShift() { const s = S.doc.shift; return s === null || s === undefined || s === '' ? null : +s; }
 function pageRef(n) { const s = bookShift(); return s !== null && n - s >= 1 ? `P${n - s}` : `PDF 第 ${n} 页`; }
 function openBook(d) {
-  S.path = d.path; S.doc = d.doc; S.info = { has_video: false, book: d.book }; S.book = d.book; S.viewer = d.viewer;
+  S.path = d.path; S.doc = d.doc; S.info = { has_video: false, book: d.book }; S.book = d.book; S.viewer = d.viewer; S.pending = d.pending || [];
   revealInLibrary(d.path);
   S.undo = []; S.dirty = false; S.lastSaved = d.doc.updated || null; S.rev = d.doc.rev || 0; S.bookSel = S.bookSel && S.bookSel.path === d.path ? S.bookSel : { path: d.path, i: -1 };
   S.bookChecked = new Set();
@@ -1061,7 +1072,7 @@ async function reloadDoc() {
   if (S.dirty) await save();
   const r = await api('doc', { path: S.path });
   S.doc = r.doc; S.rev = r.doc.rev || 0; S.lastSaved = r.doc.updated || S.lastSaved; S.dirty = false; S.docStale = !!r.stale;
-  S.summaryChanges = r.summary_changes || 0;
+  S.summaryChanges = r.summary_changes || 0; S.pending = r.pending || [];
   syncLibFromDoc();
 }
 function renderDoc() {

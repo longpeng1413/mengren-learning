@@ -117,6 +117,7 @@ def fake_complete(settings, name, messages, json_mode=False):
         return json.dumps({'补充': [{'放在': '二、结构', '内容': '- 老师自述：讲了很多年 [00:06]'}]}, ensure_ascii=False)
     if sys_text == llm.TERMS_SYSTEM:
         calls['terms'] += 1
+        maybe_fail('terms')
         return json.dumps({'新术语': [{'术语': '再推进', '时间': '00:06', '原话': '这就是三段结构'}, {'术语': '峰级', '时间': '00:00'}],
                            '识别错误': [{'错写': '风级', '正确': '峰级', '时间': '00:02', '原话': '风级的入门'}]}, ensure_ascii=False)
     raise AssertionError('没想到的 AI 调用：' + sys_text[:40])
@@ -479,6 +480,105 @@ with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
     cli.main(['run', 'summary', L1, '--json', '--quiet'])
 check('命令行整理时也清理缓存（以前只有软件启动时清）', not old_wav.exists())
 
+# ------------------------------------------------------------ 还没整理完的课 ----
+# 2026-10-16：以前「还没整理的课」只看有没有课程重点。「37、三角形突破应用逻辑」写完课程重点后 ChatGPT 额度用完，
+# 查漏、新术语都没做，--todo 却不再列出它。现在按一键整理默认的步骤逐步判断（和真正整理时跳过的规则是同一个函数）。
+def lesson(name):
+    p = COURSE / '1、基础' / name
+    shutil.copy(ROOT / 'test-media' / '演示视频.mp4', p)
+    return str(p)
+
+
+def item_of(path):
+    return next(x for x in wf.find(course='峰级') if x['path'] == path)
+
+
+L5 = lesson('5、第五课.mp4')
+FAIL['review'] = [99, llm.LlmError('ChatGPT 额度不足：You have hit your usage limit（usage_limit_reached）')]
+FAIL['terms'] = [99, llm.LlmError('ChatGPT 额度不足：You have hit your usage limit（usage_limit_reached）')]
+t11 = wf.process(L5)
+FAIL.pop('review')
+FAIL.pop('terms')
+check('额度用完：课程重点写好了，查漏、新术语没做', t11['status'] == 'failed' and t11['error']['stage'] == 'terms'
+      and (docs.load(L5).get('summary') or '').strip() and 'review' not in docs.load(L5)['steps'])
+it5 = item_of(L5)
+check('有课程重点、但查漏和新术语没做完：算没整理完（--todo 会选上）', it5['todo'] and it5['pending_steps'] == ['review', 'terms']
+      and it5['state'] == '待补完' and L5 in [x['path'] for x in wf.find(course='峰级', todo=True)], it5)
+inf5 = wf.info(L5)
+check('info：只列还要做的步骤，做过的、不用做的写明原因', not inf5['processed'] and inf5['next_steps'] == ['review', 'terms']
+      and inf5['skipped_steps']['summary'] == '已经有课程重点' and '不用翻译' in inf5['skipped_steps']['translate'], inf5['next_steps'])
+check('预览（--dry-run 用的）：同样只列查漏、新术语；指定重做的照样列', wf.plan(L5) == (inf5['next_steps'], inf5['skipped_steps'])
+      and wf.plan(L5, steps=['summary', 'review'], redo=['summary'])[0] == ['summary', 'review'])
+c5 = calls.copy()
+t12 = wf.process(L5)
+st12 = {s['name']: s['status'] for s in t12['stages']}
+check('再整理：只做没做完的查漏和新术语，不重新识别、校对、写重点', t12['status'] == 'completed'
+      and calls - c5 == Counter({'review': 1, 'terms': 1})
+      and [n for n, v in st12.items() if v == 'completed'] == ['review', 'terms'], (calls - c5, st12))
+it5 = item_of(L5)
+check('补完以后：不再算没整理完', not it5['todo'] and it5['pending_steps'] == [] and it5['state'] == '已整理' and wf.info(L5)['processed'])
+
+L6 = lesson('6、第六课.mp4')
+FAIL['review'] = [99, llm.LlmError('查漏结果格式不对，请重试或换一个 AI 服务')]
+t13 = wf.process(L6)
+FAIL.pop('review')
+it6 = item_of(L6)
+check('只有「查漏」这种失败了不影响后面的步骤失败：任务算完成，但这节课仍算没整理完', t13['status'] == 'completed' and t13['warnings']
+      and it6['todo'] and it6['pending_steps'] == ['review'] and it6['state'] == '待补完', it6)
+c6 = calls.copy()
+wf.process(L6)
+check('再整理只做查漏', calls - c6 == Counter({'review': 1}) and not item_of(L6)['todo'])
+
+# 以前整理过的旧字幕文件（没有 steps 记录）：不能全部误判成没整理完
+L7 = lesson('7、第七课.mp4')
+old7 = docs.new(L7, {'duration': 9})
+old7.update(segments=[{'start': 0.0, 'end': 2.0, 'text': '大家好', 'tr': ''}], corrected=True, teacher=teacher['id'],
+            summary='## 一、以前写的重点\n\n- 大家好 [00:00]', doubts=[{'t': 0.0, 'reason': '以前标的', 'text': '大家好'}])
+docs.save(L7, old7)
+check('旧字幕文件：有课程重点、没有 steps 记录 → 算整理完了（不重新找插图、复核、查漏、找新术语）', 'steps' not in docs.load(L7)
+      and not item_of(L7)['todo'] and item_of(L7)['state'] == '已整理' and wf.info(L7)['next_steps'] == [], item_of(L7))
+c7 = calls.copy()
+check('旧字幕文件：整理时同样全部跳过', wf.process(L7)['status'] == 'completed' and calls == c7)
+L8 = lesson('8、第八课.mp4')
+old8 = docs.new(L8, {'duration': 9})
+old8.update(segments=[{'start': 0.0, 'end': 2.0, 'text': '大家好', 'tr': ''}], corrected=True, teacher=teacher['id'])
+docs.save(L8, old8)
+check('旧字幕文件：只校对过、没写课程重点 → 没整理完，从找插图往后做（没有存疑句不用复核）',
+      item_of(L8)['pending_steps'] == ['frames', 'summary', 'review', 'terms'] and item_of(L8)['state'] == '有字幕', item_of(L8))
+
+# 不该做的步骤不算没做：中文不翻译、音频没有画面、没有老师不校对不找新术语
+S0 = config.load()
+done_zh = {'segments': [{'start': 0, 'end': 1, 'text': '你好', 'tr': ''}], 'lang': 'zh', 'summary': 'x', 'steps': {'summary': 1, 'review': 1}}
+audio_no_teacher = wf.Facts(S0, teacher=None, has_video=False, vision=('openai', ''))
+check('音频、没有老师、中文：课程重点和查漏做完就算整理完', wf.pending_steps(done_zh, 'video', audio_no_teacher)[0] == []
+      and set(wf.pending_steps(done_zh, 'video', audio_no_teacher)[1]) == set(wf.VIDEO_STAGES))
+check('还没有任何结果的音频（没有老师）：生成字幕 → 课程重点 → 查漏', wf.pending_steps({}, 'video', audio_no_teacher)[0] == ['transcribe', 'summary', 'review'])
+video_teacher_en = wf.Facts(S0, teacher={'id': 'x', 'lang': 'en'}, has_video=True, vision=('openai', ''))
+check('英文视频、有老师：全部步骤都要做（校对完可能有存疑句，复核也算上）', wf.pending_steps({}, 'video', video_teacher_en)[0] == wf.VIDEO_STAGES)
+check('能看图的 AI 没设好：找插图、复核跳过，不算没做', wf.pending_steps({}, 'video', wf.Facts(S0, teacher={'id': 'x'}, vision=('', '没设好')))[0]
+      == ['transcribe', 'correct', 'summary', 'review', 'terms'])
+check('设置里关掉「自动查漏补缺」：查漏不算没做', wf.pending_steps(dict(done_zh, steps={'summary': 1}), 'video',
+      wf.Facts(dict(S0, auto_review=False), teacher=None, has_video=False, vision=('', 'x')))[0] == [])
+check('书：章节都整理完、没写全书总览 → 没整理完', wf.pending_steps({'kind': 'book', 'chapters': [{'title': '第一章', 'md': '内容'}]}, 'book',
+      wf.Facts(S0))[0] == ['overview'])
+
+
+def tree_files(nodes):
+    for n in nodes:
+        if n['type'] == 'folder':
+            yield from tree_files(n['children'])
+        else:
+            yield n
+
+
+r = Api().call('library', {})
+lib_items = {n['path']: n for n in tree_files(r['groups'])}
+check('媒体库界面的列表也带「还差哪几步」', r['ok'] and lib_items[L6]['pending'] == [] and lib_items[L8]['pending'][0] == 'frames')
+for p in (L5, L6, L7, L8):  # 后面的命令行测试不用它们
+    os.remove(p)
+    docs.sidecar(p).unlink(missing_ok=True)
+
+
 # ------------------------------------------------------------ 命令行 ----
 def run_cli(*argv):
     buf, err = io.StringIO(), io.StringIO()
@@ -492,13 +592,21 @@ check('命令行 find：JSON', code == 0 and out['success'] and out['count'] == 
 code, out, _ = run_cli('info', wf.video_id(L1), '--json')
 check('命令行 info：JSON', code == 0 and out['success'] and out['state']['segments'] == 4 and 'metadata' in out)
 shutil.copy(ROOT / 'test-media' / '演示视频.mp4', COURSE / '1、基础' / '4、第四课.mp4')
-code, out, _ = run_cli('process', '--course', '峰级', '--todo', '--dry-run', '--json')
-check('命令行 process --dry-run：只看不做', code == 0 and out['dry_run'] and [Path(x['path']).name for x in out['plan']] == ['4、第四课.mp4'])
 c3 = calls.copy()
+code, out, _ = run_cli('process', '--course', '峰级', '--todo', '--dry-run', '--json')
+plan_ = {Path(x['path']).name: x['steps'] for x in out['plan']}
+# 第一课：前面用 force 重新生成过课程重点（只做了这一步），第三课：查漏失败过，都只差查漏；第四课是新加的
+check('命令行 process --dry-run：只看不做，只列真正还要做的步骤', code == 0 and out['dry_run'] and calls == c3
+      and plan_ == {'1、第一课.mp4': ['review'], '3、第三课.mp4': ['review'],
+                    '4、第四课.mp4': ['transcribe', 'correct', 'frames', 'recheck', 'summary', 'review', 'terms']}, plan_)
+code, text, _ = run_cli('process', '--course', '峰级', '--todo', '--dry-run')
+check('命令行 --dry-run 中文输出', '1、第一课.mp4：查漏补缺' in text, text)
+code, text, _ = run_cli('list', '--course', '峰级', '--todo')
+check('命令行 list --todo：写明「待补完」和还差哪几步', '第一课  [待补完]' in text and '还差：查漏补缺' in text and '共 3 个' in text, text)
 code, out, err = run_cli('process', '--course', '峰级', '--todo', '--json')
 r0 = out['results'][0] if out.get('results') else {}
-check('命令行 process：整理今天新增的、还没整理的', code == 0 and out['success'] and out['count'] == 1 and r0['success']
-      and calls['asr'] == c3['asr'] + 1, out)
+check('命令行 process --todo：新课从头整理，只差查漏的只做查漏', code == 0 and out['success'] and out['count'] == 3 and r0['success']
+      and calls - c3 == Counter({'review': 3, 'asr': 1, 'correct': 1, 'frames': 1, 'recheck': 1, 'summary': 1, 'terms': 1}), (out, calls - c3))
 check('JSON 结构：success / task_id / stage / error_code / retryable / stages / state',
       {'success', 'task_id', 'video_id', 'stage', 'error_code', 'message', 'retryable', 'stages', 'state', 'warnings'} <= set(r0)
       and {'name', 'label', 'status', 'retries', 'model', 'result'} <= set(r0['stages'][0]))
