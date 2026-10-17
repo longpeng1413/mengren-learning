@@ -549,10 +549,16 @@ def st_transcribe(ctx):
     provider = ctx.opts.get('provider') or (s['asr_en'] if lang == 'en' else s['asr_zh'])
     if provider not in ('openai', 'siliconflow', 'doubao'):
         raise WorkError('config', '未知的识别服务：' + str(provider))
+    pick = ctx.opts.get('doubao_model')  # 这次用哪种豆包模型（'auto' = 自动换）；没给就按设置
+    if provider == 'doubao' and pick:
+        pick = '' if pick == 'auto' else pick
+        if pick and pick not in asr.DOUBAO_MODELS:
+            raise WorkError('not_supported', f'不认识的豆包模型：{pick}。可以用：auto、{"、".join(asr.DOUBAO_ORDER)}')
+        s = dict(s, providers=dict(s['providers'], doubao=dict(s['providers']['doubao'], pick=pick)))
     asr.check_ready(s, provider)
     info = media.probe(ctx.path)
     teacher = ctx.teacher(d)
-    # 豆包：按账号 × 模型自动换（asr.doubao_plan），用的是哪个识别完才知道
+    # 豆包：按账号 × 模型自动换（选定了一种模型时只用这一种）（asr.doubao_plan），用的是哪个识别完才知道
     model = '' if provider == 'doubao' else s['providers'][provider].get('asr_model')
     ctx.task.stage('transcribe').update(model=f'{provider} · {model or "自动"}', params={'lang': lang, 'provider': provider})
     cues, used = [], {}
@@ -954,7 +960,7 @@ def stages_for(path, steps=None, skip=None):
     return wanted
 
 
-GUI_OPTIONS = ('allow_no_teacher', 'any_lang', 'translate_all', 'chapters', 'allow_partial')
+GUI_OPTIONS = ('allow_no_teacher', 'any_lang', 'translate_all', 'chapters', 'allow_partial', 'doubao_model')
 
 
 def process(target, steps=None, skip=None, redo=(), lang=None, provider=None, model='cloud',

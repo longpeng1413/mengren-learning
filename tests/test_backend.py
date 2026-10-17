@@ -903,6 +903,16 @@ dp = {'key': 'main-key-123456', 'name': '', 'more_keys': [{'id': 'b1', 'name': '
 check('账号：主账号叫「账号 1」，没填密钥的备用账号不算', [(a['id'], a['name']) for a in asr.doubao_accounts(dp)] == [('main', '账号 1'), ('b1', '小号')])
 check('顺序：每种模型先把所有账号用完再换下一种，跳过用完的',
       [(a['id'], m) for a, m in asr.doubao_plan(dp)] == [('b1', 'stream2'), ('main', 'flash'), ('b1', 'flash'), ('main', 'std1'), ('b1', 'std1'), ('main', 'std2'), ('b1', 'std2')])
+check('用户选定一种模型：只用这一种（账号照样换），不换别的模型；旧设置里的 model 字段不算选定',
+      [(a['id'], m) for a, m in asr.doubao_plan(dict(dp, pick='std1'))] == [('main', 'std1'), ('b1', 'std1')]
+      and [(a['id'], m) for a, m in asr.doubao_plan(dict(dp, pick='stream2'))] == [('b1', 'stream2')]
+      and len(asr.doubao_plan(dict(dp, model='stream2'))) == 7 and len(asr.doubao_plan(dict(dp, pick='nosuch'))) == 7)
+try:
+    asr.recognise('x.mp4', 10, 'doubao', 'zh', {'providers': {'doubao': dict(dp, pick='stream2', more_keys=[])}}, None, lambda *a, **k: None, lambda c: None)
+    e_ = ''
+except asr.QuotaError as e:
+    e_ = str(e)
+check('选定的模型在所有账号上都用完了：直接报错，写明是哪一种，不换别的', '流式识别 2.0' in e_ and '换一种模型' in e_, e_)
 try:
     asr.check_ready({'providers': {'doubao': {'more_keys': [{'id': 'x', 'key': 'k'}]}}}, 'doubao'); e_ = ''
 except asr.AsrError as e:

@@ -290,6 +290,8 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     document.querySelector('#dlgTerms').close('drop'); await termsP;
     ok('新术语：不要就清掉', !S.doc.terms_pending);
     openPipeline();
+    ok('一键整理：可以选这次豆包用哪种模型（默认是设置里选的「自动」）', document.querySelectorAll('#plDbModel option').length === 5
+      && document.querySelector('#plDbModel').value === 'auto');
     ['plAsr', 'plCorrect', 'plFrames', 'plRecheck', 'plSummary', 'plTerms'].forEach(id => { document.getElementById(id).checked = true; });
     document.getElementById('plClip').checked = false;
     document.querySelector('#dlgPipeline').close('ok');
@@ -374,9 +376,13 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     document.querySelector('#tName').value = tOld; await saveTeacher();
     ok('设置：可以关联术语表文件；没有「笔记里的称呼」（笔记不写老师）', document.querySelector('#tFile').textContent === '没有关联' && !!document.querySelector('#tFilePick') && !document.querySelector('#tDisplay'));
     showSection('doubao');
-    ok('设置：豆包只列四种模型、按顺序自动换；没有模型下拉框和对象存储', document.querySelectorAll('#doubaoOrder li').length === 4
+    ok('设置：豆包只列四种模型，可以选「自动」或只用一种；没有对象存储', document.querySelectorAll('#doubaoOrder li').length === 4
        && document.querySelector('#doubaoOrder li').textContent.includes('流式识别 2.0') && !document.querySelector('#doubaoModel')
+       && document.querySelectorAll('input[name=dbPick]').length === 5 && document.querySelector('input[name=dbPick][value=""]').checked
        && !document.querySelector('[data-k="providers.doubao.tos_ak"]'));
+    document.querySelector('input[name=dbPick][value=std1]').checked = true;
+    ok('设置：选「只用录音文件识别 1.0 标准版」会保存', collectSettings().providers.doubao.pick === 'std1', collectSettings().providers.doubao);
+    document.querySelector('input[name=dbPick][value=""]').checked = true;
     document.querySelector('#dbAdd').click();
     const dbRow = document.querySelector('#dbMore .db-acct:last-child');
     dbRow.querySelector('.db-name').value = '小号'; dbRow.querySelector('.db-key').value = 'ui-test-key-98765';

@@ -90,6 +90,7 @@ def maybe_fail(stage):
 def fake_recognise(path, duration, provider, lang, s, cancel, progress, on_cues, teacher=None, title=''):
     calls['asr'] += 1
     seen['asr_provider'] = provider
+    seen['asr_pick'] = s['providers']['doubao'].get('pick')
     maybe_fail('transcribe')
     progress(0.5, '识别中…')
     if lang == 'en':
@@ -313,6 +314,16 @@ t7 = wf.process(EN, provider='siliconflow', steps=['transcribe'])
 check('换识别服务：用指定的', t7['status'] == 'failed' and t7['error']['error_code'] == 'config')  # 硅基流动没填 Key
 t7 = wf.process(EN, provider='openai', steps=['transcribe'])
 check('换识别服务：英文用 OpenAI', t7['status'] == 'completed' and seen['asr_provider'] == 'openai' and docs.load(EN)['lang'] == 'en')
+PICK = TMP / '选模型.mp4'
+shutil.copy(ROOT / 'test-media' / '演示视频.mp4', PICK)
+tp = wf.run_step(str(PICK), 'transcribe', force=True, check_library=False, doubao_model='flash')
+check('这次指定豆包用哪种模型（界面的下拉框、命令行 --doubao-model）', tp['status'] == 'completed' and seen['asr_pick'] == 'flash')
+wf.run_step(str(PICK), 'transcribe', force=True, check_library=False, doubao_model='auto')
+check('这次选「自动」：不管设置里选了什么，都按顺序自动换', seen['asr_pick'] == '')
+wf.run_step(str(PICK), 'transcribe', force=True, check_library=False)
+check('没指定：按设置里选的（默认自动）', seen['asr_pick'] == '')
+tp = wf.run_step(str(PICK), 'transcribe', force=True, check_library=False, doubao_model='nosuch')
+check('不认识的豆包模型：直接报错', tp['status'] == 'failed' and tp['error']['error_code'] == 'not_supported')
 t8 = wf.process(EN, model='local', steps=['transcribe'], redo=['transcribe'])
 check('本地模型：接口留着，明确报「还不支持」', t8['status'] == 'failed' and t8['error']['error_code'] == 'not_supported')
 t9 = wf.process(EN)
