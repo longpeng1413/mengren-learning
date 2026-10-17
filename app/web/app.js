@@ -235,6 +235,7 @@ function itemHTML(it, depth = 0, parent = '') {
     ? `<span class="tag warn" title="生成课程重点之后，字幕又改了 ${it.summary_changes} 句。打开这节课，在课程重点上方点「重新生成」">重点待更新</span>`
     : '<span class="tag acc">重点</span>');
   if (pendingTag(it)) tags.push(pendingTag(it));
+  if (bgTag(it)) tags.push(bgTag(it));
   if (it.reviewed) tags.push('<span class="tag ok">已校对</span>');
   if (it.clipped) tags.push(it.stale ? '<span class="tag warn" title="剪藏后在软件里又改过字幕或课程重点。再点一次「剪藏」，Obsidian 里的笔记才会更新">待更新剪藏</span>'
     : '<span class="tag" title="Obsidian 里的笔记和软件里的内容一致">已剪藏</span>');
@@ -351,10 +352,17 @@ function folderMenu(path, x, y) {
 function itemMenu(path, x, y) {
   const n = libNode(path); if (!n) return;
   showCtx(x, y, `<button class="menu-item" data-a="open">打开</button>
+    ${bgOf(path) ? '' : '<button class="menu-item" data-a="bg" title="按一键整理默认的步骤，只做还没做完的；排在后台一节一节整理，不影响你看别的课">排进后台整理</button>'}
     <button class="menu-item" data-a="rename">重命名…</button>
     <button class="menu-item" data-a="reveal">在资源管理器中显示</button>
     ${n.top ? '<button class="menu-item danger" data-a="remove">从媒体库移除（不删除文件）</button>' : ''}`, m => {
     $('[data-a=open]', m).onclick = () => { m.hidden = true; openPath(path); };
+    const bg = $('[data-a=bg]', m);
+    if (bg) bg.onclick = async () => {
+      m.hidden = true;
+      if (S.path && S.path.toLowerCase() === path.toLowerCase()) await flushSave();
+      try { await bgAdd({ path }); toast(`《${n.name}》排进后台整理了：只做还没做完的步骤，整理完会提示你`); } catch (e) { fail(e); }
+    };
     $('[data-a=rename]', m).onclick = () => { m.hidden = true; renameNode(n); };
     $('[data-a=reveal]', m).onclick = () => { m.hidden = true; api('reveal', { target: path }); };
     const rm = $('[data-a=remove]', m);
@@ -1377,35 +1385,106 @@ async function runPipeline() {
   if ($('#plTerms').checked) steps.push('terms');
   const clip = $('#plClip').checked;
   if (!steps.includes('transcribe') && !S.doc.segments.length) { toast('没有字幕，一键整理已停止', { error: true }); return; }
-  let res = null;
-  if (steps.length) {
-    const had = steps.includes('transcribe') && S.doc.segments.length;
-    if (had) snapshot();
-    const live = liveView();
+  if (steps.length) {  // 交给后台整理队列：可以马上切到别的课继续看、校对（2026-10-17 用户要求）
+    const provider = lang === 'en' ? S.settings.asr_en : S.settings.asr_zh;
     try {
-      res = await runSteps(steps, '一键整理…', {
-        opts: { lang, provider: lang === 'en' ? S.settings.asr_en : S.settings.asr_zh, allow_no_teacher: true,
-          doubao_model: (lang === 'en' ? S.settings.asr_en : S.settings.asr_zh) === 'doubao' ? $('#plDbModel').value : '',
-          doubao_account: (lang === 'en' ? S.settings.asr_en : S.settings.asr_zh) === 'doubao' ? $('#plDbAcct').value : '' }, onItems: live.onItems });
+      await flushSave();
+      await bgAdd({ path: S.path, steps, lang, provider, allow_no_teacher: true,
+        doubao_model: provider === 'doubao' ? $('#plDbModel').value : '', doubao_account: provider === 'doubao' ? $('#plDbAcct').value : '' },
+      { clip, terms: steps.includes('terms') });
     } catch (e) { fail(e); return; }
-    renderDoc();
-    if (res.status === 'cancelled' || (res.task && res.task.status === 'cancelled')) { toast('一键整理已停止。已经完成的步骤保存好了'); return; }
-    if (res.status !== 'done' || !res.task) { fail(new Error(res.error || '一键整理没有完成')); return; }
-    const bad = res.task.stages.find(s => s.status === 'failed' && !SOFT_STEPS.has(s.name));
-    if (bad) {
-      toast(`「${bad.label}」没有完成：${bad.error || ''}。一键整理已停止，前面完成的步骤已经保存`, { error: true, ms: 10000 });
-      if (bad.name === 'transcribe' && keepPartial(res, live, lang)) return;
-      if (had && bad.name === 'transcribe') dropSnapshot();
-      return;
-    }
-    if (stageOf(res.task, 'translate').status === 'completed' && !S.settings.show_tr) savePrefs({ show_tr: true });
+    toast(`《${S.doc.title}》交给后台整理了。可以打开别的课继续看、校对；进度看上方的「后台整理」和媒体库，整理完会提示你`, { ms: 8000 });
+    return;
   }
-  if (S.cancelPipeline) { toast('一键整理已停止'); return; }
-  if (clip && !(await doClip())) { toast('「剪藏」没有完成，一键整理已停止', { error: true }); return; }
-  if (steps.includes('terms') && S.doc.terms_pending) await openTerms();
-  const warn = res && res.task.warnings.length ? '（' + res.task.warnings.join('；') + '）' : '';
-  const usedAsr = res && ((stageOf(res.task, 'transcribe').result || {}).used || '');
-  toast('一键整理完成' + (usedAsr ? `（字幕用的是 ${usedAsr}）` : '') + '。建议检查一遍字幕，打开字幕栏上方的「已校对」后再剪藏。' + warn, { ms: 9000 });
+  if (clip && !(await doClip())) { toast('「剪藏」没有完成', { error: true }); return; }
+  toast('一键整理完成');
+}
+
+/* ------------------------------------------------------------ 后台整理 ---- */
+/* 一键整理、右键「排进后台整理」交给后台队列（app/core/bgqueue.py），一节一节整理，整理时可以切到别的课继续看、校对。
+   整理规则还是 workflow.process（和命令行同一套），每一步直接写进那节课的字幕文件；做完时这节课正开着就重新读取。 */
+const BG_ACTIVE = new Set(['waiting', 'running']);
+S.bg = []; S.bgWant = {};  // bgWant：id → {clip, terms}，做完时要接着做的（剪藏、勾选新术语要在这节课开着时做）
+const bgOf = path => S.bg.find(x => BG_ACTIVE.has(x.status) && x.path.toLowerCase() === (path || '').toLowerCase());
+const bgPct = x => Math.round((x.progress || 0) * 100);
+function bgTag(it) {
+  const b = bgOf(it.path);
+  if (!b) return '';
+  return b.status === 'running' ? `<span class="tag bg" data-bg-pct title="${esc(b.message || '')}">整理中 ${bgPct(b)}%</span>`
+    : '<span class="tag bg" title="排在后台整理队列里，前面的整理完就轮到它">排队中</span>';
+}
+async function bgAdd(body, want) {
+  const r = await api('bg_add', body);
+  if (want) S.bgWant[r.item.id] = want;
+  applyBg(r.items);
+  pollBg();
+  return r.item;
+}
+let bgTimer = null;
+function pollBg() {
+  clearTimeout(bgTimer);
+  bgTimer = setTimeout(async () => {
+    try { applyBg((await api('bg_list')).items); } catch (e) { /* 下次再看 */ }
+    if (S.bg.some(x => BG_ACTIVE.has(x.status))) pollBg();
+  }, 1500);
+}
+function applyBg(items) {
+  const was = new Map(S.bg.map(x => [x.id, x.status]));
+  const shape = list => list.filter(x => BG_ACTIVE.has(x.status)).map(x => x.id + x.status).join();
+  const before = shape(S.bg);
+  S.bg = items || [];
+  if (shape(S.bg) !== before) renderLibrary();
+  else S.bg.filter(x => x.status === 'running').forEach(x => {  // 只是百分比变了：不重画整个媒体库
+    const el = $$('#libBody .lib-item').find(e => (e.dataset.open || '').toLowerCase() === x.path.toLowerCase());
+    const tag = el && $('[data-bg-pct]', el);
+    if (tag) tag.textContent = `整理中 ${bgPct(x)}%`;
+  });
+  renderBgBar();
+  S.bg.filter(x => BG_ACTIVE.has(was.get(x.id)) && !BG_ACTIVE.has(x.status)).forEach(bgFinished);
+}
+function renderBgBar() {
+  const act = S.bg.filter(x => BG_ACTIVE.has(x.status));
+  $('#bgbar').hidden = !act.length;
+  if (!act.length) return;
+  const run = act.find(x => x.status === 'running'), wait = act.filter(x => x.status === 'waiting').length;
+  $('#bgFill').style.width = (run ? bgPct(run) : 0) + '%';
+  $('#bgText').textContent = (run ? `后台整理《${run.title}》${bgPct(run)}%　${run.message || ''}` : '后台整理：马上开始…')
+    + (wait ? `　（还排着 ${wait} 节）` : '');
+}
+function bgMenu(x, y) {
+  const st = { waiting: '排队中', running: '正在整理', done: '整理完了', failed: '没有完成', cancelled: '已停止' };
+  const rows = [...S.bg.filter(b => BG_ACTIVE.has(b.status)), ...S.bg.filter(b => !BG_ACTIVE.has(b.status)).reverse().slice(0, 5)];
+  showCtx(x, y, rows.map(b => `<div class="menu-label">《${esc(b.title)}》${st[b.status] || b.status}${b.status === 'running' ? ` ${bgPct(b)}%` : ''}${b.error ? '：' + esc(b.error) : ''}</div>
+    <button class="menu-item" data-bg-open="${esc(b.path)}">打开这节课</button>
+    ${BG_ACTIVE.has(b.status) ? `<button class="menu-item danger" data-bg-stop="${esc(b.id)}">${b.status === 'running' ? '停下（做完手上这一步就停，已经做完的保留）' : '不整理了（从队列里去掉）'}</button>` : ''}`).join('')
+    + (rows.some(b => !BG_ACTIVE.has(b.status)) ? '<button class="menu-item" data-bg-clear>清掉已经结束的记录</button>' : ''), m => {
+    $$('[data-bg-open]', m).forEach(el => el.onclick = () => { m.hidden = true; openPath(el.dataset.bgOpen); });
+    $$('[data-bg-stop]', m).forEach(el => el.onclick = async () => { m.hidden = true; applyBg((await api('bg_cancel', { id: el.dataset.bgStop })).items); });
+    const c = $('[data-bg-clear]', m);
+    if (c) c.onclick = async () => { m.hidden = true; applyBg((await api('bg_clear')).items); };
+  });
+}
+$('#bgbar').onclick = e => { e.stopPropagation(); bgMenu(e.clientX, e.clientY); };
+/* 一节整理完：这节课正开着就重新读取（期间你在这里改过的，保存时会先问你）；剪藏、勾选新术语要这节课开着才做 */
+async function bgFinished(b) {
+  const want = S.bgWant[b.id] || {};
+  delete S.bgWant[b.id];
+  const open = S.path && S.path.toLowerCase() === b.path.toLowerCase();
+  if (open && !S.job) { try { await reloadDoc(); renderDoc(); } catch (e) { fail(e); } }
+  loadLibrary();
+  const t = b.task || {};
+  if (b.status === 'cancelled') { toast(`《${b.title}》的后台整理停下了。已经做完的步骤保存好了`); return; }
+  if (b.status !== 'done') { toast(`《${b.title}》后台整理没有完成：${b.error || ''}。前面做完的步骤已经保存，再点一键整理会接着做`, { error: true, ms: 12000 }); return; }
+  if (stageOf(t, 'translate').status === 'completed' && !S.settings.show_tr) savePrefs({ show_tr: true });
+  const used = (stageOf(t, 'transcribe').result || {}).used;
+  const warn = (t.warnings || []).length ? '（' + t.warnings.join('；') + '）' : '';
+  const pendingTerms = open ? !!S.doc.terms_pending : !!(t.state && t.state.terms_pending);
+  const later = [];
+  if (!open && want.clip) later.push('剪藏');
+  if (!open && want.terms && pendingTerms) later.push('勾选新术语');
+  toast(`《${b.title}》后台整理完了${used ? `（字幕用的是 ${used}）` : ''}。${later.length ? `打开这节课后再${later.join('、')}。` : ''}建议检查一遍字幕，打开「已校对」后再剪藏。${warn}`, { ms: 10000 });
+  if (open && want.clip && !(await doClip())) toast('「剪藏」没有完成', { error: true });
+  if (open && want.terms && S.doc.terms_pending) await openTerms();
 }
 
 /* ---------------------------------------------------------------- 导出 ---- */

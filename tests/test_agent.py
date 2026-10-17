@@ -330,6 +330,40 @@ tp = wf.run_step(str(PICK), 'transcribe', force=True, check_library=False, douba
 check('没有这个豆包账号：直接报错，列出有哪些', tp['status'] == 'failed' and tp['error']['error_code'] == 'not_supported'
       and '1（账号 1）' in tp['error']['message'], tp['error'])
 check('不认识的豆包模型：直接报错', tp['status'] == 'failed' and tp['error']['error_code'] == 'not_supported')
+
+# 后台整理队列（界面一键整理时可以切到别的课）：一节一节做，规则还是 workflow.process
+from core import bgqueue  # noqa: E402
+PICK2 = TMP / '后台第二节.mp4'
+shutil.copy(PICK, PICK2)
+shutil.copy(docs.sidecar(str(PICK)), docs.sidecar(str(PICK2)))
+cb = calls.copy()
+a1 = Api().call('bg_add', {'path': str(PICK), 'steps': ['summary'], 'lang': 'zh'})
+a2 = Api().call('bg_add', {'path': str(PICK2), 'steps': ['summary']})
+try:
+    bgqueue.add(str(PICK), ['summary'])
+    dup = False
+except ValueError:
+    dup = True
+check('后台整理：同一节课不能重复排', a1['ok'] and a2['ok'] and dup)
+PICK3 = TMP / '后台第三节.mp4'
+shutil.copy(PICK, PICK3)
+a3 = Api().call('bg_add', {'path': str(PICK3)})
+check('排着还没开始的可以取消', Api().call('bg_cancel', {'id': a3['item']['id']})['stopped'] == 1)
+t_end = time.time() + 30
+while bgqueue.busy() and time.time() < t_end:
+    time.sleep(0.2)
+bq = {Path(x['path']).name: x for x in Api().call('bg_list', {})['items']}
+check('后台整理：两节一节一节做完，结果写进各自的字幕文件，取消的没做',
+      bq[PICK.name]['status'] == 'done' and bq[PICK2.name]['status'] == 'done' and bq[PICK3.name]['status'] == 'cancelled'
+      and bq[PICK2.name]['task']['success'] and calls['summary'] - cb['summary'] == 2
+      and bq[PICK.name]['finished'] <= bq[PICK2.name]['finished'] and docs.load(str(PICK2))['summary'], bq)
+check('后台整理：没指定步骤就按一键整理默认的、只做还没做完的', Api().call('bg_add', {'path': str(PICK3)})['item']['steps'] is None)
+bgqueue.cancel()
+t_end = time.time() + 30
+while bgqueue.busy() and time.time() < t_end:  # 等它停下，免得后面数调用次数的测试被它打扰
+    time.sleep(0.2)
+check('全部停下', not bgqueue.busy())
+Api().call('bg_clear', {})
 t8 = wf.process(EN, model='local', steps=['transcribe'], redo=['transcribe'])
 check('本地模型：接口留着，明确报「还不支持」', t8['status'] == 'failed' and t8['error']['error_code'] == 'not_supported')
 t9 = wf.process(EN)

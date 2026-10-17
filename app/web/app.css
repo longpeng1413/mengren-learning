@@ -108,6 +108,11 @@ code { font-family: var(--mono); font-size: .92em; background: var(--panel2); pa
 .jobbar-fill { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--accent-weak); transition: width .4s; }
 .jobbar > * { position: relative; }
 #jobText { flex: 1; }
+/* 后台整理（一键整理交给后台队列，可以切到别的课） */
+.bgbar { position: relative; display: flex; align-items: center; gap: 12px; height: 32px; padding: 0 14px; background: var(--panel2); border-bottom: 1px solid var(--line); flex: none; overflow: hidden; cursor: pointer; font-size: 13px; }
+.bgbar > * { position: relative; }
+#bgText { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag.bg { background: var(--accent-weak); border-color: var(--accent-line); }
 .banner { padding: 9px 14px; background: var(--accent-weak); border-bottom: 1px solid var(--accent-line); display: flex; gap: 12px; align-items: center; flex: none; }
 
 /* ---------- 布局 ---------- */

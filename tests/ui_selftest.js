@@ -294,10 +294,16 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       && document.querySelector('#plDbModel').value === 'auto');
     ['plAsr', 'plCorrect', 'plFrames', 'plRecheck', 'plSummary', 'plTerms'].forEach(id => { document.getElementById(id).checked = true; });
     document.getElementById('plClip').checked = false;
+    const bgSaved = S.bg;
+    S.bg = [{ id: 'x1', path: 'D:\\课\\甲.mp4', title: '甲', status: 'running', progress: 0.45 }, { id: 'x2', path: 'D:\\课\\乙.mp4', title: '乙', status: 'waiting', progress: 0 }];
+    ok('媒体库：后台正在整理的标「整理中 45%」，排着的标「排队中」', itemHTML({ path: 'd:\\课\\甲.mp4', name: '甲' }).includes('整理中 45%')
+      && itemHTML({ path: 'D:\\课\\乙.mp4', name: '乙' }).includes('排队中') && !itemHTML({ path: 'D:\\课\\丙.mp4', name: '丙' }).includes('整理中'));
+    S.bg = bgSaved;
     document.querySelector('#dlgPipeline').close('ok');
-    ok('一键整理：一次交给后台，做完打开新术语对话框', await until(() => document.querySelector('#dlgTerms').open, 30000));
+    ok('一键整理：交给后台整理，界面不用等（可以切到别的课）', await until(() => toasts().some(t => t.includes('交给后台整理了')), 10000) && !S.job, toasts());
+    ok('一键整理：做完打开新术语对话框', await until(() => document.querySelector('#dlgTerms').open, 30000));
     document.querySelector('#dlgTerms').close('drop');
-    ok('一键整理：完成，重新识别前的字幕存了历史版本', await until(() => toasts().some(t => t.includes('一键整理完成')), 10000)
+    ok('一键整理：完成，重新识别前的字幕存了历史版本', await until(() => toasts().some(t => t.includes('后台整理完了')), 10000)
       && S.doc.versions.some(v => v.reason === '重新识别前') && S.doc.corrected && S.doc.summary.includes('## 一、风险') && !S.job, toasts());
     const tasksNow = await api('doc', { path: S.path });
     ok('一键整理：整理结果和磁盘上的一致', tasksNow.doc.rev === S.rev && tasksNow.doc.summary === S.doc.summary);

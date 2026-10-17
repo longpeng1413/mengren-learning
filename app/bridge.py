@@ -6,7 +6,7 @@ import threading
 import time
 from pathlib import Path
 
-from core import asr, book, cache, codex_auth, config, doc as docs, frames, glossary, jobs, library, llm, media, tasks, workflow
+from core import asr, bgqueue, book, cache, codex_auth, config, doc as docs, frames, glossary, jobs, library, llm, media, tasks, workflow
 from core.log import LOG_DIR, log
 
 MEDIA_FILTER = ('音视频和文档 (*.mp4;*.m4v;*.mov;*.mkv;*.webm;*.avi;*.flv;*.ts;*.wmv;*.3gp;*.mpg;*.mpeg;'
@@ -164,17 +164,7 @@ class Api:
         """界面上的整理按钮（生成字幕、AI 校对、找关键帧、画面复核存疑句、翻译、课程重点、查漏补缺、新术语、
         整理章节、全书总览，以及一键整理）都走这里：交给任务层 workflow.process，和命令行（Agent）是同一套规则。
         结果由后台写进字幕文件，界面在任务结束后重新读取（do_doc）。job.items 里是边做边显示的内容。"""
-        path = os.path.abspath(str(b.get('path') or ''))
-        if not os.path.isfile(path):
-            raise ValueError('文件不见了：' + path)
-        steps = [str(x) for x in b.get('steps') or []]
-        if not steps:
-            raise ValueError('没有要做的步骤')
-        workflow.stages_for(path, steps)  # 步骤名写错直接报错
-        redo = [str(x) for x in (b['redo'] if 'redo' in b else steps)]  # 界面上点了就是要做，做过也重做
-        more = {k: b[k] for k in workflow.GUI_OPTIONS if b.get(k)}
-        if 'transcribe' in steps:
-            config.update({'last_lang': b.get('lang') or 'zh', 'last_teacher': workflow.load_doc(path).get('teacher') or ''})
+        path, steps, redo, more = self._step_args(b)
 
         def run(job):
             t = workflow.process(path, steps=steps, redo=redo, lang=b.get('lang'), provider=b.get('provider'), caller='gui',
@@ -182,6 +172,38 @@ class Api:
                                  on_progress=lambda d: job.report(d.get('progress') or 0, d.get('message')), **more)
             return {'task': workflow.brief(t)}
         return {'job': jobs.start('steps', run).id}
+
+    def _step_args(self, b, need_steps=True):
+        """整理请求的参数：(文件, 步骤, 做过也重做的步骤, 界面上的选项)。"""
+        path = os.path.abspath(str(b.get('path') or ''))
+        if not os.path.isfile(path):
+            raise ValueError('文件不见了：' + path)
+        steps = [str(x) for x in b.get('steps') or []]
+        if not steps and need_steps:
+            raise ValueError('没有要做的步骤')
+        workflow.stages_for(path, steps)  # 步骤名写错直接报错
+        redo = [str(x) for x in (b['redo'] if 'redo' in b else steps)]  # 界面上点了就是要做，做过也重做
+        more = {k: b[k] for k in workflow.GUI_OPTIONS if b.get(k)}
+        if 'transcribe' in steps:
+            config.update({'last_lang': b.get('lang') or 'zh', 'last_teacher': workflow.load_doc(path).get('teacher') or ''})
+        return path, steps, redo, more
+
+    # ---------------------------------------------------------- 后台整理 ----
+    def do_bg_add(self, b):
+        """排进后台整理（一键整理、媒体库右键「排进后台整理」）。没给 steps：按一键整理默认的步骤，只做还没做完的。"""
+        path, steps, redo, more = self._step_args(b, need_steps=False)
+        it = bgqueue.add(path, steps or None, redo if steps else (), b.get('lang'), b.get('provider'), more)
+        return {'item': it, 'items': bgqueue.items()}
+
+    def do_bg_list(self, b):
+        return {'items': bgqueue.items()}
+
+    def do_bg_cancel(self, b):
+        return {'stopped': bgqueue.cancel(b.get('id') or None), 'items': bgqueue.items()}
+
+    def do_bg_clear(self, b):
+        bgqueue.clear_finished()
+        return {'items': bgqueue.items()}
 
     def do_doc(self, b):
         """重新读取字幕文件（整理完一步后界面用）。"""
