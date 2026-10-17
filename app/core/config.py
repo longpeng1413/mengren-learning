@@ -108,7 +108,7 @@ DEFAULTS = {
         # 模型不让选了：按 asr.DOUBAO_ORDER 自动换，model 只是识别时临时填进去的。对象存储（TOS）不再需要。
         'doubao': {'key': '', 'app_id': '', 'access_token': '', 'name': '', 'more_keys': [], 'spent': {},
                    'base_url': 'https://openspeech.bytedance.com/api/v3',
-                   'model': 'stream2', 'pick': '', 'enable_ddc': False, 'stream_speed': 8, 'use_proxy': False},
+                   'model': 'stream2', 'pick': '', 'pick_account': '', 'enable_ddc': False, 'stream_speed': 8, 'use_proxy': False},
     },
     'proxy': '',
     'asr_en': 'openai',

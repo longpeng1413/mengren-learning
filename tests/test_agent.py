@@ -91,6 +91,7 @@ def fake_recognise(path, duration, provider, lang, s, cancel, progress, on_cues,
     calls['asr'] += 1
     seen['asr_provider'] = provider
     seen['asr_pick'] = s['providers']['doubao'].get('pick')
+    seen['asr_account'] = s['providers']['doubao'].get('pick_account')
     maybe_fail('transcribe')
     progress(0.5, '识别中…')
     if lang == 'en':
@@ -323,6 +324,11 @@ check('这次选「自动」：不管设置里选了什么，都按顺序自动�
 wf.run_step(str(PICK), 'transcribe', force=True, check_library=False)
 check('没指定：按设置里选的（默认自动）', seen['asr_pick'] == '')
 tp = wf.run_step(str(PICK), 'transcribe', force=True, check_library=False, doubao_model='nosuch')
+tp = wf.run_step(str(PICK), 'transcribe', force=True, check_library=False, doubao_account='1')
+check('这次指定豆包用哪个账号（第几个、名字都行）', tp['status'] == 'completed' and seen['asr_account'] == 'main')
+tp = wf.run_step(str(PICK), 'transcribe', force=True, check_library=False, doubao_account='没有这个账号')
+check('没有这个豆包账号：直接报错，列出有哪些', tp['status'] == 'failed' and tp['error']['error_code'] == 'not_supported'
+      and '1（账号 1）' in tp['error']['message'], tp['error'])
 check('不认识的豆包模型：直接报错', tp['status'] == 'failed' and tp['error']['error_code'] == 'not_supported')
 t8 = wf.process(EN, model='local', steps=['transcribe'], redo=['transcribe'])
 check('本地模型：接口留着，明确报「还不支持」', t8['status'] == 'failed' and t8['error']['error_code'] == 'not_supported')

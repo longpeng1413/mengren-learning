@@ -285,12 +285,26 @@ def doubao_pick(p):
     return p.get('pick') if p.get('pick') in DOUBAO_MODELS else ''
 
 
+def doubao_account_id(p, want):
+    """'auto' / 账号 id / 名字 / 第几个（1 是账号 1）→ 账号 id；'' = 自动（按列表顺序换）；找不到返回 None。"""
+    w = str(want or '').strip()
+    if not w or w == 'auto':
+        return ''
+    for i, a in enumerate(doubao_accounts(p), 1):
+        if w in (a['id'], a['name'], str(i)):
+            return a['id']
+    return None
+
+
 def doubao_plan(p):
     """要依次试的 (账号, 模型)：每种模型先把所有账号的用完，再换下一种（质量好的尽量多用）；跳过标记了用完的。
     选定了一种模型时只用这一种（账号照样换），**不换别的模型**：2026-10-17 流式 2.0 超出免费额度后按量扣费、账户欠费，
     用户要自己控制每次用哪种。"""
     spent = p.get('spent') or {}
     accounts = doubao_accounts(p)
+    one = p.get('pick_account') or ''  # 用户选定的账号（2026-10-17）：只用这一个，不换别的账号；账号删了就当自动
+    if one and any(a['id'] == one for a in accounts):
+        accounts = [a for a in accounts if a['id'] == one]
     pick = doubao_pick(p)
     return [(a, m) for m in ((pick,) if pick else DOUBAO_ORDER) for a in accounts if f"{a['id']}|{m}" not in spent]
 
@@ -598,6 +612,11 @@ def recognise(media_path, duration, provider, language, settings, cancel, progre
         return cues
     plan = doubao_plan(settings['providers']['doubao'])
     pick = doubao_pick(settings['providers']['doubao'])
+    one = [a for a in doubao_accounts(settings['providers']['doubao']) if a['id'] == settings['providers']['doubao'].get('pick_account')]
+    if not plan and one:
+        raise QuotaError(f'豆包额度不足或账户欠费：选定的账号「{one[0]["name"]}」'
+                         + (f'的「{DOUBAO_MODELS[pick]["name"]}」' if pick else '的几种模型都')
+                         + '标记成用完了。可以换一个账号或模型，或充值、买了资源包以后到「设置 → 豆包语音」点「重新启用」')
     if not plan and pick:
         raise QuotaError(f'豆包额度不足或账户欠费：选定的「{DOUBAO_MODELS[pick]["name"]}」在所有账号上都标记成用完了。'
                          '可以换一种模型，或充值、买了资源包以后到「设置 → 豆包语音」点「重新启用」')

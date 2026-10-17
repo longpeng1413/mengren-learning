@@ -912,6 +912,18 @@ try:
     e_ = ''
 except asr.QuotaError as e:
     e_ = str(e)
+check('用户选定一个账号：只用这个账号（模型照样按顺序换）；账号删了就当自动',
+      [(a['id'], m) for a, m in asr.doubao_plan(dict(dp, pick_account='b1'))] == [('b1', 'stream2'), ('b1', 'flash'), ('b1', 'std1'), ('b1', 'std2')]
+      and [(a['id'], m) for a, m in asr.doubao_plan(dict(dp, pick_account='main', pick='flash'))] == [('main', 'flash')]
+      and len(asr.doubao_plan(dict(dp, pick_account='gone'))) == 7)
+check('账号可以用名字、第几个、id 来指定', asr.doubao_account_id(dp, '小号') == 'b1' and asr.doubao_account_id(dp, '2') == 'b1'
+      and asr.doubao_account_id(dp, '1') == 'main' and asr.doubao_account_id(dp, 'auto') == '' and asr.doubao_account_id(dp, '没有这个') is None)
+try:
+    asr.recognise('x.mp4', 10, 'doubao', 'zh', {'providers': {'doubao': dict(dp, pick_account='main', pick='stream2')}}, None, lambda *a, **k: None, lambda c: None)
+    e2_ = ''
+except asr.QuotaError as e:
+    e2_ = str(e)
+check('选定的账号用完了：直接报错，写明是哪个账号，不换别的账号', '账号 1' in e2_ and '换一个账号' in e2_, e2_)
 check('选定的模型在所有账号上都用完了：直接报错，写明是哪一种，不换别的', '流式识别 2.0' in e_ and '换一种模型' in e_, e_)
 try:
     asr.check_ready({'providers': {'doubao': {'more_keys': [{'id': 'x', 'key': 'k'}]}}}, 'doubao'); e_ = ''

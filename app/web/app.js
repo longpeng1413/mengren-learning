@@ -1156,9 +1156,29 @@ function dbPickOptions() {
   return [['auto', `自动（${S.doubaoOrder.map(k => S.doubaoModels[k].short).join(' → ')}）`], ...S.doubaoOrder.map(k => [k, '只用 ' + S.doubaoModels[k].name])]
     .map(([v, t]) => `<option value="${v}" ${v === now ? 'selected' : ''}>${esc(t)}${v === now ? '（设置里选的）' : ''}</option>`).join('');
 }
+/* 填了密钥的豆包账号（和后台 asr.doubao_accounts 一样：账号 1 在前，其他按列表顺序） */
+function dbAccts() {
+  const p = S.settings.providers.doubao;
+  const out = (p.key || (p.app_id && p.access_token)) ? [{ id: 'main', name: doubaoAccountName('main') }] : [];
+  (p.more_keys || []).forEach(a => { if (a.key) out.push({ id: a.id, name: doubaoAccountName(a.id) }); });
+  return out;
+}
+function dbAcctNow() {
+  const id = S.settings.providers.doubao.pick_account || '';
+  return dbAccts().some(a => a.id === id) ? id : 'auto';
+}
+function dbAcctOptions() {
+  const now = dbAcctNow(), list = dbAccts();
+  return [['auto', `自动（从${list.length ? list[0].name : '账号 1'}开始按顺序换）`], ...list.map(a => [a.id, '只用 ' + a.name])]
+    .map(([v, t]) => `<option value="${esc(v)}" ${v === now ? 'selected' : ''}>${esc(t)}${v === now ? '（设置里选的）' : ''}</option>`).join('');
+}
+function fillDbPickers(model, acct) {
+  model.innerHTML = dbPickOptions(); acct.innerHTML = dbAcctOptions();
+  $$('.db-acct-pick', model.closest('.field')).forEach(el => el.hidden = dbAccts().length < 2);  // 只有一个账号时不用选
+}
 function openTranscribe() {
   const dlg = $('#dlgTranscribe');
-  $('#trDbModel').innerHTML = dbPickOptions();
+  fillDbPickers($('#trDbModel'), $('#trDbAcct'));
   const tid = S.doc.teacher || '';
   $('#trTeacher').innerHTML = teacherOptions(tid);
   const lang = S.doc.lang || (teacherById(tid) || {}).lang || S.settings.last_lang || 'zh';
@@ -1191,7 +1211,7 @@ function openTranscribe() {
   dlg.onclose = async () => {
     if (dlg.returnValue !== 'ok') return;
     setDocTeacher($('#trTeacher').value);
-    const ok = await startTranscribe($('input[name=lang]:checked', dlg).value, $('#trProvider').value, $('#trDbModel').value);
+    const ok = await startTranscribe($('input[name=lang]:checked', dlg).value, $('#trProvider').value, $('#trDbModel').value, $('#trDbAcct').value);
     if (ok && $('#trCorrect').checked) await startCorrect(true);
   };
 }
@@ -1199,12 +1219,12 @@ function setDocTeacher(id) {
   if (!S.doc || (S.doc.teacher || '') === (id || '')) return;
   S.doc.teacher = id || ''; renderTeacherSelect(); markDirty();
 }
-async function startTranscribe(lang, provider, dbModel) {
+async function startTranscribe(lang, provider, dbModel, dbAcct) {
   try {
     const had = S.doc.segments.length;
     if (had) snapshot();
     const live = liveView();
-    const res = await runSteps(['transcribe'], `${PROVIDER_LABEL[provider] || ''}识别中…`, { opts: { lang, provider, doubao_model: provider === 'doubao' ? dbModel : '' }, onItems: live.onItems });
+    const res = await runSteps(['transcribe'], `${PROVIDER_LABEL[provider] || ''}识别中…`, { opts: { lang, provider, doubao_model: provider === 'doubao' ? dbModel : '', doubao_account: provider === 'doubao' ? dbAcct : '' }, onItems: live.onItems });
     renderDoc();
     const out = stepResult(res, 'transcribe');
     if (!out) {
@@ -1318,7 +1338,7 @@ function openPipeline() {
     const l = $('input[name=plLang]:checked').value;
     $('#plDbField').hidden = !$('#plAsr').checked || (l === 'en' ? S.settings.asr_en : S.settings.asr_zh) !== 'doubao';
   };
-  $('#plDbModel').innerHTML = dbPickOptions();
+  fillDbPickers($('#plDbModel'), $('#plDbAcct'));
   $('#plAsr').onchange = syncDb;
   $('#plTeacher').onchange = () => {
     const t = teacherById($('#plTeacher').value);
@@ -1365,7 +1385,8 @@ async function runPipeline() {
     try {
       res = await runSteps(steps, '一键整理…', {
         opts: { lang, provider: lang === 'en' ? S.settings.asr_en : S.settings.asr_zh, allow_no_teacher: true,
-          doubao_model: (lang === 'en' ? S.settings.asr_en : S.settings.asr_zh) === 'doubao' ? $('#plDbModel').value : '' }, onItems: live.onItems });
+          doubao_model: (lang === 'en' ? S.settings.asr_en : S.settings.asr_zh) === 'doubao' ? $('#plDbModel').value : '',
+          doubao_account: (lang === 'en' ? S.settings.asr_en : S.settings.asr_zh) === 'doubao' ? $('#plDbAcct').value : '' }, onItems: live.onItems });
     } catch (e) { fail(e); return; }
     renderDoc();
     if (res.status === 'cancelled' || (res.task && res.task.status === 'cancelled')) { toast('一键整理已停止。已经完成的步骤保存好了'); return; }
@@ -1383,7 +1404,8 @@ async function runPipeline() {
   if (clip && !(await doClip())) { toast('「剪藏」没有完成，一键整理已停止', { error: true }); return; }
   if (steps.includes('terms') && S.doc.terms_pending) await openTerms();
   const warn = res && res.task.warnings.length ? '（' + res.task.warnings.join('；') + '）' : '';
-  toast('一键整理完成。建议检查一遍字幕，打开字幕栏上方的「已校对」后再剪藏。' + warn, { ms: 9000 });
+  const usedAsr = res && ((stageOf(res.task, 'transcribe').result || {}).used || '');
+  toast('一键整理完成' + (usedAsr ? `（字幕用的是 ${usedAsr}）` : '') + '。建议检查一遍字幕，打开字幕栏上方的「已校对」后再剪藏。' + warn, { ms: 9000 });
 }
 
 /* ---------------------------------------------------------------- 导出 ---- */
@@ -1877,7 +1899,10 @@ function renderDoubaoAccounts() {
   $('#doubaoOrder').innerHTML = `<div class="label strong">生成字幕用哪种模型</div>
     <label class="check"><input type="radio" name="dbPick" value="" ${pick ? '' : 'checked'}> <b>自动</b>：按下面的顺序用，额度用完换下一个（每种模型先把所有账号的用完，再换下一种）</label>
     <ol>${S.doubaoOrder.map(k => `<li><label class="check"><input type="radio" name="dbPick" value="${k}" ${pick === k ? 'checked' : ''}> 只用 <b>${esc(S.doubaoModels[k].name)}</b>：${esc(S.doubaoModels[k].note)}</label></li>`).join('')}</ol>
-    <p class="hint">选定一种时，只用这一种（填了几个账号的话，账号之间照样会换），出错就停下告诉你，<b>不会换到别的模型</b>。生成字幕、一键整理时还可以临时换；命令行（AI 自动整理）按这里选的。资源包或免费额度用完后豆包可能继续按量扣费，欠费后所有模型都用不了。这几种都要先在火山引擎控制台「豆包语音 → 开通管理」里开通。</p>`;
+    ${dbAccts().length > 1 ? `<div class="label strong">用哪个账号</div>
+    <label class="check"><input type="radio" name="dbAcct" value="" ${dbAcctNow() === 'auto' ? 'checked' : ''}> <b>自动</b>：从${esc(dbAccts()[0].name)}开始，按列表顺序用，额度用完换下一个</label>
+    ${dbAccts().map(a => `<label class="check"><input type="radio" name="dbAcct" value="${esc(a.id)}" ${dbAcctNow() === a.id ? 'checked' : ''}> 只用 <b>${esc(a.name)}</b></label>`).join('')}` : ''}
+    <p class="hint">选定一种模型或一个账号时，只用选定的，出错就停下告诉你，<b>不会换到别的模型或账号</b>；没选定的那一项照样自动换。生成字幕、一键整理时还可以临时换；命令行（AI 自动整理）按这里选的。资源包或免费额度用完后豆包可能继续按量扣费，欠费后所有模型都用不了。这几种都要先在火山引擎控制台「豆包语音 → 开通管理」里开通。</p>`;
   $('#dbMore').innerHTML = (p.more_keys || []).map((a, i) => dbRowHTML(a, i + 2)).join('');
   const spent = Object.entries(p.spent || {});
   $('#dbSpent').innerHTML = spent.length ? `<div class="label strong">额度用完了的</div>${spent.map(([k, day]) => {
@@ -1910,6 +1935,7 @@ function collectSettings() {
   if (($('input[name=dbAuth]:checked') || {}).value === 'old') setPath(patch, 'providers.doubao.key', null);
   // 其他豆包账号：密钥留空表示不改（后台按 id 保留原来的）；新加的没填密钥就不要
   if ($('input[name=dbPick]:checked')) setPath(patch, 'providers.doubao.pick', $('input[name=dbPick]:checked').value);
+  if ($('input[name=dbAcct]:checked')) setPath(patch, 'providers.doubao.pick_account', $('input[name=dbAcct]:checked').value);
   setPath(patch, 'providers.doubao.more_keys', $$('#dbMore .db-acct').map(r => ({
     id: r.dataset.id, name: $('.db-name', r).value.trim(), key: $('.db-key', r).value.trim() })).filter(a => a.id || a.key));
   return patch;

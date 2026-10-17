@@ -268,6 +268,7 @@
       <div class="hint" id="trProviderHint"></div>
     </div>
     <div class="field" id="trDbField"><div class="label">豆包用哪种模型</div><select id="trDbModel"></select>
+      <div class="label db-acct-pick">用哪个账号</div><select id="trDbAcct" class="db-acct-pick"></select>
       <div class="hint">默认和「设置 → 豆包语音」里选的一样，这次可以临时换。选定一种时只用这一种，出错就停下，不会换到别的模型。</div></div>
     <div class="field"><label class="check"><input type="checkbox" id="trCorrect"> 识别完后让 AI 按术语表校对一遍</label></div>
     <p class="warn" id="trWarn" hidden>这个视频已经有字幕了。重新生成前，现在的字幕会自动存成历史版本，之后可以在字幕栏上方的「历史版本」按钮里恢复。</p>
@@ -296,7 +297,8 @@
     <div class="field"><div class="label">老师 / 术语表</div><select id="plTeacher"></select></div>
     <div class="field" id="plLangField"><div class="label">视频里说的是</div>
       <div class="seg-choice"><label><input type="radio" name="plLang" value="zh"> 中文</label><label><input type="radio" name="plLang" value="en"> 英文</label></div></div>
-    <div class="field" id="plDbField"><div class="label">生成字幕：豆包用哪种模型</div><select id="plDbModel"></select></div>
+    <div class="field" id="plDbField"><div class="label">生成字幕：豆包用哪种模型</div><select id="plDbModel"></select>
+      <div class="label db-acct-pick">用哪个账号</div><select id="plDbAcct" class="db-acct-pick"></select></div>
     <div class="dialog-btns">
       <button value="cancel" class="btn">取消</button>
       <button value="ok" class="btn primary">开始</button>

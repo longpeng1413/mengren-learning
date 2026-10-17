@@ -391,6 +391,18 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     renderDoubaoAccounts();
     ok('设置：可以添加别的豆包账号，保存后密钥只显示后四位', dbMk.length === 1 && dbMk[0].name === '小号' && dbMk[0].key === '••••8765'
        && document.querySelector('#dbMore .db-key').placeholder.includes('••••8765') && document.querySelector('#dbMore .db-key').value === '', dbMk);
+    const acctRadio = document.querySelector(`input[name=dbAcct][value="${dbMk[0].id}"]`);
+    if (dbAccts().length > 1) {
+      acctRadio.checked = true;
+      ok('设置：有几个豆包账号时可以选「只用小号」', document.querySelector('input[name=dbAcct][value=""]')
+        && collectSettings().providers.doubao.pick_account === dbMk[0].id);
+      document.querySelector('input[name=dbAcct][value=""]').checked = true;
+    } else {
+      ok('设置：只有一个豆包账号时不用选账号', dbAccts()[0].name === '小号' && !document.querySelector('input[name=dbAcct]'));
+    }
+    fillDbPickers(document.querySelector('#trDbModel'), document.querySelector('#trDbAcct'));
+    ok('生成字幕对话框：可以临时选这次用哪个账号', [...document.querySelectorAll('#trDbAcct option')].some(o => o.textContent.includes('小号'))
+      && document.querySelector('#trDbAcct').value === 'auto');
     await api('settings', { settings: { providers: { doubao: { spent: { [dbMk[0].id + '|stream2']: '2026-10-14' } } } } });
     await refreshSettingsOnly(); renderDoubaoAccounts();
     ok('设置：列出哪个账号的哪种模型额度用完了', document.querySelector('#dbSpent').textContent.includes('小号 · 流式识别 2.0：2026-10-14 用完'),

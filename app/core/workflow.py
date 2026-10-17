@@ -555,6 +555,13 @@ def st_transcribe(ctx):
         if pick and pick not in asr.DOUBAO_MODELS:
             raise WorkError('not_supported', f'不认识的豆包模型：{pick}。可以用：auto、{"、".join(asr.DOUBAO_ORDER)}')
         s = dict(s, providers=dict(s['providers'], doubao=dict(s['providers']['doubao'], pick=pick)))
+    who = ctx.opts.get('doubao_account')  # 这次用哪个豆包账号（'auto' = 按列表顺序换）；没给就按设置
+    if provider == 'doubao' and who:
+        acct = asr.doubao_account_id(s['providers']['doubao'], who)
+        if acct is None:
+            names = '、'.join(f'{i}（{a["name"]}）' for i, a in enumerate(asr.doubao_accounts(s['providers']['doubao']), 1))
+            raise WorkError('not_supported', f'没有这个豆包账号：{who}。可以写 auto，或账号的名字、第几个：{names}')
+        s = dict(s, providers=dict(s['providers'], doubao=dict(s['providers']['doubao'], pick_account=acct)))
     asr.check_ready(s, provider)
     info = media.probe(ctx.path)
     teacher = ctx.teacher(d)
@@ -960,7 +967,7 @@ def stages_for(path, steps=None, skip=None):
     return wanted
 
 
-GUI_OPTIONS = ('allow_no_teacher', 'any_lang', 'translate_all', 'chapters', 'allow_partial', 'doubao_model')
+GUI_OPTIONS = ('allow_no_teacher', 'any_lang', 'translate_all', 'chapters', 'allow_partial', 'doubao_model', 'doubao_account')
 
 
 def process(target, steps=None, skip=None, redo=(), lang=None, provider=None, model='cloud',

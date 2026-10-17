@@ -238,7 +238,7 @@ def cmd_process(a, out, wf):
 
     def make(p, cancel):
         return wf.process(p, steps=steps or None, skip=skip or None, redo=steps if a.force else (), lang=a.lang, provider=a.provider, doubao_model=a.doubao_model,
-                          model=a.model, on_progress=out.progress, cancel=cancel)
+                          doubao_account=a.doubao_account, model=a.model, on_progress=out.progress, cancel=cancel)
     return _run_tasks(paths, out, wf, make)
 
 
@@ -246,7 +246,7 @@ def cmd_run(a, out, wf):
     path = wf.resolve(a.target)
 
     def make(p, cancel):
-        return wf.run_step(p, a.step, force=a.force, lang=a.lang, provider=a.provider, doubao_model=a.doubao_model, model=a.model, on_progress=out.progress, cancel=cancel)
+        return wf.run_step(p, a.step, force=a.force, lang=a.lang, provider=a.provider, doubao_model=a.doubao_model, doubao_account=a.doubao_account, model=a.model, on_progress=out.progress, cancel=cancel)
     return _run_tasks([path], out, wf, make)
 
 
@@ -306,6 +306,7 @@ def parser():
     run_opts.add_argument('--lang', choices=['zh', 'en'], help='视频语言（默认按字幕文件、老师档案、上次的选择）')
     run_opts.add_argument('--provider', choices=['doubao', 'openai', 'siliconflow'], help='识别服务（默认用软件设置里的）')
     run_opts.add_argument('--doubao-model', choices=['auto', 'stream2', 'flash', 'std1', 'std2'], help='这次用哪种豆包模型（auto 按顺序自动换；默认按软件设置）')
+    run_opts.add_argument('--doubao-account', help='这次用哪个豆包账号：auto（按顺序换）、账号的名字或第几个（1 是账号 1）；默认按软件设置')
     run_opts.add_argument('--model', choices=['cloud', 'local'], default='cloud', help='识别方式：cloud 云端（local 本地模型还没接入）')
 
     p = argparse.ArgumentParser(prog='mengren', description='猛人学习命令行（给 AI Agent 调用）')
