@@ -220,12 +220,12 @@ const insideDir = (path, dir) => !!path && !!dir && path.toLowerCase().startsWit
 /* 整理步骤的中文名（和 workflow.LABELS 一样） */
 const STEP_LABEL = { transcribe: '生成字幕', correct: 'AI 校对', frames: '找关键帧', recheck: '用画面复核存疑句', translate: '翻译',
   summary: '课程重点', review: '查漏补缺', terms: '新术语', chapters: '分章', organize: '逐章整理', overview: '全书总览' };
-/* 有整理结果、但一键整理默认的步骤还没做完（例如写完课程重点后额度用完，查漏、新术语没做）：标「待补完」 */
+/* 有整理结果、但一键整理默认的步骤还没做完（例如写完课程重点后额度用完，查漏、新术语没做）：标「未整理完」 */
 function pendingTag(it) {
   const left = it.pending || [];
   const done = it.book ? it.book.total && it.book.done === it.book.total : it.summary;
   if (!done || !left.length) return '';
-  return `<span class="tag warn" title="一键整理还差：${left.map(n => STEP_LABEL[n] || n).join('、')}。打开后用一键整理（做过的步骤会自动跳过），或让 AI 用命令行 --todo 接着整理">待补完</span>`;
+  return `<span class="tag warn" title="一键整理还差：${left.map(n => STEP_LABEL[n] || n).join('、')}。打开后用一键整理（做过的步骤会自动跳过），或让 AI 用命令行 --todo 接着整理">未整理完</span>`;
 }
 function itemHTML(it, depth = 0, parent = '') {
   const tags = [];

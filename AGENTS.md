@@ -115,7 +115,7 @@
 ```
 
 - `workflow.py` 每一步：读最新字幕文件 → 调核心模块 → **再读一次**（期间用户可能在界面里改过）→ 按规则合并 → 保存。一步做到一半失败什么都不写（以前界面边收边存，出错后「结果又出现一半」）；已完成的步骤再运行时跳过（看字幕文件里的结果和新字段 `steps`），除非 `--steps x --force`。
-- **「做过 / 不用做」的规则只有一份：`workflow.why_skip`**（2026-10-16）。每个 `st_*` 开头调 `ctx.skip_check`；判断「还没整理完」也用它：`pending_steps` 从第一步往后，要做的步骤假装做完（`_pretend`，只改内存里的副本），再看下一步。用在 `--todo`、`list` 的状态「待补完」和 `pending_steps`、`info` 的 `processed / next_steps / skipped_steps`、`process --dry-run`、媒体库的「待补完」标签（`library._status` 用已经读出来的字幕文件算，设置和老师整个列表只读一次，按扩展名判断有没有画面，不探测视频）。以前只看有没有课程重点，「37、三角形突破应用逻辑」写完重点后 ChatGPT 额度用完、查漏和新术语没做，`--todo` 就漏掉了。**改跳过规则只改 `why_skip`，`_pretend` 要跟着写这一步做完后的效果**（例如写课程重点会清掉 `steps.review`）。
+- **「做过 / 不用做」的规则只有一份：`workflow.why_skip`**（2026-10-16）。每个 `st_*` 开头调 `ctx.skip_check`；判断「还没整理完」也用它：`pending_steps` 从第一步往后，要做的步骤假装做完（`_pretend`，只改内存里的副本），再看下一步。用在 `--todo`、`list` 的状态「未整理完」和 `pending_steps`、`info` 的 `processed / next_steps / skipped_steps`、`process --dry-run`、媒体库的「未整理完」标签（`library._status` 用已经读出来的字幕文件算，设置和老师整个列表只读一次，按扩展名判断有没有画面，不探测视频）。以前只看有没有课程重点，「37、三角形突破应用逻辑」写完重点后 ChatGPT 额度用完、查漏和新术语没做，`--todo` 就漏掉了。**改跳过规则只改 `why_skip`，`_pretend` 要跟着写这一步做完后的效果**（例如写课程重点会清掉 `steps.review`）。
   - 失败了不影响后面的步骤（`SOFT`：复核存疑句、查漏）没有 `steps` 记录，也算没做完。
   - 旧字幕文件（课程重点不是在有 `steps` 记录之后写的，`_old_summary`）：找关键帧、复核存疑句、查漏、新术语都当作做过，不能把以前整理好的课全标成没整理完。实测用户媒体库 218 个文件，以前整理好的 73 个一个都没被误判。
 - **界面和命令行只有这一套规则**（2026-10-14 第二步）：界面上的整理按钮（生成字幕、AI 校对、找关键帧、画面复核、翻译、课程重点、查漏补缺、新术语、整理章节、全书总览）和「一键整理」都调 `bridge.do_steps` → `workflow.process(caller='gui', check_library=False, redo=这几步)`，做完 `do_doc` 重新读字幕文件。以前的 `do_transcribe / do_correct / do_translate / do_review / do_terms_suggest / do_frames_extract / do_doubts_recheck / do_book_organize / do_book_overview` 已删除，**不要再在 app.js 里写合并规则**，改整理规则只改 `workflow.py`。

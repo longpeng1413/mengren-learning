@@ -282,13 +282,13 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     document.querySelector('#libBody').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }));
     ok('媒体库里拖动：不再把整个页面打包发给后台（2026-10-19 拖文件夹排序时卡死），也不弹「拖进来打开」', performance.now() - dragT0 < 500
       && !document.querySelector('#dropZone').classList.contains('drag'), performance.now() - dragT0);
-    ok('媒体库标「待补完」：有课程重点但一键整理还差几步（悬停写明差哪几步）',
-      itemHTML({ path: 'x.mp4', name: 'x', summary: true, pending: ['review', 'terms'] }).includes('待补完')
+    ok('媒体库标「未整理完」：有课程重点但一键整理还差几步（悬停写明差哪几步）',
+      itemHTML({ path: 'x.mp4', name: 'x', summary: true, pending: ['review', 'terms'] }).includes('未整理完')
       && itemHTML({ path: 'x.mp4', name: 'x', summary: true, pending: ['review', 'terms'] }).includes('查漏补缺、新术语')
-      && !itemHTML({ path: 'x.mp4', name: 'x', summary: true, pending: [] }).includes('待补完')
-      && !itemHTML({ path: 'x.mp4', name: 'x', subs: 5, pending: ['correct', 'summary'] }).includes('待补完')
-      && itemHTML({ path: 'x.pdf', name: 'x', book: { done: 2, total: 2 }, pending: ['overview'] }).includes('待补完')
-      && !itemHTML({ path: 'x.pdf', name: 'x', book: { done: 1, total: 2 }, pending: ['organize', 'overview'] }).includes('待补完'));
+      && !itemHTML({ path: 'x.mp4', name: 'x', summary: true, pending: [] }).includes('未整理完')
+      && !itemHTML({ path: 'x.mp4', name: 'x', subs: 5, pending: ['correct', 'summary'] }).includes('未整理完')
+      && itemHTML({ path: 'x.pdf', name: 'x', book: { done: 2, total: 2 }, pending: ['overview'] }).includes('未整理完')
+      && !itemHTML({ path: 'x.pdf', name: 'x', book: { done: 1, total: 2 }, pending: ['organize', 'overview'] }).includes('未整理完'));
     ok('翻译：中文字幕自己选了翻译也照样翻', await startTranslate(false) && S.doc.segments.every(s => s.tr.startsWith('中文：')));
     const termsP = findTerms(false);
     ok('新术语：放进待勾选并打开对话框', await until(() => document.querySelector('#dlgTerms').open) && S.doc.terms_pending.terms[0].term === '假AI新术语');
@@ -312,7 +312,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       && S.doc.versions.some(v => v.reason === '重新识别前') && S.doc.corrected && S.doc.summary.includes('## 一、风险') && !S.job, toasts());
     const tasksNow = await api('doc', { path: S.path });
     ok('一键整理：整理结果和磁盘上的一致', tasksNow.doc.rev === S.rev && tasksNow.doc.summary === S.doc.summary);
-    ok('一键整理后：「还差哪几步」跟着更新（媒体库的「待补完」用它）', Array.isArray(S.pending) && JSON.stringify(S.pending) === JSON.stringify(tasksNow.pending)
+    ok('一键整理后：「还差哪几步」跟着更新（媒体库的「未整理完」用它）', Array.isArray(S.pending) && JSON.stringify(S.pending) === JSON.stringify(tasksNow.pending)
       && !S.pending.includes('summary') && !S.pending.includes('review'), [S.pending, tasksNow.pending]);
     await api('settings', { settings: { chat: 'claude' } });  // Claude 没填 Key：课程重点会失败
     await loadSettings();
@@ -451,8 +451,8 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       && document.querySelectorAll('#helpNav [data-h]').length >= 17);
     document.querySelector('#helpNav [data-h="ui"]').click();
     const uiHelp = document.querySelector('#helpBody section[data-h="ui"]');
-    ok('使用说明：有「界面上的标签和按钮」，讲到媒体库的待补完、字幕的存疑标记、课程重点的按钮', !uiHelp.hidden
-      && ['待补完', '重点待更新', '待更新剪藏', '整理中', '存疑', '绿色下划线', '查漏补缺', '字幕被引用'].every(w => uiHelp.textContent.includes(w)));
+    ok('使用说明：有「界面上的标签和按钮」，讲到媒体库的未整理完、字幕的存疑标记、课程重点的按钮', !uiHelp.hidden
+      && ['未整理完', '重点待更新', '待更新剪藏', '整理中', '存疑', '绿色下划线', '查漏补缺', '字幕被引用'].every(w => uiHelp.textContent.includes(w)));
     document.querySelector('#helpClose').click();
     ok('关闭使用说明', !document.querySelector('#dlgHelp').open);
 

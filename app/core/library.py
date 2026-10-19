@@ -394,7 +394,7 @@ def _scan_env(lib):
     from . import workflow
     try:
         facts = workflow.scan_facts()
-    except Exception:  # noqa: BLE001  读设置出错时不显示「待补完」，列表照样能用
+    except Exception:  # noqa: BLE001  读设置出错时不显示「未整理完」，列表照样能用
         log.exception('媒体库：准备「还差哪几步」的判断出错')
         return None
     return {'facts': facts, 'binds': _teacher_binds(lib)}

@@ -554,7 +554,7 @@ check('额度用完：课程重点写好了，查漏、新术语没做', t11['st
       and (docs.load(L5).get('summary') or '').strip() and 'review' not in docs.load(L5)['steps'])
 it5 = item_of(L5)
 check('有课程重点、但查漏和新术语没做完：算没整理完（--todo 会选上）', it5['todo'] and it5['pending_steps'] == ['review', 'terms']
-      and it5['state'] == '待补完' and L5 in [x['path'] for x in wf.find(course='峰级', todo=True)], it5)
+      and it5['state'] == '未整理完' and L5 in [x['path'] for x in wf.find(course='峰级', todo=True)], it5)
 inf5 = wf.info(L5)
 check('info：只列还要做的步骤，做过的、不用做的写明原因', not inf5['processed'] and inf5['next_steps'] == ['review', 'terms']
       and inf5['skipped_steps']['summary'] == '已经有课程重点' and '不用翻译' in inf5['skipped_steps']['translate'], inf5['next_steps'])
@@ -575,7 +575,7 @@ t13 = wf.process(L6)
 FAIL.pop('review')
 it6 = item_of(L6)
 check('只有「查漏」这种失败了不影响后面的步骤失败：任务算完成，但这节课仍算没整理完', t13['status'] == 'completed' and t13['warnings']
-      and it6['todo'] and it6['pending_steps'] == ['review'] and it6['state'] == '待补完', it6)
+      and it6['todo'] and it6['pending_steps'] == ['review'] and it6['state'] == '未整理完', it6)
 c6 = calls.copy()
 wf.process(L6)
 check('再整理只做查漏', calls - c6 == Counter({'review': 1}) and not item_of(L6)['todo'])
@@ -653,7 +653,7 @@ check('命令行 process --dry-run：只看不做，只列真正还要做的步�
 code, text, _ = run_cli('process', '--course', '峰级', '--todo', '--dry-run')
 check('命令行 --dry-run 中文输出', '1、第一课.mp4：查漏补缺' in text, text)
 code, text, _ = run_cli('list', '--course', '峰级', '--todo')
-check('命令行 list --todo：写明「待补完」和还差哪几步', '第一课  [待补完]' in text and '还差：查漏补缺' in text and '共 3 个' in text, text)
+check('命令行 list --todo：写明「未整理完」和还差哪几步', '第一课  [未整理完]' in text and '还差：查漏补缺' in text and '共 3 个' in text, text)
 code, out, err = run_cli('process', '--course', '峰级', '--todo', '--json')
 r0 = out['results'][0] if out.get('results') else {}
 check('命令行 process --todo：新课从头整理，只差查漏的只做查漏', code == 0 and out['success'] and out['count'] == 3 and r0['success']

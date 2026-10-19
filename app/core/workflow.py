@@ -57,14 +57,14 @@ def _state(it, kind):
         if it.get('clipped'):
             return '已剪藏'
         if b.get('total') and b.get('done') == b.get('total'):
-            return '待补完' if pending else '已整理'
+            return '未整理完' if pending else '已整理'
         return f'整理了 {b.get("done", 0)}/{b.get("total", 0)} 章' if b.get('done') else '未处理'
     if it.get('clipped'):
         return '已剪藏'
     if it.get('reviewed'):
         return '已校对'
     if it.get('summary'):
-        return '待补完' if pending else '已整理'  # 有课程重点，但查漏、新术语等还没做完（例如中途额度用完）
+        return '未整理完' if pending else '已整理'  # 有课程重点，但查漏、新术语等还没做完（例如中途额度用完）
     return '有字幕' if it.get('subs') else '未处理'
 
 
@@ -477,7 +477,7 @@ def pending_in_scan(path, d, env, folder_teacher=''):
 
 def facts_for(path, d, settings=None, opts=None, probe=True):
     """一节课（一本书）的 Facts：有没有画面要探测视频、书的目录要读书，都是用到才做。
-    probe=False（界面显示「待补完」）：和媒体库列表一样按扩展名判断有没有画面。"""
+    probe=False（界面显示「未整理完」）：和媒体库列表一样按扩展名判断有没有画面。"""
     s = settings or config.load()
     tid = d.get('teacher') or library.folder_teacher(path)
     return Facts(s, opts, teacher=lambda: config.get_teacher(tid, resolve=False) if tid else None,
@@ -486,7 +486,7 @@ def facts_for(path, d, settings=None, opts=None, probe=True):
 
 
 def pending_now(path, d):
-    """界面打开、重新读取一节课时：还差哪几步（媒体库的「待补完」跟着更新）。"""
+    """界面打开、重新读取一节课时：还差哪几步（媒体库的「未整理完」跟着更新）。"""
     kind = 'book' if kind_of(path) == 'book' else 'video'
     return pending_steps(d, kind, facts_for(path, d, probe=False))[0]
 
