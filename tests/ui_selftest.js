@@ -449,6 +449,10 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     document.querySelector('#helpNav [data-h="book"]').click();
     ok('使用说明可以切换章节', !document.querySelector('#helpBody section[data-h="book"]').hidden && document.querySelector('#helpBody section[data-h="start"]').hidden
       && document.querySelectorAll('#helpNav [data-h]').length >= 17);
+    document.querySelector('#helpNav [data-h="ui"]').click();
+    const uiHelp = document.querySelector('#helpBody section[data-h="ui"]');
+    ok('使用说明：有「界面上的标签和按钮」，讲到媒体库的待补完、字幕的存疑标记、课程重点的按钮', !uiHelp.hidden
+      && ['待补完', '重点待更新', '待更新剪藏', '整理中', '存疑', '绿色下划线', '查漏补缺', '字幕被引用'].every(w => uiHelp.textContent.includes(w)));
     document.querySelector('#helpClose').click();
     ok('关闭使用说明', !document.querySelector('#dlgHelp').open);
 

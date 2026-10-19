@@ -335,6 +335,7 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .help-body li { margin: .25em 0; }
 .help-body li ul { margin: .2em 0; }
 .help-body p { margin: .4em 0 .8em; }
+.help-body h4 { margin: 1.1em 0 .2em; font-size: 15px; color: var(--accent); }
 .help-dl dt { font-weight: 600; margin-top: 10px; }
 .help-dl dd { margin: 2px 0 0 0; color: var(--muted); }
 .help-keys td { padding: 4px 14px 4px 0; border-bottom: 1px solid var(--line); }
