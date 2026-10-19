@@ -2514,9 +2514,17 @@ function bind() {
 
   // 拖放
   const dz = $('#dropZone');
-  document.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+  const hasFiles = e => !!e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files');  // 从资源管理器拖进来的（媒体库里拖动排序不是）
+  document.addEventListener('dragover', e => { e.preventDefault(); if (hasFiles(e)) dz.classList.add('drag'); });
   document.addEventListener('dragleave', e => { if (!e.relatedTarget) dz.classList.remove('drag'); });
-  document.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag'); });
+  document.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('drag');
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (!files || !files.length || !(window.chrome && chrome.webview && chrome.webview.postMessageWithAdditionalObjects)) return;
+    // 完整路径只有浏览器内核知道：先把文件交给它（后台记下路径），再按文件名取回来打开（见 main.py on_loaded）
+    chrome.webview.postMessageWithAdditionalObjects('FilesDropped', files);
+    api('dropped', { names: [...files].map(f => f.name) }).then(r => { if (r.path) openPath(r.path); }).catch(fail);
+  });
 
   // 键盘
   document.addEventListener('keydown', e => {

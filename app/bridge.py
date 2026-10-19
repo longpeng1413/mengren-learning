@@ -205,6 +205,21 @@ class Api:
         bgqueue.clear_finished()
         return {'items': bgqueue.items()}
 
+    def do_dropped(self, b):
+        """从资源管理器拖进来的文件：界面先把文件交给浏览器内核（FilesDropped，pywebview 记下完整路径），再按文件名来取。"""
+        from webview.dom import _dnd_state
+        names = [str(x) for x in b.get('names') or []]
+        end = time.time() + 2
+        while True:
+            hit = next((p for n in names for (base, p) in list(_dnd_state['paths']) if base == n), None)
+            if hit or time.time() > end:
+                break
+            time.sleep(0.05)
+        _dnd_state['paths'].clear()  # 用过就清掉，不攒着
+        if hit:
+            log.info('拖入文件：%s', hit)
+        return {'path': hit or ''}
+
     def do_doc(self, b):
         """重新读取字幕文件（整理完一步后界面用）。"""
         path = os.path.abspath(str(b.get('path') or ''))

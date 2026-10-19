@@ -15,7 +15,7 @@ from core.log import dump_threads, log, setup as setup_log  # noqa: E402
 setup_log(debug='--debug' in sys.argv)
 
 import webview  # noqa: E402
-from webview.dom import DOMEventHandler  # noqa: E402
+from webview.dom import _dnd_state  # noqa: E402
 
 from bridge import Api  # noqa: E402
 
@@ -150,18 +150,13 @@ def main():
     api._window = window
     api._version = VERSION
 
-    def on_drop(e):
-        for f in (e.get('dataTransfer') or {}).get('files') or []:
-            full = f.get('pywebviewFullPath')
-            if full:
-                log.info('拖入文件：%s', full)
-                window.evaluate_js(f'window.openPath && window.openPath({json.dumps(full)})')
-                break
-
     def on_loaded():
         log.info('界面加载完成')
-        window.dom.document.events.dragover += DOMEventHandler(lambda e: None, True, True)
-        window.dom.document.events.drop += DOMEventHandler(on_drop, True, True)
+        # 从资源管理器拖文件进来：界面把文件交给浏览器内核（FilesDropped），pywebview 在这里记下完整路径，
+        # 界面再用 api('dropped') 按文件名取。**不要再用 window.dom.document.events.dragover / drop**（DOMEventHandler）：
+        # pywebview 每个事件都把目标元素连同整个页面打包成 JSON 发过来，拖动时每秒几十次，
+        # 2026-10-19 用户在媒体库拖动文件夹排序时界面卡死（页面上开着 582 句字幕和 147 个文件的媒体库）。
+        _dnd_state['num_listeners'] = max(1, _dnd_state['num_listeners'])
         threading.Thread(target=watchdog, daemon=True, name='watchdog').start()
         selftest = next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--selftest=')), None)
         if selftest:
@@ -264,14 +259,19 @@ def main():
         closing['started'] = True
         log.info('收到关闭请求，先保存字幕和播放进度')
 
-        def finish():
+        def notify():
             try:
                 window.evaluate_js('window.prepareClose ? window.prepareClose() : window.pywebview.api.call("quit", {})')
             except Exception:
                 log.exception('通知界面保存时出错')
+
+        def finish():
+            # 通知界面保存放在另一个线程：evaluate_js 会一直等界面回答，界面卡死时（2026-10-19）这里永远等下去，点关闭没反应
+            threading.Thread(target=notify, daemon=True, name='close-notify').start()
             if not api._quit.wait(4):
                 log.warning('界面 4 秒内没有保存完，直接关闭')
             closing['done'] = True
+            threading.Timer(3, lambda: os._exit(0)).start()  # 兜底：窗口关不掉（destroy 也卡住）时直接退出
             tray.stop()
             log.info('关闭窗口')
             try:
@@ -279,7 +279,7 @@ def main():
             except Exception:
                 log.exception('关闭窗口出错')
             time.sleep(2)
-            os._exit(0)  # 兜底：窗口关不掉时直接退出
+            os._exit(0)
         threading.Thread(target=finish, daemon=True, name='closing').start()
         return False
 

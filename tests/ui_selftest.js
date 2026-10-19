@@ -277,6 +277,11 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('点提醒里的「重新生成」：用改好的字幕重新写，提醒消失', await until(() => !S.job && S.summaryChanges === 0 && document.querySelector('#summaryStale').hidden, 15000));
     ok('媒体库标「重点待更新」', itemHTML({ path: 'x.mp4', name: 'x', summary: true, summary_changes: 5 }).includes('重点待更新')
       && !itemHTML({ path: 'x.mp4', name: 'x', summary: true, summary_changes: 2 }).includes('重点待更新'));
+    const dragT0 = performance.now();
+    for (let i = 0; i < 40; i++) document.querySelector('#libBody').dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }));
+    document.querySelector('#libBody').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }));
+    ok('媒体库里拖动：不再把整个页面打包发给后台（2026-10-19 拖文件夹排序时卡死），也不弹「拖进来打开」', performance.now() - dragT0 < 500
+      && !document.querySelector('#dropZone').classList.contains('drag'), performance.now() - dragT0);
     ok('媒体库标「待补完」：有课程重点但一键整理还差几步（悬停写明差哪几步）',
       itemHTML({ path: 'x.mp4', name: 'x', summary: true, pending: ['review', 'terms'] }).includes('待补完')
       && itemHTML({ path: 'x.mp4', name: 'x', summary: true, pending: ['review', 'terms'] }).includes('查漏补缺、新术语')

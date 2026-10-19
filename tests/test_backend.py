@@ -1063,6 +1063,15 @@ for node in ast.walk(ast.parse((ROOT / 'app' / 'bridge.py').read_text(encoding='
             bad.append(node.value)
 check('选择文件对话框的筛选写法都是对的', not bad, bad)
 
+# 从资源管理器拖文件进来：浏览器内核记下完整路径（FilesDropped），界面按文件名取（2026-10-19 起不再用 pywebview 的 DOM 拖放事件）
+from webview.dom import _dnd_state  # noqa: E402
+_dnd_state['paths'][:] = [('甲.mp4', r'D:\课\甲.mp4')]
+r = api.call('dropped', {'names': ['甲.mp4']})
+check('拖进来的文件：按文件名取到完整路径，用过就清掉', r['ok'] and r['path'] == r'D:\课\甲.mp4' and not _dnd_state['paths'], r)
+t0 = time.time()
+r = api.call('dropped', {'names': ['乙.mp4']})
+check('没找到时等一会儿就返回空的，不会一直等', r['ok'] and r['path'] == '' and time.time() - t0 < 3)
+
 # 代码里没有写错的变量名（pyflakes）
 import importlib.util  # noqa: E402
 if importlib.util.find_spec('pyflakes'):
