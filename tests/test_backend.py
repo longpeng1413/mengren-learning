@@ -764,7 +764,7 @@ check('导入设置', imp['imported'] and s_['providers']['deepseek']['key'] == 
 api.call('import_settings', {'path': str(TMP / 'exp2.json')})
 check('导入不带密钥的文件时保留已有密钥', config.load()['providers']['deepseek']['key'] == 'sk-export-test-123456')
 (TMP / 'bad.json').write_text('{"a": 1}', encoding='utf-8')
-check('拒绝不是猛人学习的文件', '不是猛人学习（猛人字幕）导出的设置文件' in api.call('import_settings', {'path': str(TMP / 'bad.json')})['error'])
+check('拒绝不是猛人学习的文件', '不是猛人学习导出的设置文件' in api.call('import_settings', {'path': str(TMP / 'bad.json')})['error'])
 
 # 解压即用：软件文件夹里附带的设置，第一次启动时自动导入
 from core import portable  # noqa: E402

@@ -574,9 +574,9 @@ class Api:
         try:
             data = _json.loads(Path(r[0]).read_text(encoding='utf-8-sig'))
         except (OSError, ValueError):
-            raise ValueError('读不出这个文件，请选择从猛人学习（猛人字幕）导出的设置文件')
+            raise ValueError('读不出这个文件，请选择从猛人学习导出的设置文件')
         if not isinstance(data, dict) or data.get('app') not in (config.APP_NAME, config.OLD_APP_NAME) or not isinstance(data.get('settings'), dict):
-            raise ValueError('这不是猛人学习（猛人字幕）导出的设置文件')
+            raise ValueError('这不是猛人学习导出的设置文件')
         cur = config.load()
         new = config._merge(config.DEFAULTS, data['settings'])
         new['storage_dir'] = cur.get('storage_dir', '')  # 位置跟电脑有关，保留这台电脑的
