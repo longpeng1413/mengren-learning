@@ -1063,6 +1063,19 @@ for node in ast.walk(ast.parse((ROOT / 'app' / 'bridge.py').read_text(encoding='
             bad.append(node.value)
 check('选择文件对话框的筛选写法都是对的', not bad, bad)
 
+# 朗读（core/tts.py）：中括号里的视频时间不读
+from core import tts  # noqa: E402
+check('朗读：去掉 [01:50]、[1:00:29]、[01:42]-[02:23] 这类时间，别的方括号照读',
+      tts.clean('交易难不难 [01:50]，看技术[1:00:29]。[01:42]-[02:23] 结束 [注意]') == '交易难不难 ，看技术。 结束 [注意]', tts.clean('交易难不难 [01:50]，看技术[1:00:29]。[01:42]-[02:23] 结束 [注意]'))
+try:
+    tts.speak('edge', '[01:50]')
+    e_ = ''
+except tts.TtsError as e:
+    e_ = str(e)
+check('朗读：只有时间、没有文字时不去联网', '没有要读的文字' in e_, e_)
+r = api.call('tts_voices', {})
+check('朗读：Edge 在线声音列表（晓晓在第一个）', r['ok'] and r['edge'][0]['id'] == 'zh-CN-XiaoxiaoNeural' and len(r['edge']) == 5)
+
 # 从资源管理器拖文件进来：浏览器内核记下完整路径（FilesDropped），界面按文件名取（2026-10-19 起不再用 pywebview 的 DOM 拖放事件）
 from webview.dom import _dnd_state  # noqa: E402
 _dnd_state['paths'][:] = [('甲.mp4', r'D:\课\甲.mp4')]

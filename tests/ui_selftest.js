@@ -320,6 +320,14 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('失败时：提示原因，课程重点保持原样', !(await doSummary()) && toasts().some(t => t.includes('Claude')) && S.doc.summary === sumBefore, toasts());
     await api('settings', { settings: { chat: 'deepseek' } });
     await loadSettings();
+    // 单个按钮在前台做的时候也能切课（2026-10-21）：任务在后台接着做，做完提示，结果写进原来那节课
+    const aiPath = S.path, aiRev = S.rev;
+    doSummary();
+    await until(() => S.job);
+    await window.openPath(aiBase + '《AI整理测试书》.pdf');
+    ok('前台整理时可以切到别的课：任务转到后台接着做', S.mode === 'book' && !S.job && S.detached.size === 1 && toasts().some(t => t.includes('会在后台接着做')), toasts());
+    ok('切走的任务做完：提示「在后台做完了」，结果写进原来那节课', await until(() => !S.detached.size && toasts().some(t => t.includes('在后台做完了')), 20000)
+      && (await api('doc', { path: aiPath })).doc.rev > aiRev, toasts());
     await window.openPath(aiBase + '《AI整理测试书》.pdf');
     ok('书：打开', await until(() => S.mode === 'book' && (S.doc.chapters || []).length === 2));
     ok('书：整理选中的章节', await bookOrganize([0]) && S.doc.chapters[0].md.includes('假 AI 整理') && !S.doc.chapters[1].md);
@@ -327,6 +335,28 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('书：章节没全部整理完也可以先写全书总览', S.doc.overview.includes('假 AI 写的总览'));
     await window.openPath(keepPath);
     ok('回到原来的视频', await until(() => S.path === keepPath && S.mode === 'media'));
+    // 朗读（tts.js）：切句、跳过时间、播放条（用系统声音，不联网）
+    $$('.ai-tabs .tab')[0].click();
+    const ttsBox = document.createElement('div');
+    ttsBox.innerHTML = md('- 先看结构 [01:42]-[02:23]，再看位置。第二句 12:30 也是时间！');
+    document.body.append(ttsBox);
+    const ttsText = TTS.segments(ttsBox).map(x => x.text);
+    ttsBox.remove();
+    ok('朗读：按句子切；中括号里的时间、两个时间中间的横杠都不读', ttsText.length === 2 && !/[-\d]/.test(ttsText.join('')) && ttsText[0].startsWith('先看结构'), ttsText);
+    if ((S.doc.summary || '').trim()) {
+      savePrefs({ tts_engine: 'system', tts_rate: 2 });
+      $('#btnTts').click();
+      ok('朗读：点「朗读」出现播放条，正在读的句子高亮', await until(() => TTS.active() && document.querySelector('.tts-bar')
+        && (!window.CSS.highlights || CSS.highlights.has('tts-speaking'))), TTS._state());
+      document.querySelector('.tts-bar [data-t=rate]').click();
+      document.querySelector('#ctxMenu [data-rate="1.5"]').click();
+      ok('朗读：可以调语速，会记住', S.settings.tts_rate === 1.5 && document.querySelector('.tts-bar [data-t=rate]').textContent === '1.5×');
+      document.querySelector('.tts-bar [data-t=play]').click();
+      ok('朗读：暂停', TTS._state().state === 'paused');
+      document.querySelector('.tts-bar [data-t=close]').click();
+      ok('朗读：关闭后播放条消失', !TTS.active() && !document.querySelector('.tts-bar'));
+      savePrefs({ tts_engine: 'edge', tts_rate: 1 });
+    }
 
     // 媒体库树形显示、展开收起、拖动排序、改名、新格式（test-media\ui-lib：1、第一讲\{2、乙,1、甲}.avi、资料\补充.epub、预告.avi）
     const libBase = base.replace(/ui\\$/, 'ui-lib\\');

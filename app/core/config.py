@@ -135,6 +135,11 @@ DEFAULTS = {
     'video_h': 0.55,
     'follow': True,
     'show_tr': True,
+    'tts_engine': 'edge',  # 朗读：edge 在线 / baidu 百度 / system 系统声音（2026-10-21）
+    'tts_voice': 'zh-CN-XiaoxiaoNeural',
+    'tts_sys_voice': '',
+    'tts_rate': 1.0,
+    'tts_hl': 'yellow',
     'overlay': False,
     'last_lang': 'zh',
     'last_teacher': '',

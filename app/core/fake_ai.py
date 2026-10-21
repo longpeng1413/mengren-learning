@@ -49,7 +49,7 @@ def stream(settings, name, messages, cancel=None, json_mode=False):
     for piece in ['这节课（假 AI）讲风险。\n\n', '## 一、风险\n\n', '- 截断亏损 [00:10]\n', '- 让利润奔跑 [00:15]\n']:
         if cancel is not None and cancel.is_set():
             return
-        time.sleep(0.1)
+        time.sleep(0.3)  # 界面测试要来得及在写课程重点时切到别的课
         yield piece
 
 

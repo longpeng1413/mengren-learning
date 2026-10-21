@@ -14,6 +14,7 @@ args = [
     '--add-data', f'{ROOT / "app" / "web"};web',
     '--hidden-import', 'websocket',
     '--hidden-import', 'pystray._win32',
+    '--collect-all', 'edge_tts',  # 朗读（Edge 在线声音），LGPLv3，许可证随包附上
     '--collect-all', 'pypdfium2', '--collect-all', 'pypdfium2_raw', '--collect-all', 'pypdfium2_cfg',
     '--exclude-module', 'numpy', '--exclude-module', 'tkinter',
     '--distpath', str(ROOT / DIST), '--workpath', str(ROOT / 'build'), '--specpath', str(ROOT / 'build'),

@@ -6,7 +6,7 @@ import threading
 import time
 from pathlib import Path
 
-from core import asr, bgqueue, book, cache, codex_auth, config, doc as docs, frames, glossary, jobs, library, llm, media, tasks, workflow
+from core import asr, bgqueue, book, cache, codex_auth, config, doc as docs, frames, glossary, jobs, library, llm, media, tasks, tts, workflow
 from core.log import LOG_DIR, log
 
 MEDIA_FILTER = ('音视频和文档 (*.mp4;*.m4v;*.mov;*.mkv;*.webm;*.avi;*.flv;*.ts;*.wmv;*.3gp;*.mpg;*.mpeg;'
@@ -204,6 +204,15 @@ class Api:
     def do_bg_clear(self, b):
         bgqueue.clear_finished()
         return {'items': bgqueue.items()}
+
+    def do_tts(self, b):
+        """朗读一句话（Edge 在线 / 百度）：返回 mp3 的 base64，只在内存里，界面播完就丢。"""
+        import base64
+        data = tts.speak(b.get('engine') or 'edge', b.get('text') or '', b.get('voice') or '', config.load())
+        return {'audio': base64.b64encode(data).decode('ascii'), 'mime': 'audio/mpeg'}
+
+    def do_tts_voices(self, b):
+        return {'edge': [{'id': v, 'name': n} for v, n in tts.EDGE_VOICES]}
 
     def do_dropped(self, b):
         """从资源管理器拖进来的文件：界面先把文件交给浏览器内核（FilesDropped，pywebview 记下完整路径），再按文件名来取。"""

@@ -217,6 +217,17 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 /* ---------- AI 面板 ---------- */
 .ai-panel { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 #aiPanel:not(.docked) { display: none; }
+/* 朗读（tts.js） */
+.tts-btn { gap: 4px; margin-right: 4px; }
+.tts-btn svg { width: 15px; height: 15px; }
+.tts-bar { position: relative; display: flex; align-items: center; gap: 4px; padding: 5px 10px 7px; border-bottom: 1px solid var(--line); background: var(--panel2); flex: none; }
+.tts-name { font-size: 12px; color: var(--muted); margin-right: 6px; }
+.tts-rate { min-width: 46px; font-variant-numeric: tabular-nums; }
+.tts-bar[data-follow="false"] .tts-locate { color: var(--accent); border-color: var(--accent-line); background: var(--accent-weak); }
+.tts-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--line); }
+.tts-progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+.tts-pad { display: inline-block; width: 1em; }
+::highlight(tts-speaking) { background-color: var(--tts-hl, rgba(255, 208, 0, .45)); }
 .ai-tabs { display: flex; align-items: center; gap: 4px; padding: 6px 8px 0; border-bottom: 1px solid var(--line); flex: none; }
 .ai-tabs .btn { margin-bottom: 5px; }
 .tab { background: none; border: 0; padding: 8px 12px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 600; white-space: nowrap; }

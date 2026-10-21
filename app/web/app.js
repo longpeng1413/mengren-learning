@@ -484,10 +484,16 @@ async function pickAndOpen() {
   try { const { path } = await api('pick_media'); if (path) openPath(path); } catch (e) { fail(e); }
 }
 window.openPath = async function (path) {
-  if (S.job) return toast('还有任务在进行，请等它完成或取消后再切换视频', { error: true });
+  if (S.job && !(S.jobInfo && S.jobInfo.id === S.job && S.jobInfo.detachable)) return toast('这个任务做完前不能切换（只要几十秒），请稍等或点上方的「取消」', { error: true });
   try {
     await flushSave();
     const d = await api('open', { path });
+    if (S.job && S.jobInfo && S.jobInfo.path !== d.path) {  // 切到别的课：这个任务在后台接着做
+      S.detached.set(S.job, S.jobInfo);
+      if (S.jobInfo.label !== '正在准备播放…') toast(`《${S.jobInfo.title}》的「${S.jobInfo.label.replace(/[…\s]+$/, '').replace(/中$/, '')}」会在后台接着做，做完会提示你`, { ms: 7000 });
+      S.job = null; S.chatAbort = null; updateButtons();
+    }
+    if (typeof TTS !== 'undefined') TTS.stop();  // 换课：停止朗读
     if (d.kind === 'book') { openBook(d); return; }
     setMode('media');
     S.resumeAt = d.position || 0;
@@ -505,7 +511,7 @@ window.openPath = async function (path) {
     renderTeacherSelect(); renderCues(); renderSummary(); renderChat(); renderFrames(); updateButtons(); updateSaveLabel();
     $('#optReviewed').checked = !!S.doc.reviewed;
     renderLibrary(); busyNotice(d);
-    if (d.convert_job) runJob(d.convert_job, '正在准备播放…', { onDone: job => setSource(job.result.src) });
+    if (d.convert_job) runJob(d.convert_job, '正在准备播放…', { onDone: job => setSource(job.result.src), detachable: true, quiet: true });
   } catch (e) { fail(e); }
 };
 function setupPlayer(d) {
@@ -1031,29 +1037,57 @@ function updateButtons() {
 
 /* ------------------------------------------------------------ 后台任务 ---- */
 /* 返回 true 表示成功完成 */
-async function runJob(id, label, { onItems, onDone, onError, onExtra } = {}) {
-  S.job = id; updateButtons();
+/* detachable：做的时候可以切到别的课（2026-10-21 用户要求，单个按钮也不用等）。切走后任务在后台接着做，
+   进度条写明是哪节课；边做边显示的内容和做完的收尾（onItems / onDone / onError、调用方后面的代码）只在那节课还开着时做，
+   不能弄到新打开的课上：切走时做完就只提示，不再回到调用方（返回一个永远不结束的 Promise）。切回那节课时自动重新接上。 */
+S.detached = new Map();  // 切走后还在做的任务：id → {path, title, label}
+async function runJob(id, label, { onItems, onDone, onError, onExtra, detachable = false, quiet = false } = {}) {
+  const path = S.path, title = (S.doc && S.doc.title) || '';
+  S.job = id; S.jobInfo = { id, path, title, label, detachable }; updateButtons();
   const bar = $('#jobbar'); bar.hidden = false;
   $('#jobText').textContent = label; $('#jobFill').style.width = '0%';
-  let since = 0, ok = false;
+  const away = () => S.path !== path;
+  let since = 0, ok = false, last = null;
   try {
     for (;;) {
       const { job } = await api('job', { id, since });
-      since = job.total;
-      if (job.items.length && onItems) onItems(job.items);
-      if (job.extra && onExtra) onExtra(job.extra);
-      $('#jobFill').style.width = Math.round(job.progress * 100) + '%';
-      $('#jobText').textContent = (job.message || label) + (job.progress > 0 && job.progress < 1 ? `　${Math.round(job.progress * 100)}%` : '');
-      if (job.status === 'done') { ok = true; if (onDone) onDone(job); break; }
-      if (job.status === 'error') { onError ? onError(job) : fail(new Error(job.error)); break; }
-      if (job.status === 'cancelled') { toast('已取消'); if (onError) onError(job); break; }
+      since = job.total; last = job;
+      if (!away() && !S.job && S.detached.has(id)) { S.detached.delete(id); S.job = id; S.jobInfo = { id, path, title, label, detachable }; updateButtons(); }  // 切回来了：重新接上
+      if (job.items.length && onItems && !away()) onItems(job.items);
+      if (job.extra && onExtra && !away()) onExtra(job.extra);
+      if (S.job === id || (!S.job && [...S.detached.keys()][0] === id)) {
+        $('#jobFill').style.width = Math.round(job.progress * 100) + '%';
+        $('#jobText').textContent = (away() ? `《${title}》` : '') + (job.message || label) + (job.progress > 0 && job.progress < 1 ? `　${Math.round(job.progress * 100)}%` : '');
+      }
+      if (job.status === 'done') { ok = true; if (onDone && !away()) onDone(job); break; }
+      if (job.status === 'error') { if (!away()) onError ? onError(job) : fail(new Error(job.error)); break; }
+      if (job.status === 'cancelled') { if (!away()) { toast('已取消'); if (onError) onError(job); } break; }
       await sleep(600);
     }
   } catch (e) { fail(e); }
-  finally { S.job = null; bar.hidden = true; updateButtons(); }
+  finally {
+    if (S.job === id) S.job = null;
+    S.detached.delete(id);
+    if (!S.job && !S.detached.size) bar.hidden = true;
+    updateButtons();
+  }
+  if (detachable && away()) {
+    if (!quiet && last) {
+      const name = label.replace(/[…\s]+$/, '').replace(/中$/, ''), t = last.result && last.result.task;
+      if (last.status === 'cancelled') toast(`《${title}》：「${name}」已停止。已经做完的部分保存好了`);
+      else if (last.status !== 'done' || (t && !t.success)) toast(`《${title}》：「${name}」没有完成：${(t && t.message) || last.error || ''}`, { error: true, ms: 12000 });
+      else toast(`《${title}》：「${name}」在后台做完了，打开这节课就能看到`, { ms: 8000 });
+      loadLibrary();
+    }
+    return new Promise(() => {});  // 不回到调用方：后面的收尾是针对那节课的
+  }
   return ok;
 }
-$('#jobCancel').onclick = () => { if (S.job) api('cancel', { id: S.job }).catch(() => {}); S.cancelPipeline = true; };
+$('#jobCancel').onclick = () => {
+  const id = S.job || [...S.detached.keys()][0];
+  if (id) api('cancel', { id }).catch(() => {});
+  S.cancelPipeline = true;
+};
 
 /* ------------------------------------------------------------ 整理步骤 ---- */
 /* 生成字幕、AI 校对、找关键帧、画面复核存疑句、翻译、课程重点、查漏补缺、新术语、整理章节、全书总览，以及一键整理：
@@ -1068,7 +1102,7 @@ async function runSteps(steps, label, { opts = {}, redo, onItems, onStart } = {}
   if (onStart) onStart(r.job);
   const res = { task: null, status: 'error', error: '' };
   await runJob(r.job, label, {
-    onItems,
+    onItems, detachable: true,
     onDone: job => { res.task = job.result.task; res.status = 'done'; },
     onError: job => { res.status = job.status; res.error = job.error || ''; },
   });
