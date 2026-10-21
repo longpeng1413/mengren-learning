@@ -348,9 +348,17 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       $('#btnTts').click();
       ok('朗读：点「朗读」出现播放条，正在读的句子高亮', await until(() => TTS.active() && document.querySelector('.tts-bar')
         && (!window.CSS.highlights || CSS.highlights.has('tts-speaking'))), TTS._state());
+      document.querySelector('.tts-bar [data-t=more]').click();
+      ok('朗读：点「更多」菜单真的弹出来（以前一弹出就被关掉）', !document.querySelector('#ctxMenu').hidden && !!document.querySelector('#ctxMenu [data-from="here"]'));
       document.querySelector('.tts-bar [data-t=rate]').click();
+      ok('朗读：点倍速菜单真的弹出来', !document.querySelector('#ctxMenu').hidden && !!document.querySelector('#ctxMenu [data-rate="1.5"]'));
       document.querySelector('#ctxMenu [data-rate="1.5"]').click();
       ok('朗读：可以调语速，会记住', S.settings.tts_rate === 1.5 && document.querySelector('.tts-bar [data-t=rate]').textContent === '1.5×');
+      const segs2 = TTS.segments(document.querySelector('#summaryBox')), rg = document.createRange();
+      rg.setStart(segs2[1].a[0], segs2[1].a[1]); rg.setEnd(segs2[1].b[0], segs2[1].b[1]);
+      const bx = rg.getClientRects()[0];
+      document.querySelector('#summaryBox').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: bx.left + 3, clientY: bx.top + bx.height / 2 }));
+      ok('朗读：双击第二句，从第二句开始读', TTS._state().i === 1 && TTS._state().state === 'playing', TTS._state());
       document.querySelector('.tts-bar [data-t=play]').click();
       ok('朗读：暂停', TTS._state().state === 'paused');
       document.querySelector('.tts-bar [data-t=close]').click();

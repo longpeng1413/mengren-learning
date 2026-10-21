@@ -2,7 +2,7 @@
    用户要求和他的 Obsidian 插件「听书」用法一样（D:\猛人obsidian编辑插件开发 的 src/speech.mjs、speech-text.mjs），
    切句、跳过时间、跟随滚动、播放条都照它来：
    - 按句子读，正在读的句子高亮（CSS Highlight，不改页面内容）；快读到看得见的区域底部时自动往下翻（停在约三分之一高处）；
-   - 自己用滚轮滚动后暂停跟随，停手 6 秒自动恢复，「定位」马上回到朗读处；双击正在读的句子暂停 / 继续；
+   - 自己用滚轮滚动后暂停跟随，停手 6 秒自动恢复，「定位」马上回到朗读处；双击任意一句从那里开始读，双击正在读的句子暂停 / 继续；
    - 视频时间（显示成链接的 [01:50]、[01:42]-[02:23]）、插图、流程图代码不读；
    - 来源：Edge 在线（自然，联网）、百度朗读（联网，句子发给百度翻译）——这两种由后台 core/tts.py 取声音；
      系统声音（Windows 自带的慧慧、康康、瑶瑶，不联网）用浏览器自带的朗读；
@@ -139,7 +139,8 @@ const TTS = (() => {
     stop(true);
     const key = S.path + '|' + src.pane;
     let i = 0;
-    if (mode === 'here') i = firstVisible(segs);
+    if (typeof mode === 'number') i = Math.max(0, Math.min(segs.length - 1, mode));  // 双击的那一句
+    else if (mode === 'here') i = firstVisible(segs);
     else if (mode !== 'start') i = resumeIndex(key, segs);
     s = { root: src.root, key, name: src.name, segs, i, state: 'playing', follow: true, handScroll: 0, programmatic: 0, cleanup: [] };
     const v = $('#video'); if (v && !v.paused) v.pause();  // 边听边看：先停下视频
@@ -285,10 +286,6 @@ const TTS = (() => {
     s.programmatic = Date.now();
     sc.scrollBy({ top: rect.top - box.top - box.height / 3, behavior: 'smooth' });
   }
-  function onSentence(x, y) {
-    const r = s && rangeOf(s.segs[s.i]);
-    return !!r && [...r.getClientRects()].some(b => x >= b.left - 2 && x <= b.right + 2 && y >= b.top - 2 && y <= b.bottom + 2);
-  }
   function listen() {
     const on = (el, type, fn, opt) => { el.addEventListener(type, fn, opt); s.cleanup.push(() => el.removeEventListener(type, fn, opt)); };
     // 只有真的用滚轮滚动才停止跟随；停手 6 秒自动恢复
@@ -297,11 +294,6 @@ const TTS = (() => {
       s.handScroll = Date.now();
       if (s.follow) { s.follow = false; render(); }
     }, { passive: true });
-    on(s.root, 'dblclick', e => {
-      if (!onSentence(e.clientX, e.clientY)) return;
-      toggle();
-      setTimeout(() => { try { getSelection().removeAllRanges(); } catch (_) { /* 没选中 */ } }, 30);
-    });
   }
 
   /* ---------- 播放条 ---------- */
@@ -321,6 +313,7 @@ const TTS = (() => {
     $('.ai-tabs').after(bar);
     bar.onclick = e => {
       const b = e.target.closest('[data-t]'); if (!b) return;
+      e.stopPropagation();  // 不然这次点击传到窗口，会把刚打开的语速 / 更多菜单马上关掉（2026-10-21 用户报告点了没反应）
       const t = b.dataset.t, r = b.getBoundingClientRect();
       if (t === 'prev') step(-1);
       else if (t === 'next') step(1);
@@ -398,6 +391,29 @@ const TTS = (() => {
   }
 
   $('#btnTts').onclick = () => { if (s && s.root === source().root) toggle(); else start(); };
+  /* 双击某一句：从这一句开始读（没在朗读也直接开始）；双击正在读的那一句：暂停 / 继续（和插件「听书」一样）。
+     单击留给选字、复制、点时间跳视频，所以用双击（2026-10-21 用户要求，阅读状态下没有光标，没法指定从哪读）。 */
+  function sentenceAt(segs, x, y) {
+    const p = document.caretRangeFromPoint && document.caretRangeFromPoint(x, y);
+    if (p) {
+      const k = segs.findIndex(seg => { const r = rangeOf(seg); try { return !!r && r.comparePoint(p.startContainer, p.startOffset) === 0; } catch (_) { return false; } });
+      if (k >= 0) return k;
+    }
+    return segs.findIndex(seg => { const r = rangeOf(seg); return !!r && [...r.getClientRects()].some(b => x >= b.left - 2 && x <= b.right + 2 && y >= b.top - 2 && y <= b.bottom + 2); });
+  }
+  for (const id of ['#summaryBox', '#chatBox']) $(id).addEventListener('dblclick', e => {
+    if (e.target.closest('a.tslink, button, img, svg, pre, .msg.user')) return;
+    const root = $(id);
+    if (source().root !== root) return;
+    const live = s && s.root === root, segs = live ? s.segs : segments(root);
+    const k = sentenceAt(segs, e.clientX, e.clientY);
+    if (k < 0) return;
+    setTimeout(() => { try { getSelection().removeAllRanges(); } catch (_) { /* 没选中 */ } }, 30);  // 双击会顺手选中一个词
+    if (!live) return start(k);
+    if (k === s.i && s.state !== 'ended') return toggle();
+    s.i = k; s.follow = true; s.handScroll = 0;
+    speak();
+  });
   if (window.speechSynthesis) speechSynthesis.getVoices();  // 系统声音列表是异步加载的，先触发一次
   return { start, toggle, stop, segments, active: () => s, _state: () => s && { i: s.i, state: s.state, follow: s.follow, n: s.segs.length } };
 })();
