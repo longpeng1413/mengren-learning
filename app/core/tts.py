@@ -9,7 +9,9 @@
 """
 import asyncio
 import re
+import time
 import urllib.parse
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 import requests
 
@@ -17,6 +19,9 @@ ENGINES = ('edge', 'baidu', 'system')
 EDGE_VOICES = [('zh-CN-XiaoxiaoNeural', '晓晓（女，温和）'), ('zh-CN-XiaoyiNeural', '晓伊（女，活泼）'),
                ('zh-CN-YunxiNeural', '云希（男，年轻）'), ('zh-CN-YunjianNeural', '云健（男，沉稳）'),
                ('zh-CN-YunyangNeural', '云扬（男，播音）')]
+# Edge 偶尔一句要十几秒（2026-10-21 实测 12 句里 11 句 1.4～3 秒、1 句 11 秒，用户听到「停了几秒」）：
+# 超过这么久还没回来就再发一次同样的请求，谁先回来用谁
+HEDGE_AFTER = 4
 MAX_CHARS = 400  # 界面按句子送来，一句很少超过 80 字；防止误送整篇
 # 视频时间引用不读：[59:10]、[1:00:29]、[01:42]-[02:23]（界面已经跳过了显示成链接的时间，这里再兜一次底）
 TIME_RE = re.compile(r'\[\s*(?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d+)?\s*\](?:\s*[-–—~～至到]\s*\[\s*(?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d+)?\s*\])?')
@@ -48,11 +53,38 @@ def speak(engine, text, voice='', settings=None):
     last = None
     for proxy in routes:
         try:
-            return _edge(t, voice, proxy) if engine == 'edge' else _baidu(t, proxy)
+            return _hedged(_edge, t, voice, proxy) if engine == 'edge' else _baidu(t, proxy)
         except Exception as e:  # noqa: BLE001  换代理再试，都不行才报错
             last = e
     name = 'Edge 在线朗读' if engine == 'edge' else '百度朗读'
     raise TtsError(f'{name}连不上（{type(last).__name__}：{str(last)[:120]}）')
+
+
+def _hedged(fn, *args):
+    """先发一次；HEDGE_AFTER 秒还没回来（或已经失败）就再发一次，用先成功的那个；30 秒都没有就报错。"""
+    ex = ThreadPoolExecutor(2)
+    try:
+        futs = [ex.submit(fn, *args)]
+        done, _ = wait(futs, timeout=HEDGE_AFTER)
+        if done and not futs[0].exception():
+            return futs[0].result()
+        last = futs[0].exception() if done else None
+        if done:
+            futs = []
+        futs.append(ex.submit(fn, *args))
+        end = time.time() + 30
+        while futs:
+            done, _ = wait(futs, timeout=max(0.1, end - time.time()), return_when=FIRST_COMPLETED)
+            if not done:
+                raise TtsError('等了 30 秒还没有声音')
+            for f in done:
+                futs.remove(f)
+                if not f.exception():
+                    return f.result()
+                last = f.exception()
+        raise last
+    finally:
+        ex.shutdown(wait=False)
 
 
 def _edge(text, voice, proxy):

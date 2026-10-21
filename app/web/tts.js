@@ -6,14 +6,14 @@
    - 视频时间（显示成链接的 [01:50]、[01:42]-[02:23]）、插图、流程图代码不读；
    - 来源：Edge 在线（自然，联网）、百度朗读（联网，句子发给百度翻译）——这两种由后台 core/tts.py 取声音；
      系统声音（Windows 自带的慧慧、康康、瑶瑶，不联网）用浏览器自带的朗读；
-   - 声音只在内存里，最多 6 句，停止就清空；每节课读到哪里记在本机（最多 200 条、180 天）。 */
+   - 声音只在内存里，最多 8 句（提前准备后面 4 句），停止就清空；每节课读到哪里记在本机（最多 200 条、180 天）。 */
 const TTS = (() => {
   const RATES = [0.75, 1, 1.25, 1.5, 1.75, 2];
   const ENGINES = { edge: 'Edge 在线朗读（推荐，声音自然）', baidu: '百度朗读（联网）', system: '系统声音（离线）' };
   const HL = { yellow: ['黄色', 'rgba(255, 208, 0, .45)'], green: ['绿色', 'rgba(46, 204, 113, .42)'], blue: ['蓝色', 'rgba(64, 156, 255, .42)'],
     orange: ['橙色', 'rgba(255, 140, 0, .45)'], purple: ['紫色', 'rgba(170, 102, 255, .45)'] };
   const ENDERS = /[。！？!?；;…]/, CLOSERS = /[”’」』）)】》〉"'\]]/, SOFT = /[，,、：:—]/, SPEAKABLE = /[\p{L}\p{N}]/u, MAX = 80;
-  const CACHE_LIMIT = 6, RESUME_FOLLOW = 6000, RETRY = [600, 1500], BOTTOM_GAP = 60;
+  const CACHE_LIMIT = 8, PREFETCH = 4, RESUME_FOLLOW = 6000, RETRY = [600, 1500], BOTTOM_GAP = 60;
   const PROGRESS_KEY = 'tts-progress', PROGRESS_LIMIT = 200, PROGRESS_DAYS = 180;
   const BLOCK = /^(P|LI|H[1-6]|TD|TH|BLOCKQUOTE|DIV|DT|DD|TR|UL|OL|TABLE|SECTION|BR|HR)$/;
   const SKIP = 'a.tslink, pre, img, svg, button, script, style, .msg.user, .doubt-tag';
@@ -242,7 +242,8 @@ const TTS = (() => {
     }
     return job;
   }
-  function prefetch() { for (let k = 1; k <= 2; k++) { const x = s.segs[s.i + k]; if (x) fetchAudio(x.text).catch(() => {}); } }
+  // 提前准备后面几句：Edge 一句一般要 2 秒左右，偶尔更久（后台还会超时重发）
+  function prefetch() { for (let k = 1; k <= PREFETCH; k++) { const x = s.segs[s.i + k]; if (x) fetchAudio(x.text).catch(() => {}); } }
   function sysVoice() {
     const all = speechSynthesis.getVoices(), want = pref('tts_sys_voice', '');
     return all.find(v => v.name === want) || all.find(v => /^zh/i.test(v.lang)) || null;

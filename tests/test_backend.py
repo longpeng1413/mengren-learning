@@ -1073,6 +1073,16 @@ try:
 except tts.TtsError as e:
     e_ = str(e)
 check('朗读：只有时间、没有文字时不去联网', '没有要读的文字' in e_, e_)
+_calls = []
+def _slow_then_fast(text):
+    _calls.append(time.time())
+    time.sleep(3 if len(_calls) == 1 else 0.05)  # 第一次很慢（像 Edge 偶尔一句要十几秒），第二次很快
+    return b'ok' + str(len(_calls)).encode()
+_old_hedge, tts.HEDGE_AFTER = tts.HEDGE_AFTER, 0.3
+t0 = time.time()
+got = tts._hedged(_slow_then_fast, 'x')
+tts.HEDGE_AFTER = _old_hedge
+check('朗读：一句迟迟不回来就再要一次，用先回来的（不干等）', got == b'ok2' and len(_calls) == 2 and time.time() - t0 < 1.5, (got, time.time() - t0))
 r = api.call('tts_voices', {})
 check('朗读：Edge 在线声音列表（晓晓在第一个）', r['ok'] and r['edge'][0]['id'] == 'zh-CN-XiaoxiaoNeural' and len(r['edge']) == 5)
 
