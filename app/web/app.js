@@ -84,7 +84,10 @@ function md(src) {
     table = null;
   };
   const lines = src.split('\n');
-  const flushList = () => { if (list) { out.push(`<${list.tag}>` + list.items.map(i => `<li>${inline(i)}</li>`).join('') + `</${list.tag}>`); list = null; } };
+  const flushList = () => { if (list) { out.push(`<${list.tag}${list.start > 1 ? ` start="${list.start}"` : ''}>` + list.items.map(i => `<li>${inline(i)}</li>`).join('') + `</${list.tag}>`); list = null; } };
+  // 列表项之间空一行（AI 常这样写）仍是同一个列表：以前每条各成一个列表，编号全是「1.」（2026-10-21 用户截图）
+  const sameListNext = li => { let k = li + 1; while (k < lines.length && !lines[k].trim()) k++;
+    const nx = lines[k] || ''; return !!list && (list.tag === 'ol' ? /^\s*\d+[.)]\s+/.test(nx) : /^\s*[-*+]\s+/.test(nx)); };
   for (let li = 0; li < lines.length; li++) {
     const line = lines[li].trimEnd();
     let m;
@@ -95,9 +98,9 @@ function md(src) {
     else if ((m = line.trim().match(/^!\[\[\s*画面\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*\]\]$/))) { flushPara(); flushList(); const t = parseTs(m[1]); out.push(`<figure class="shot-fig" data-ft="${t}"><img alt=""><figcaption><a class="tslink" data-t="${t}">[${m[1]}]</a> 画面</figcaption></figure>`); }
     else if ((m = line.match(/^(#{1,6})\s+(.*)/))) { flushPara(); flushList(); const n = Math.min(4, m[1].length); out.push(`<h${n}>${inline(m[2])}</h${n}>`); }
     else if ((m = line.match(/^\s*[-*+]\s+(.*)/))) { flushPara(); if (!list || list.tag !== 'ul') { flushList(); list = { tag: 'ul', items: [] }; } list.items.push(m[1]); }
-    else if ((m = line.match(/^\s*\d+[.)]\s+(.*)/))) { flushPara(); if (!list || list.tag !== 'ol') { flushList(); list = { tag: 'ol', items: [] }; } list.items.push(m[1]); }
+    else if ((m = line.match(/^\s*(\d+)[.)]\s+(.*)/))) { flushPara(); if (!list || list.tag !== 'ol') { flushList(); list = { tag: 'ol', items: [], start: +m[1] }; } list.items.push(m[2]); }
     else if ((m = line.match(/^>\s?(.*)/))) { flushPara(); flushList(); out.push(`<blockquote>${inline(m[1])}</blockquote>`); }
-    else if (!line.trim()) { flushPara(); flushList(); }
+    else if (!line.trim()) { flushPara(); if (!sameListNext(li)) flushList(); }
     else { flushList(); para.push(line); }
   }
   flushPara(); flushList(); flushTable();

@@ -335,6 +335,9 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('书：章节没全部整理完也可以先写全书总览', S.doc.overview.includes('假 AI 写的总览'));
     await window.openPath(keepPath);
     ok('回到原来的视频', await until(() => S.path === keepPath && S.mode === 'media'));
+    const olHtml = md(['1. 甲 [05:53]', '', '2. 乙', '', '3. 丙'].join('\n')), olStart = md(['3. 丙', '4. 丁'].join('\n'));
+    ok('排版：编号列表每条之间空一行，也是同一个列表，编号 1、2、3（以前全是 1.）', (olHtml.match(/<ol/g) || []).length === 1 && (olHtml.match(/<li>/g) || []).length === 3
+      && olStart.includes('<ol start="3">'), [olHtml, olStart]);
     // 朗读（tts.js）：切句、跳过时间、播放条（用系统声音，不联网）
     $$('.ai-tabs .tab')[0].click();
     const ttsBox = document.createElement('div');
