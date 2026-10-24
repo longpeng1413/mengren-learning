@@ -449,11 +449,12 @@ def lesson_md(x, duration=0):
 def atoms_md(m, st):
     """整份观点库。返回 (markdown, 正文（给 AI 合并用）, 统计)。"""
     name = m['name']
-    src_rows, parts, total, bad = [], [], 0, 0
+    src_rows, parts, total, bad, reviewed = [], [], 0, 0, 0
     for x in st['lessons']:
         if not x.get('data'):
             continue
         d = _lesson_doc(x['path']) or {}
+        reviewed += bool(d.get('reviewed'))
         note = _note_name(d) or x.get('note') or ''
         x['note'] = note
         src_rows.append(f'| {x["sid"]} | {_cell(x["title"])} | ' + (f'[[{note}]]' if note else f'（还没剪藏到 Obsidian：{_cell(Path(x["path"]).name)}）') + ' |')
@@ -462,10 +463,12 @@ def atoms_md(m, st):
         total += n
         bad += b
     body = '\n\n---\n\n'.join(parts)
-    head = (f'---\n老师: {name}\n类型: 观点库\n状态: AI 提取，待作者审核\n生成: 猛人学习「老师蒸馏」{time.strftime("%Y-%m-%d")}\ntags:\n  - 课程蒸馏\n---\n\n'
+    n = len(parts)
+    head = (f'---\n老师: {name}\n类型: 观点库\n状态: AI 提取，待作者审核\n{review_key(reviewed, n)}\n生成: 猛人学习「老师蒸馏」{time.strftime("%Y-%m-%d")}\ntags:\n  - 课程蒸馏\n---\n\n'
             f'# {name}：观点库（逐节提取）\n\n'
             f'> 这是「{name}」课程蒸馏的第一步：AI 逐节把老师讲的观点拆成一条一条，并标出处（由猛人学习「老师蒸馏」生成）。后面的「课程蒸馏」和「老师画像」都从这里来。\n'
-            '> 出处是 AI 依据完整字幕标的，程序只核对了时间有没有超出课程长度；要核对原话，回到那篇笔记的「完整字幕」，或在老师工作台里点出处跳到那一秒。\n\n'
+            '> 出处是 AI 依据完整字幕标的，程序只核对了时间有没有超出课程长度；要核对原话，回到那篇笔记的「完整字幕」，或在老师工作台里点出处跳到那一秒。\n'
+            + review_note(reviewed, n) + '\n'
             '## 来源\n\n| 编号 | 课程 | 笔记 |\n| --- | --- | --- |\n' + '\n'.join(src_rows) + '\n\n'
             '## 怎么读这张表\n\n'
             '- **出处**：`S01 05:19` 表示第 1 节课 5 分 19 秒。\n'
@@ -474,7 +477,19 @@ def atoms_md(m, st):
             '- ⚠️：老师用了「一定、必死、很难」这类说得很满的话，审核时留意它的前提。\n'
             '- 「条件 / 边界」写的是老师自己讲到的前提；老师没讲的写「未讲明」，不替老师补。\n'
             '- 「时间待核对」：AI 标的时间超出了这节课的长度，可能标错了。\n\n---\n\n')
-    return head + body + '\n', body, {'points': total, 'bad_times': bad}
+    return head + body + '\n', body, {'points': total, 'bad_times': bad, 'reviewed': reviewed}
+
+
+def review_key(reviewed, n):
+    """属性里的一行：来源有几节人工校对过（知识蒸馏规范 V2.0 第四节：不强制校对，没校对的要注明）。"""
+    return f'来源人工校对: {reviewed}/{n} 节'
+
+
+def review_note(reviewed, n):
+    if reviewed >= n:
+        return ''
+    return (f'> 来源笔记有 {n - reviewed} 节还没人工校对（老师普通话标准、识别准确时可以不校对）；'
+            '提取时发现字幕可能识别错的地方，放进了各节的「存疑和待核对」。\n')
 
 
 def _ids_in(text):
@@ -611,12 +626,12 @@ def run(mid, job):
     n = len(have)
     model = _model(s, name)
     bad_d, bad_p = bad_refs(distill, atoms), bad_refs(persona, atoms)
-    distill_md = (f'---\n老师: {m["name"]}\n类型: 课程蒸馏\n状态: AI 蒸馏，待作者审核\n生成: 猛人学习「老师蒸馏」{time.strftime("%Y-%m-%d")} · {model}\ntags:\n  - 课程蒸馏\n---\n\n'
+    distill_md = (f'---\n老师: {m["name"]}\n类型: 课程蒸馏\n状态: AI 蒸馏，待作者审核\n{review_key(stat["reviewed"], n)}\n生成: 猛人学习「老师蒸馏」{time.strftime("%Y-%m-%d")} · {model}\ntags:\n  - 课程蒸馏\n---\n\n'
                   f'# {m["name"]}：课程蒸馏\n\n'
                   f'> 依据 {n} 节课（见 [[{Path(FILES["atoms"]).stem}]]）。这里是 AI 把观点库合并后的结果：老师的体系、反复强调的观点、前后不一致处和课程没讲的内容。每条都能顺着编号回到观点库，再回到字幕原话。\n'
                   '> 这里写的是「老师怎么说」，不是正确答案，也不是你的结论。\n\n' + distill.strip() + '\n'
                   + _bad_note(bad_d))
-    persona_md = (f'---\n老师: {m["name"]}\n类型: 老师画像\n状态: AI 起草，待作者试用和审核\n生成: 猛人学习「老师蒸馏」{time.strftime("%Y-%m-%d")} · {model}\ntags:\n  - 课程蒸馏\n  - 老师画像\n---\n\n'
+    persona_md = (f'---\n老师: {m["name"]}\n类型: 老师画像\n状态: AI 起草，待作者试用和审核\n{review_key(stat["reviewed"], n)}\n生成: 猛人学习「老师蒸馏」{time.strftime("%Y-%m-%d")} · {model}\ntags:\n  - 课程蒸馏\n  - 老师画像\n---\n\n'
                   f'# {m["name"]}：老师画像（对话用）\n\n'
                   f'> 用法：在猛人学习「老师工作台」里和{m["name"]}对话时，软件会把本文、[[{Path(FILES["atoms"]).stem}]]、[[{Path(FILES["distill"]).stem}]] 和相关的课程原文一起交给 AI。\n'
                   '> 第一节是给 AI 的规则（软件固定写的），后面几节是 AI 依据课程写的。\n\n---\n\n'

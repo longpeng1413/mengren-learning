@@ -235,11 +235,25 @@ def refresh(mid):
     return m
 
 
+def _rmtree(d):
+    """删文件夹；文件正被别的程序（杀毒软件扫描、刚写完）占着时等一下再试，最多约 3 秒。"""
+    for k in range(8):
+        try:
+            shutil.rmtree(d)
+            return
+        except FileNotFoundError:
+            return
+        except PermissionError:
+            if k == 7:
+                raise
+            time.sleep(0.4)
+
+
 def remove(mid):
     """删掉软件里这位老师和他的对话记录；Obsidian 里的文件不动。"""
     d = _mdir(mid)
     if d.is_dir():
-        shutil.rmtree(d)
+        _rmtree(d)
 
 
 def overview(mid):
@@ -414,7 +428,7 @@ def delete_all_chats(mid):
     d = _mdir(mid) / 'chats'
     n = len(list(d.glob('*.json'))) if d.is_dir() else 0
     if d.is_dir():
-        shutil.rmtree(d)
+        _rmtree(d)
     return n
 
 
