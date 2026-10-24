@@ -3,7 +3,7 @@
 import json
 import time
 
-from . import asr, book, frames, llm
+from . import asr, book, distill, frames, llm
 
 
 def _payload(messages):
@@ -45,7 +45,28 @@ def complete(settings, name, messages, json_mode=False):
     return '{}'
 
 
+def _distill_reply(system):
+    if system == distill.EXTRACT_SYSTEM:
+        return json.dumps({'说明': '假 AI 提取的一节课。', '观点': [
+            {'内容': '风险要先算好（假 AI）。', '条件': '—', '出处': '00:02–00:05', '类型': '观点', '说得很满': False},
+            {'内容': '「截断亏损」。', '条件': '未讲明', '出处': '00:10', '类型': '方法', '说得很满': True}],
+            '自述': [{'内容': '我是假老师。', '出处': '00:01'}], '术语': [{'术语': '峰级', '意思': '假 AI 的解释', '出处': '00:03'}],
+            '实践': [{'内容': '先算风险', '依据': [1]}], '存疑': ['00:08 假 AI 标的存疑']}, ensure_ascii=False)
+    if system == distill.GROUP_SYSTEM:
+        return '### 这几节的主线\n\n- 假 AI 小结（S01-01）'
+    if system == distill.MERGE_SYSTEM:
+        return '## 一、一句话\n\n假 AI 合并的课程蒸馏（S01-01、S01-02）。\n\n## 三、核心观点（合并后）\n\n1. **风险先算**（S01-01）'
+    if system == distill.PERSONA_SYSTEM:
+        return '## 二、他是谁\n\n- 假老师［S01-A1］\n\n## 八、他没讲、或明确不碰的\n\n- 止盈（未讲明）'
+    return None
+
+
 def stream(settings, name, messages, cancel=None, json_mode=False):
+    reply = _distill_reply(str(messages[0].get('content')) if messages else '')
+    if reply is not None:
+        time.sleep(0.2)
+        yield reply
+        return
     for piece in ['这节课（假 AI）讲风险。\n\n', '## 一、风险\n\n', '- 截断亏损 [00:10]\n', '- 让利润奔跑 [00:15]\n']:
         if cancel is not None and cancel.is_set():
             return

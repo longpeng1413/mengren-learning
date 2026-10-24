@@ -6,7 +6,7 @@ import threading
 import time
 from pathlib import Path
 
-from core import asr, bgqueue, book, cache, codex_auth, config, doc as docs, frames, glossary, jobs, library, llm, media, mentor, tasks, tts, workflow
+from core import asr, bgqueue, book, cache, codex_auth, config, distill, doc as docs, frames, glossary, jobs, library, llm, media, mentor, tasks, tts, workflow
 from core.log import LOG_DIR, log
 
 MEDIA_FILTER = ('音视频和文档 (*.mp4;*.m4v;*.mov;*.mkv;*.webm;*.avi;*.flv;*.ts;*.wmv;*.3gp;*.mpg;*.mpeg;'
@@ -209,15 +209,19 @@ class Api:
     def do_mentor_list(self, b):
         return {'mentors': mentor.list_mentors()}
 
+    def do_mentor_pick(self, b):
+        """弹出选择文件夹的窗口（从「04、外部知识转化库」开始）。选好以后界面先显示「正在查找课程笔记…」，再调 mentor_add。"""
+        import webview
+        vault = (config.load().get('obsidian') or {}).get('vault') or ''
+        start = os.path.join(vault, distill.KB_DIR) if vault and os.path.isdir(os.path.join(vault, distill.KB_DIR)) else vault
+        r = self._window.create_file_dialog(webview.FileDialog.FOLDER, directory=start or '')
+        return {'folder': r[0] if r else ''}
+
     def do_mentor_add(self, b):
         """导入一个蒸馏好的老师文件夹（04、外部知识转化库/老师名）。没给路径就弹出选择文件夹的窗口。"""
         folder = b.get('folder')
         if not folder:
-            import webview
-            vault = (config.load().get('obsidian') or {}).get('vault') or ''
-            start = os.path.join(vault, '04、外部知识转化库') if vault and os.path.isdir(os.path.join(vault, '04、外部知识转化库')) else vault
-            r = self._window.create_file_dialog(webview.FileDialog.FOLDER, directory=start or '')
-            folder = r[0] if r else None
+            folder = self.do_mentor_pick(b)['folder']
             if not folder:
                 return {'mentor': None}
         try:
@@ -238,6 +242,8 @@ class Api:
         return mentor.overview(b.get('id'))
 
     def do_mentor_remove(self, b):
+        if distill.running(b.get('id')):
+            raise ValueError('这位老师正在蒸馏，先停止蒸馏再移除')
         mentor.remove(b.get('id'))
         return {'mentors': mentor.list_mentors()}
 
@@ -294,8 +300,55 @@ class Api:
         except mentor.MentorError as e:
             raise ValueError(str(e))
 
+    def do_mentor_save_all(self, b):
+        """一键收藏整个对话（还没收藏的回答一次写进去）。"""
+        try:
+            return mentor.save_all(b.get('id'), b.get('cid'))
+        except mentor.MentorError as e:
+            raise ValueError(str(e))
+
+    def do_mentor_favorites(self, b):
+        """对话精选在哪、在 Obsidian 里打开的链接。"""
+        return mentor.favorites(b.get('id'))
+
     def do_mentor_quote(self, b):
         return mentor.quote(b.get('id'), str(b.get('sid') or ''), float(b.get('t') or 0))
+
+    # ------------------------------------------------- 老师蒸馏（distill.py） ----
+    @staticmethod
+    def _distill(fn, *a, **k):
+        try:
+            return fn(*a, **k)
+        except (distill.DistillError, mentor.MentorError) as e:
+            raise ValueError(str(e))
+
+    def do_distill_target(self, b):
+        """新建老师时：结果会写到哪个文件夹、那里已经有哪些文件。"""
+        folder = self._distill(distill.target_folder, b.get('name'))
+        have = [p.name for p in folder.glob('*.md')] if folder.is_dir() else []
+        m = next((x for x in mentor.list_mentors(chats=False) if mentor._same(x['folder'], folder)), None)
+        return {'folder': str(folder), 'files': have, 'mentor': m}
+
+    def do_distill_create(self, b):
+        """新建老师（或给同名老师加课）：只记下用哪些课，不调用 AI。"""
+        m = self._distill(distill.create, b.get('name'), b.get('paths') or [])
+        return {'mentor': m, 'mentors': mentor.list_mentors()}
+
+    def do_distill_add(self, b):
+        paths = self._distill(distill._check_paths, b.get('paths') or []) if b.get('paths') else []
+        n = self._distill(distill.add_lessons, b.get('id'), paths)
+        return {'added': n, 'mentors': mentor.list_mentors()}
+
+    def do_distill_remove_lesson(self, b):
+        self._distill(distill.remove_lesson, b.get('id'), str(b.get('sid') or ''))
+        return self._distill(distill.status, b.get('id'))
+
+    def do_distill_status(self, b):
+        return self._distill(distill.status, b.get('id'))
+
+    def do_distill_start(self, b):
+        """开始（或接着）蒸馏，后台做；在 Obsidian 里改过要覆盖的文件时先返回 conflict 让用户确认。"""
+        return self._distill(distill.start, b.get('id'), bool(b.get('force')))
 
     def do_tts(self, b):
         """朗读一句话（Edge 在线 / 百度）：返回 mp3 的 base64，只在内存里，界面播完就丢。"""

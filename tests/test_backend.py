@@ -1119,6 +1119,25 @@ api.call('mentor_save', {'id': mt['id'], 'cid': c['id'], 'index': 1})
 check('再收藏前先备份原来的对话精选（最多留 30 份）', len(list((config.DATA_DIR / 'backups' / '对话精选').glob('测试老师-*.md'))) == 1
       and (TEACHER / '对话精选.md').read_text(encoding='utf-8').count('**问：**') == 2)
 check('只能收藏老师的回答', not api.call('mentor_save', {'id': mt['id'], 'cid': c['id'], 'index': 0})['ok'])
+c = mentor.append(mt['id'], c['id'], {'role': 'user', 'content': '第二问'}, {'role': 'assistant', 'content': '第二答'},
+                  {'role': 'user', 'content': '第三问'}, {'role': 'assistant', 'content': '第三答'})
+sa = api.call('mentor_save_all', {'id': mt['id'], 'cid': c['id']})
+fav = (TEACHER / '对话精选.md').read_text(encoding='utf-8')
+check('一键收藏整个对话：没收藏的一次写进去，已经收藏的不重复', sa['ok'] and sa['count'] == 2 and fav.count('**问：**') == 4
+      and fav.index('第二问') < fav.index('第三问') and all(x.get('saved') for x in sa['chat']['messages'] if x['role'] == 'assistant'), (sa, fav[-300:]))
+check('一键收藏：都收藏过了就什么都不写', api.call('mentor_save_all', {'id': mt['id'], 'cid': c['id']})['count'] == 0
+      and (TEACHER / '对话精选.md').read_text(encoding='utf-8').count('**问：**') == 4)
+fv = api.call('mentor_favorites', {'id': mt['id']})
+check('打开对话精选：给出在 Obsidian 里打开的链接', fv['exists'] and fv['uri'].startswith('obsidian://open?vault=kb&file=')
+      and '%E5%AF%B9%E8%AF%9D%E7%B2%BE%E9%80%89.md' in fv['uri'], fv)
+(KB / '03、收集箱' / '深层' / '更深').mkdir(parents=True)
+(KB / '03、收集箱' / '深层' / '更深' / '另一课.md').write_text('# x\n', encoding='utf-8')
+_walks = []
+_old_walk = mentor.os.walk
+mentor.os.walk = lambda top, *a, **k: (_walks.append(top), _old_walk(top, *a, **k))[1]
+found = mentor._find_notes(str(KB), ['演示课', '另一课', '没有这篇'])
+mentor.os.walk = _old_walk
+check('导入老师更快：整个库只翻一遍，一次找齐几篇笔记', set(found) == {'演示课', '另一课'} and len(_walks) == 1, (found, _walks))
 api.call('mentor_chat_rename', {'id': mt['id'], 'cid': c['id'], 'title': '画线'})
 check('对话改名', mentor.list_chats(mt['id'])[0]['title'] == '画线')
 api.call('mentor_chat_delete', {'id': mt['id'], 'cid': c['id']})
@@ -1126,6 +1145,74 @@ check('删除对话', mentor.list_chats(mt['id']) == [])
 api.call('mentor_remove', {'id': mt['id']})
 check('移除老师：软件里的记录删掉，Obsidian 里的文件不动', api.call('mentor_list', {})['mentors'] == []
       and (TEACHER / '01、观点库（逐节提取）.md').is_file() and (TEACHER / '对话精选.md').is_file())
+
+# 老师蒸馏（core/distill.py）：从媒体库的课自动生成观点库、课程蒸馏、老师画像（假 AI）
+from core import distill, fake_ai, library, workflow  # noqa: E402
+config.update({'obsidian': dict(config.load().get('obsidian') or {}, vault=str(KB))})
+DS = TMP / 'distill-media'
+DS.mkdir()
+for n in ('第一课', '第二课'):
+    shutil.copy(ROOT / 'test-media' / '演示视频.mp4', DS / f'{n}.mp4')
+    d_ = docs.load(str(MEDIA / '演示视频.mp4'))
+    d_['title'] = n
+    docs.save(str(DS / f'{n}.mp4'), d_)
+library.add_folder(str(DS))
+check('蒸馏：测试用的课在媒体库里', workflow.allowed(str(DS / '第一课.mp4')))
+try:
+    distill.create('蒸馏老师', [str(MEDIA / '旧格式.avi')])
+    e_ = ''
+except distill.DistillError as e:
+    e_ = str(e)
+check('蒸馏：没有字幕的课不能选', '还没有字幕' in e_ or '不在媒体库' in e_, e_)
+_old_stream, _old_check = _llm.stream, _llm.check
+_llm.stream, _llm.check = fake_ai.stream, (lambda *a, **k: None)
+dm = api.call('distill_create', {'name': '蒸馏老师', 'paths': [str(DS / '第一课.mp4')]})['mentor']
+DT = KB / '04、外部知识转化库' / '蒸馏老师'
+check('蒸馏：新建老师只记下用哪些课，结果写到「04、外部知识转化库/老师名」', dm['folder'] == str(DT) and dm.get('distilled')
+      and [x['state'] for x in distill.status(dm['id'])['lessons']] == ['todo'])
+res = distill.run(dm['id'], jobs.Job('distill'))
+A = (DT / '01、观点库（逐节提取）.md').read_text(encoding='utf-8')
+P = (DT / '03、老师画像（对话用）.md').read_text(encoding='utf-8')
+D = (DT / '02、课程蒸馏.md').read_text(encoding='utf-8')
+check('蒸馏：观点库和人间落叶的格式一样（程序编号、出处带课程编号、说得很满标 ⚠️、自述 A1、存疑）',
+      '| S01 | 第一课 | （还没剪藏到 Obsidian：第一课.mp4） |' in A and '| S01-01 | 风险要先算好（假 AI）。 | — | S01 00:02–00:05 | 观点 |' in A
+      and '| S01-02 | 「截断亏损」。 | 未讲明 | S01 00:10 | 方法 ⚠️ |' in A and '| S01-A1 | 我是假老师。 | S01 00:01 |' in A
+      and '- 先算风险（S01-01）' in A and '- S01 00:08 假 AI 标的存疑' in A, A[:1500])
+check('蒸馏：老师画像第一节是程序固定写的规则，后面是 AI 写的', '## 一、你的身份和规则（给 AI）' in P and '「**蒸馏老师**」的数字分身' in P
+      and '1 节课（S01～S01' in P and P.index('## 一、') < P.index('## 二、他是谁'), P[:800])
+check('蒸馏：课程蒸馏有说明和 AI 合并的正文', D.startswith('---\n老师: 蒸馏老师\n类型: 课程蒸馏') and '## 一、一句话' in D and '程序检查' not in D, D[:600])
+check('蒸馏：做完能直接在老师工作台对话（没剪藏的课也能对上视频）', res['points'] == 2 and mentor.get(dm['id'])['distill_done']
+      and [(s['sid'], s['found']) for s in mentor.get(dm['id'])['sources']] == [('S01', True)]
+      and mentor.build_messages(mentor.get(dm['id']), [], '风险')[1]['atoms'] == 3, mentor.get(dm['id'])['sources'])
+calls = []
+_llm.stream = lambda s, n, m, cancel=None, json_mode=False: (calls.append(m[0]['content']), fake_ai.stream(s, n, m, cancel, json_mode))[1]
+api.call('distill_add', {'id': dm['id'], 'paths': [str(DS / '第一课.mp4'), str(DS / '第二课.mp4')]})
+st_ = distill.status(dm['id'])
+check('蒸馏：加新课，已经在的不重复加，新课接着编号', [(x['sid'], x['state']) for x in st_['lessons']] == [('S01', 'done'), ('S02', 'todo')], st_['lessons'])
+res = distill.run(dm['id'], jobs.Job('distill'))
+check('蒸馏：更新时只提取新课，再重新合并、写画像', calls.count(distill.EXTRACT_SYSTEM) == 1 and distill.MERGE_SYSTEM in calls
+      and distill.PERSONA_SYSTEM in calls and res['extracted'] == 1 and '| S02-01 |' in (DT / '01、观点库（逐节提取）.md').read_text(encoding='utf-8'), (res, len(calls)))
+check('蒸馏：覆盖前把原来的三份文件备份', len(list((config.DATA_DIR / 'backups' / '蒸馏').glob('蒸馏老师-*'))) == 1)
+calls.clear()
+distill.run(dm['id'], jobs.Job('distill'))
+check('蒸馏：什么都没变时再蒸馏，不再调用 AI（结果存着）', calls == [], len(calls))
+(DT / '02、课程蒸馏.md').write_text(D + '\n我在 Obsidian 里加的话\n', encoding='utf-8')
+r_ = api.call('distill_start', {'id': dm['id']})
+check('蒸馏：在 Obsidian 里改过要覆盖的文件，先问用户', r_['ok'] and r_.get('conflict') == ['02、课程蒸馏.md'], r_)
+d2 = docs.load(str(DS / '第二课.mp4'))
+d2['segments'][0]['text'] = '改过的字幕'
+docs.save(str(DS / '第二课.mp4'), d2)
+check('蒸馏：字幕改过的课标「改过」，再蒸馏时重新提取', [x['state'] for x in distill.status(dm['id'])['lessons']] == ['done', 'changed'])
+_old_limit, distill.MERGE_LIMIT, distill.GROUP_CHARS = distill.MERGE_LIMIT, 10, 10
+calls.clear()
+distill.run(dm['id'], jobs.Job('distill'))
+distill.MERGE_LIMIT, distill.GROUP_CHARS = _old_limit, 60000
+check('蒸馏：观点库太大（几十节的大课）先分组小结再合并', calls.count(distill.GROUP_SYSTEM) == 2 and calls.count(distill.EXTRACT_SYSTEM) == 1, calls)
+check('蒸馏：查出 AI 写的、观点库里没有的编号', distill.bad_refs('见（S01-01、02、09）和 S02-A1、S07-03、2024 年', mentor.parse_atoms(A + '| S02-A1 | x | S02 00:01 |')) == ['S01-09', 'S07-03'])
+check('蒸馏：出处时间超出课程长度的标「时间待核对」', distill._fix_src('S03', '99:00', 600) == ('S03 99:00（时间待核对）', False)
+      and distill._fix_src('S03', 'S03 01:00-02:00', 600) == ('S03 01:00–02:00', True))
+_llm.stream, _llm.check = _old_stream, _old_check
+api.call('mentor_remove', {'id': dm['id']})
 
 # 朗读（core/tts.py）：中括号里的视频时间不读
 from core import tts  # noqa: E402

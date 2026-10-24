@@ -53,6 +53,7 @@ function toast(msg, opts = {}) {
   }
   $('#toasts').appendChild(el);
   setTimeout(() => el.remove(), opts.ms || (opts.error ? 8000 : 3500));
+  return el;
 }
 const fail = e => { toast(e.message || String(e), { error: true }); logToFile('warn', '提示错误：' + (e.message || e)); };
 function logToFile(level, message) {
@@ -339,7 +340,9 @@ function folderMenu(path, x, y) {
     <button class="menu-item" data-a="rename">重命名…</button>
     <button class="menu-item" data-a="rescan">重新扫描</button>
     <button class="menu-item" data-a="reveal">在资源管理器中打开</button>
+    <button class="menu-item" data-a="distill" title="AI 逐节提取观点库，再合并成课程蒸馏、写老师画像，写进 Obsidian；做完能在老师工作台里和这位老师对话">用这个文件夹的课蒸馏一位老师…</button>
     ${n.top ? '<button class="menu-item danger" data-a="remove">从媒体库移除（不删除文件）</button>' : ''}`, m => {
+    $('[data-a=distill]', m).onclick = () => { m.hidden = true; switchView('mentor'); openDistill({ folder: n.path, name: n.name }); };
     $('[data-a=teacher]', m).onchange = async e => {
       n.teacher = e.target.value; m.hidden = true;
       await api('library_set', { path: n.path, teacher: n.teacher }); renderLibrary();

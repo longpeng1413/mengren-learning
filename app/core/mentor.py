@@ -31,9 +31,9 @@ ATOMS_ALL_LIMIT = 40000     # 观点库不超过这么多字就整份交给 AI�
 ATOMS_PICK = 40
 WINDOWS_PICK = 10
 WINDOW_SECONDS = 45         # 字幕按约 45 秒一段切成原文片段
-SRC_RE = re.compile(r'^\|\s*(S\d{2})\s*\|\s*(.*?)\s*\|\s*\[\[(.+?)\]\]\s*\|', re.M)
-ROW_RE = re.compile(r'^\|\s*(S\d{2}-[A-Za-z0-9]+)\s*\|(.+)\|\s*$', re.M)
-TIME_RE = re.compile(r'(S\d{2})\s+(\d{1,2}:\d{2}(?::\d{2})?)')
+SRC_RE = re.compile(r'^\|\s*(S\d{2,3})\s*\|\s*(.*?)\s*\|\s*(\[\[.+?\]\]|[^|\n]*?)\s*\|', re.M)  # 第三格是 [[笔记]]，没剪藏的课是说明文字
+ROW_RE = re.compile(r'^\|\s*(S\d{2,3}-[A-Za-z0-9]+)\s*\|(.+)\|\s*$', re.M)
+TIME_RE = re.compile(r'(S\d{2,3})\s+(\d{1,2}:\d{2}(?::\d{2})?)')
 
 
 class MentorError(Exception):
@@ -51,6 +51,14 @@ def parse_time(s):
     return parts[0] * 3600 + parts[1] * 60 + parts[2] if len(parts) == 3 else parts[0] * 60 + parts[1]
 
 
+def _norm(p):
+    return os.path.normcase(os.path.abspath(str(p or '')))
+
+
+def _same(a, b):
+    return _norm(a) == _norm(b)
+
+
 def _read(path):
     return config.read_text_file(path) if path and Path(path).is_file() else ''
 
@@ -66,8 +74,12 @@ def files_of(folder):
 
 
 def parse_sources(md):
-    """观点库开头的来源表 → [{sid, title, note}]"""
-    return [{'sid': m.group(1), 'title': m.group(2).strip(), 'note': m.group(3).split('|')[0].strip()} for m in SRC_RE.finditer(md)]
+    """观点库开头的来源表 → [{sid, title, note}]（没剪藏的课 note 是空的）"""
+    out = []
+    for m in SRC_RE.finditer(md):
+        link = re.match(r'\[\[(.+?)\]\]', m.group(3))
+        out.append({'sid': m.group(1), 'title': m.group(2).strip(), 'note': link.group(1).split('|')[0].strip() if link else ''})
+    return out
 
 
 def parse_atoms(md):
@@ -83,7 +95,7 @@ def parse_atoms(md):
         else:
             continue
         tm = TIME_RE.search(src)
-        out[aid] = {'id': aid, 'sid': aid[:3], 'text': text, 'cond': '' if cond in ('—', '-') else cond, 'src': src, 'kind': kind,
+        out[aid] = {'id': aid, 'sid': aid.split('-')[0], 'text': text, 'cond': '' if cond in ('—', '-') else cond, 'src': src, 'kind': kind,
                     't': parse_time(tm.group(2)) if tm else None}
     return out
 
@@ -94,17 +106,29 @@ def _frontmatter_video(note_path):
     return os.path.normpath(m.group(1)) if m else ''
 
 
+def _find_notes(vault, names):
+    """在 Obsidian 库里按文件名找课程笔记 → {名字: 路径}。整个库只翻一遍、找齐就停；
+    先翻设置里的剪藏文件夹（课程笔记一般在那里）。以前每节课翻一遍整个库，导入 5 节课要 8 秒。"""
+    want = {(n + '.md').lower(): n for n in names if n}
+    found = {}
+    if not vault or not os.path.isdir(vault) or not want:
+        return found
+    sub = (config.load().get('obsidian') or {}).get('folder') or ''
+    first = os.path.join(vault, sub) if sub and os.path.isdir(os.path.join(vault, sub)) else ''
+    for top in [first, vault] if first else [vault]:
+        for root, dirs, files in os.walk(top):
+            dirs[:] = [d for d in dirs if not d.startswith('.') and not (top == vault and first and _same(os.path.join(root, d), first))]
+            for f in files:
+                n = want.get(f.lower())
+                if n and n not in found:
+                    found[n] = Path(root) / f
+            if len(found) == len(want):
+                return found
+    return found
+
+
 def _find_note(vault, name):
-    """在 Obsidian 库里按文件名找课程笔记。"""
-    if not vault or not os.path.isdir(vault):
-        return None
-    want = (name + '.md').lower()
-    for root, dirs, files in os.walk(vault):
-        dirs[:] = [d for d in dirs if not d.startswith('.')]
-        for f in files:
-            if f.lower() == want:
-                return Path(root) / f
-    return None
+    return _find_notes(vault, [name]).get(name)
 
 
 def _vault_of(folder):
@@ -140,14 +164,24 @@ def _load_json(path, default=None):
         return default
 
 
-def list_mentors():
+def list_mentors(chats=True):
     out = []
     if MENTOR_DIR.is_dir():
         for d in sorted(MENTOR_DIR.iterdir()):
             m = _load_json(d / 'mentor.json')
             if m:
-                out.append(dict(m, chats=list_chats(m['id'])))
+                out.append(dict(m, chats=list_chats(m['id'])) if chats else m)
+            for t in d.glob('**/*.tmp'):  # 写到一半退出留下的临时文件
+                if time.time() - t.stat().st_mtime > 86400:
+                    t.unlink(missing_ok=True)
     return sorted(out, key=lambda m: m.get('created', ''))
+
+
+def update(mid, **kw):
+    m = get(mid)
+    m.update(kw)
+    _save_json(_mdir(mid) / 'mentor.json', m)
+    return m
 
 
 def get(mid):
@@ -165,8 +199,8 @@ def add(folder):
     f = files_of(folder)
     if not f['atoms'] or not f['persona']:
         raise MentorError('这个文件夹里要有「观点库」和「老师画像」两份文件（文件名里带这几个字），先完成蒸馏再导入')
-    for m in list_mentors():
-        if os.path.normcase(m['folder']) == os.path.normcase(folder):
+    for m in list_mentors(chats=False):
+        if _same(m['folder'], folder):
             raise MentorError(f'「{m["name"]}」已经导入过了')
     m = {'id': uuid.uuid4().hex[:10], 'name': Path(folder).name, 'folder': folder, 'created': time.strftime('%Y-%m-%d %H:%M:%S')}
     m['sources'] = resolve_sources(folder)
@@ -175,13 +209,21 @@ def add(folder):
 
 
 def resolve_sources(folder):
-    """来源表 S01… → 课程笔记 → 笔记属性里的「视频文件」（找不到的标出来）。"""
-    md = _read(files_of(folder)['atoms'])
-    vault = _vault_of(folder)
+    """来源表 S01… → 课程笔记 → 笔记属性里的「视频文件」（找不到的标出来）。
+    在软件里蒸馏的老师（distill.json 里记着每节课的视频）：笔记找不到、或者还没剪藏，就用记下的视频。"""
+    md = _read(files_of(folder)['atoms']) if Path(folder).is_dir() else ''
+    srcs = parse_sources(md)
+    notes = _find_notes(_vault_of(folder), [s['note'] for s in srcs])
+    known = {}
+    for m in list_mentors(chats=False):
+        if _same(m['folder'], folder):
+            known = {x['sid']: x['path'] for x in (_load_json(_mdir(m['id']) / 'distill.json') or {}).get('lessons') or []}
     out = []
-    for s in parse_sources(md):
-        note = _find_note(vault, s['note'])
+    for s in srcs:
+        note = notes.get(s['note'])
         video = _frontmatter_video(note) if note else ''
+        if not (video and os.path.isfile(video)) and known.get(s['sid']):
+            video = os.path.normpath(known[s['sid']])
         out.append(dict(s, notePath=str(note) if note else '', path=video, found=bool(video and os.path.isfile(video))))
     return out
 
@@ -400,6 +442,31 @@ def _backup(path):
         old.unlink(missing_ok=True)
 
 
+def _fav_block(c, i):
+    msgs = c['messages']
+    a = msgs[i]
+    q = next((msgs[k]['content'] for k in range(i - 1, -1, -1) if msgs[k]['role'] == 'user'), '')
+    quoted = '\n'.join('> ' + line if line.strip() else '>' for line in q.strip().splitlines())
+    return (f'\n\n---\n\n## {re.sub(chr(10), " ", q.strip())[:40]}\n\n'
+            f'<small>{a.get("time", "")[:16]} · {a.get("model", "")} · 对话「{c.get("title", "")}」</small>\n\n'
+            f'**问：**\n\n{quoted}\n\n**答：**\n\n{a["content"].strip()}\n')
+
+
+def _fav_write(m, blocks):
+    """把几条问答追加到老师文件夹里的「对话精选.md」（写之前备份一次）。"""
+    path = Path(m['folder']) / FAVORITES
+    if path.is_file():
+        _backup(path)
+        old = _read(path).rstrip()
+    else:
+        atoms = files_of(m['folder'])['atoms']
+        old = (f'---\n老师: {m["name"]}\n类型: 对话精选\ntags:\n  - 课程蒸馏\n---\n\n# {m["name"]}：对话精选\n\n'
+               f'> 在猛人学习「老师工作台」里和{m["name"]}的老师画像对话时，收藏的回答。出处 ［S02 19:54］ 对应 [[{atoms.stem if atoms else "01、观点库（逐节提取）"}]] 里的课程编号。'
+               f'回答是 AI 按老师画像写的，不等于老师原话，也不是你的结论。')
+    path.write_text(old + ''.join(blocks), encoding='utf-8')
+    return path
+
+
 def save_favorite(mid, cid, index):
     """把第 index 条（AI 的回答）连同它前面的问题，追加到老师文件夹里的「对话精选.md」。"""
     m = get(mid)
@@ -407,22 +474,35 @@ def save_favorite(mid, cid, index):
     msgs = c['messages']
     if not (0 <= int(index) < len(msgs)) or msgs[int(index)]['role'] != 'assistant':
         raise MentorError('只能收藏老师的回答')
-    i = int(index)
-    a = msgs[i]
-    q = next((msgs[k]['content'] for k in range(i - 1, -1, -1) if msgs[k]['role'] == 'user'), '')
-    path = Path(m['folder']) / FAVORITES
-    if path.is_file():
-        _backup(path)
-        old = _read(path).rstrip()
-    else:
-        old = (f'---\n老师: {m["name"]}\n类型: 对话精选\ntags:\n  - 课程蒸馏\n---\n\n# {m["name"]}：对话精选\n\n'
-               f'> 在猛人学习「老师工作台」里和{m["name"]}的老师画像对话时，收藏的回答。出处 ［S02 19:54］ 对应 [[01、观点库（逐节提取）]] 里的课程编号。'
-               f'回答是 AI 按老师画像写的，不等于老师原话，也不是你的结论。')
-    quoted = '\n'.join('> ' + line if line.strip() else '>' for line in q.strip().splitlines())
-    block = (f'\n\n---\n\n## {re.sub(chr(10), " ", q.strip())[:40]}\n\n'
-             f'<small>{a.get("time", "")[:16]} · {a.get("model", "")} · 对话「{c.get("title", "")}」</small>\n\n'
-             f'**问：**\n\n{quoted}\n\n**答：**\n\n{a["content"].strip()}\n')
-    path.write_text(old + block, encoding='utf-8')
-    a['saved'] = time.strftime('%Y-%m-%d %H:%M:%S')
+    path = _fav_write(m, [_fav_block(c, int(index))])
+    msgs[int(index)]['saved'] = time.strftime('%Y-%m-%d %H:%M:%S')
     _save_json(_cpath(mid, cid), c)
-    return {'file': str(path), 'chat': c}
+    return dict(favorites(mid), chat=c, count=1)
+
+
+def save_all(mid, cid):
+    """一键收藏整个对话：还没收藏的回答按顺序一次写进去，已经收藏的不重复。"""
+    m = get(mid)
+    c = load_chat(mid, cid)
+    todo = [i for i, x in enumerate(c['messages']) if x['role'] == 'assistant' and not x.get('saved') and (x.get('content') or '').strip()]
+    if not todo:
+        return dict(favorites(mid), chat=c, count=0)
+    _fav_write(m, [_fav_block(c, i) for i in todo])
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    for i in todo:
+        c['messages'][i]['saved'] = now
+    _save_json(_cpath(mid, cid), c)
+    return dict(favorites(mid), chat=c, count=len(todo))
+
+
+def favorites(mid):
+    """对话精选在哪、有没有、在 Obsidian 里打开的链接（库外面的文件没有链接，就在资源管理器里显示）。"""
+    m = get(mid)
+    path = Path(m['folder']) / FAVORITES
+    vault = _vault_of(m['folder'])
+    uri = ''
+    if vault and _norm(path).startswith(_norm(vault).rstrip('\\/') + os.sep):
+        from urllib.parse import quote as q
+        rel = os.path.relpath(path, vault).replace('\\', '/')
+        uri = f'obsidian://open?vault={q(Path(vault).name)}&file={q(rel)}'
+    return {'file': str(path), 'exists': path.is_file(), 'uri': uri}

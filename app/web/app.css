@@ -502,3 +502,24 @@ a.cite:hover { background: var(--accent); color: var(--accent-ink); }
 a.cite.bad { background: color-mix(in srgb, var(--danger) 14%, transparent); border-color: var(--danger); color: var(--danger); cursor: help; }
 .ai-guess, .ai-own { border-left: 4px solid #5aa9ff; background: color-mix(in srgb, #5aa9ff 10%, transparent); padding: 6px 12px; border-radius: 6px; margin: 8px 0; }
 .ai-own { border-left-color: #b07cff; background: color-mix(in srgb, #b07cff 10%, transparent); }
+
+/* 老师蒸馏（mentor.js 的 openDistill / renderDistillBar） */
+.mt-tag { font-weight: 400; font-size: 11px; color: var(--accent); background: var(--accent-weak); border-radius: 6px; padding: 0 5px; }
+.mt-tag:empty { display: none; }
+.mentor-distill { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); font-size: 13px; flex: none; }
+.mentor-distill .md-msg { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mentor-distill .md-bar { width: 160px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; flex: none; }
+.mentor-distill .md-bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+.distill-dlg { width: 720px; }
+.distill-dlg .ds-row { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+.distill-dlg .ds-row input, .distill-dlg .ds-row select { flex: 1; }
+.distill-dlg .ds-tools { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.ds-list { max-height: 40vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; }
+.ds-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; }
+.ds-item.off { opacity: .55; cursor: default; }
+.ds-item .ds-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ds-note { margin: 8px 0 0; line-height: 1.6; font-size: 12.5px; }
+.ds-status { list-style: none; padding: 0; }
+.ds-status li { display: flex; align-items: center; gap: 10px; padding: 3px 0; border-bottom: 1px dashed var(--line); }
+.ds-status li > span:first-child { flex: 1; }
+.fav-btn.saved { color: var(--accent); opacity: .85; }

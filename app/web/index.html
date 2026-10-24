@@ -67,7 +67,7 @@
     <div class="lib-head">
       <div class="lib-tabs" id="libTabs"><button class="lib-tab active" data-view="course" title="媒体库：视频、音频、书籍">课程</button><button class="lib-tab" data-view="mentor" title="老师工作台：和蒸馏好的老师对话">老师</button></div>
       <span class="grow"></span>
-      <button class="btn icon-only small mentor-only" id="mentorAdd" hidden title="导入老师：选择「04、外部知识转化库」里蒸馏好的老师文件夹"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M19 8v6m-3-3h6"/></svg></button>
+      <button class="btn icon-only small mentor-only" id="mentorAdd" hidden title="加一位老师：从媒体库的课蒸馏一位新老师，或导入「04、外部知识转化库」里已经蒸馏好的老师文件夹"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M19 8v6m-3-3h6"/></svg></button>
       <button class="btn icon-only small course-only" id="libAddFolder" title="添加文件夹（包括子文件夹里的音视频）"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v6m-3-3h6"/></svg></button>
       <button class="btn icon-only small course-only" id="libAddFiles" title="添加文件"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M12 12v6m-3-3h6"/></svg></button>
       <button class="btn icon-only small course-only" id="libRefresh" title="刷新"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
@@ -101,7 +101,14 @@
         <span class="grow"></span>
         <span class="ai-model" id="mentorModel"></span>
         <button class="btn small tts-btn" id="mentorTts" title="朗读（边听边看）：读老师的回答"><svg viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M3 14h3v6H4a1 1 0 0 1-1-1zM21 14h-3v6h2a1 1 0 0 0 1-1z"/></svg>朗读</button>
+        <button class="btn small" id="mentorSaveAll" title="把这个对话里还没收藏的回答，一次都收藏到 Obsidian 的「对话精选」（已经收藏的不重复）">★ 收藏整个对话</button>
+        <button class="btn small" id="mentorFav" title="在 Obsidian 里打开这位老师的「对话精选」">对话精选</button>
         <button class="btn small" id="mentorNew" title="和这位老师开一个新对话">新对话</button>
+      </div>
+      <div class="mentor-distill" id="mentorDistill" hidden>
+        <span class="md-msg" id="mdMsg"></span>
+        <div class="md-bar"><i id="mdBar"></i></div>
+        <button class="btn small" id="mdStop" title="停下来：已经做完的课保存着，下次接着做">停止</button>
       </div>
       <div class="mentor-msgs" id="mentorMsgs"></div>
       <div class="mentor-input">
@@ -332,6 +339,25 @@
 </dialog>
 
 <!-- 新术语 -->
+<!-- 老师蒸馏：从媒体库选课（mentor.js 的 openDistill） -->
+<dialog id="dlgDistill" class="dialog distill-dlg">
+  <form method="dialog">
+    <h2 id="dsTitle">从媒体库的课蒸馏一位老师</h2>
+    <p class="muted">AI 逐节把老师讲的观点拆成观点库（每条带出处），再合并成课程蒸馏、写出老师画像，写进 Obsidian。做完就能在老师工作台里和这位老师对话。</p>
+    <label class="ds-row">老师名字 <input id="dsName" placeholder="例如：人间落叶"></label>
+    <label class="ds-row">课程在哪个文件夹 <select id="dsFolder"></select></label>
+    <div class="ds-tools"><button type="button" class="btn small" id="dsAll">全选</button><button type="button" class="btn small" id="dsNone">全不选</button><span class="muted" id="dsCount"></span></div>
+    <div class="ds-list" id="dsList"></div>
+    <p class="muted ds-note" id="dsTarget"></p>
+    <p class="muted ds-note">每节课调用一次「对话」用的 AI（ChatGPT 账号会占用额度），最后再合并两三次；30 分钟的课实测大约 3 分半钟，几十节的大课要几个小时。在后台做，可以照常看课；中途停了或额度用完，做完的课保存着，下次接着做。</p>
+    <div class="dialog-btns">
+      <button value="cancel" class="btn">取消</button>
+      <span class="grow"></span>
+      <button value="ok" class="btn primary" id="dsOk">开始蒸馏</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="dlgTerms" class="dialog terms-dlg">
   <form method="dialog">
     <h2>这节课的新术语</h2>
@@ -567,10 +593,18 @@
       <section data-h="mentor" hidden>
         <h3>老师工作台（和老师对话）</h3>
         <p>把一位老师的全部课程蒸馏好以后，AI 就能按这位老师的知识和思路和你对话，像向老师本人提问一样。</p>
-        <h4>怎么开始</h4>
+        <h4>怎么开始：蒸馏一位老师</h4>
         <ul>
-          <li><b>先有蒸馏好的老师文件夹</b>：Obsidian「04、外部知识转化库」里用老师名字建的文件夹，里面要有「观点库」和「老师画像」两份文件（文件名里带这几个字）；「课程蒸馏」有更好。观点库开头的「来源」表写着 S01、S02……对应哪篇课程笔记。</li>
-          <li><b>导入</b>：左栏顶上切到「老师」，点人像加号按钮，选这个老师文件夹。软件会按来源表找到每篇课程笔记里记的视频，出处才能跳转；找不到视频的课会标出来。</li>
+          <li><b>从媒体库的课蒸馏</b>：左栏顶上切到「老师」，点人像加号按钮 →「从媒体库的课蒸馏一位新老师」（或在「课程」里右键一个文件夹 →「用这个文件夹的课蒸馏一位老师」）。填老师名字，选课所在的文件夹，勾选要用的课（要先生成字幕；有课程重点更好，不用先剪藏、不用先校对），点「开始蒸馏」。</li>
+          <li><b>蒸馏做三步</b>：① 逐节提取观点库：每节课单独让 AI 读完整字幕，把老师讲的拆成一条一条，每条带出处（第几节课第几分几秒）、标明是观点、方法还是定义，老师讲自己的经历和立场单独列；② 合并成「课程蒸馏」：老师的体系、核心观点、反复强调的、前后不一致的、没讲到的；③ 写「老师画像」：第一节是软件固定写的对话规则，后面是他的信念、思考顺序、反对什么、常用比喻、说话风格。课很多（几十节）时，第 ② 步会先分组小结再合并。</li>
+          <li><b>写到哪里</b>：Obsidian「04、外部知识转化库/老师名/」里的「01、观点库（逐节提取）」「02、课程蒸馏」「03、老师画像（对话用）」。这些是 AI 写的，状态标着「待作者审核」。AI 标的出处时间超出课程长度的标「时间待核对」，写了观点库里没有的编号的在文末列出来。</li>
+          <li><b>在后台做</b>：30 分钟的课实测大约 3 分半钟（几十节的大课要几个小时），用「对话」的 AI（ChatGPT 账号会占用额度）。对话区上方和左栏显示进度，可以照常看课；点「停止」或额度用完，做完的课都存着，右键老师「继续蒸馏」接着做，不重复花钱。</li>
+          <li><b>老师出了新课</b>：右键老师 →「更新蒸馏」，勾上新课。只提取新课和字幕改过的课，再重新合并、写画像。课程编号 S01、S02……一旦分配就不变，以前对话里的出处照样能点。</li>
+          <li><b>覆盖前会问你</b>：上次蒸馏之后你在 Obsidian 里改过这几份文件的，开始前会先问；每次覆盖前都整份备份到软件的「backups\蒸馏」（每位老师留 20 份）。</li>
+        </ul>
+        <h4>或者：导入已经蒸馏好的老师文件夹</h4>
+        <ul>
+          <li>点人像加号按钮 →「导入已经蒸馏好的老师文件夹」，选「04、外部知识转化库」里的老师文件夹，里面要有「观点库」和「老师画像」两份文件（文件名里带这几个字）。软件会按观点库开头的「来源」表找到每篇课程笔记里记的视频，出处才能跳转；找不到视频的课会标出来。</li>
           <li>Obsidian 里的观点库、老师画像以那边为准：你在 Obsidian 里改了，下一次提问就用改过的。</li>
         </ul>
         <h4>对话</h4>
@@ -578,13 +612,13 @@
           <li><b>提问</b>：下面输入框里打字，Enter 发送（Shift + Enter 换行），写的时候点「停止」可以停下。第一次打开有几个示例问题，点一下就问。</li>
           <li><b>出处</b>：课程里讲过的内容带出处，例如 <code>S02 19:54</code>（第 2 节课 19 分 54 秒）或 <code>S02-21</code>（观点库第 2 节第 21 条）。<b>鼠标停在出处上能看到那一秒前后的原话；点一下切到「课程」，打开那节课从那一秒开始播放。</b>看完点左上角「老师」回到对话。观点库和课程里都找不到的出处会标成红色，那多半是 AI 编的，要小心。</li>
           <li><b>蓝色框「AI 推测」</b>：课程里没讲的问题，AI 按老师讲过的原则推测他可能怎么看，不是课程内容。<b>紫色框「AI 自己的看法」</b>：只在你要求时才有，不代表老师。</li>
-          <li><b>收藏到 Obsidian</b>：觉得好的回答点它，连同你的问题追加到老师文件夹里的「对话精选.md」（写之前会备份）。</li>
+          <li><b>☆ 收藏</b>：觉得好的回答点它下面的「☆ 收藏」，连同你的问题追加到老师文件夹里的「对话精选.md」（写之前会备份），按钮变成「★ 已收藏」。<b>★ 收藏整个对话</b>（对话区右上角）：这个对话里还没收藏的回答一次都收藏，已经收藏的不重复。<b>对话精选</b>：在 Obsidian 里打开收藏的内容。</li>
           <li><b>朗读</b>：对话区右上角的「朗读」读老师的回答，用法和课程重点的朗读一样。</li>
         </ul>
         <h4>对话记录</h4>
         <ul>
           <li>每位老师可以有多个对话，都保存在软件里，左栏按时间列出；上面的搜索框能按标题和内容找。「新对话」开一个新的。</li>
-          <li>右键对话：改名、删除。右键老师：重新查找课程（笔记或视频挪了位置后）、在资源管理器中打开老师文件夹、清空全部对话、移除这位老师（只删软件里的记录，Obsidian 里的文件不动）。</li>
+          <li>右键对话：改名、删除。右键老师：更新蒸馏 / 继续蒸馏（软件里蒸馏的老师）、重新查找课程（笔记或视频挪了位置后）、在资源管理器中打开老师文件夹、清空全部对话、移除这位老师（只删软件里的记录，Obsidian 里的文件不动）。</li>
           <li>每次提问，软件会把老师画像、课程蒸馏、观点库和最相关的十几段课程原文一起交给「设置 → 任务用哪个 AI」里「对话」用的 AI（一次大约三万多字），用的是那个 AI 的额度。</li>
         </ul>
       </section>

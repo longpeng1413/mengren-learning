@@ -400,6 +400,45 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     document.querySelector('#libTabs [data-view="mentor"]').click();
     ok('再切回「老师」：刚才的对话还在', await until(() => S.view === 'mentor' && document.querySelectorAll('#mentorMsgs .msg').length === 2));
     await api('mentor_remove', { id: added.mentor.id });
+
+    // 老师蒸馏（后台 distill.py，假 AI）：从媒体库的课新建老师 → 后台蒸馏 → 三份文件写进 Obsidian → 能对话 → 一键收藏整个对话
+    await api('settings', { settings: { obsidian: { vault: base + 'kb' } } });
+    document.querySelector('#mentorAdd').click();
+    ok('加老师按钮：弹出「从媒体库蒸馏 / 导入」两个选项（不会一点就关掉）', !document.querySelector('#ctxMenu').hidden
+      && !!document.querySelector('#ctxMenu [data-a=distill]') && !!document.querySelector('#ctxMenu [data-a=import]'));
+    document.querySelector('#ctxMenu [data-a=distill]').click();
+    ok('蒸馏窗口：列出媒体库文件夹里的课', await until(() => document.querySelector('#dlgDistill').open && document.querySelectorAll('#dsList input').length > 0));
+    document.querySelector('#dsName').value = '蒸馏测试老师';
+    document.querySelector('#dsName').dispatchEvent(new Event('input'));
+    ok('蒸馏窗口：显示结果写到 Obsidian 的哪个文件夹', await until(() => document.querySelector('#dsTarget').textContent.includes('04、外部知识转化库\\蒸馏测试老师')),
+      document.querySelector('#dsTarget').textContent);
+    const dBoxes = [...document.querySelectorAll('#dsList input')];
+    const dDemo = dBoxes.find(b => b.dataset.path.toLowerCase().endsWith('演示视频.mp4'));
+    ok('蒸馏窗口：有字幕的课默认勾上，书和文档不列出来', dDemo && dDemo.checked && !dDemo.disabled && !dBoxes.some(b => /\.(pdf|md)$/i.test(b.dataset.path)),
+      dBoxes.map(b => b.dataset.path));
+    dBoxes.forEach(b => { if (!b.disabled) b.checked = b === dDemo; });
+    document.querySelector('#dsOk').click();
+    ok('开始蒸馏：后台做完后提示「蒸馏好了」', await until(() => toasts().some(t => t.includes('「蒸馏测试老师」蒸馏好了')), 30000), toasts().slice(-3));
+    const dm = M.list.find(x => x.name === '蒸馏测试老师') || {};
+    ok('蒸馏完：左栏没有「未蒸馏完」，打开就能对话（开场列出课程和示例问题）', await until(() => M.cur && M.cur.mentor.id === dm.id
+      && !document.querySelector('#mentorInput').disabled && document.querySelectorAll('#mentorMsgs [data-eg]').length === 4
+      && !document.querySelector('#mentorList').textContent.includes('未蒸馏完') && document.querySelector('#mentorDistill').hidden, 10000),
+      [M.cur && M.cur.files, document.querySelector('#mentorList').textContent]);
+    const dFiles = M.cur.files;
+    ok('蒸馏完：三份文件写进「04、外部知识转化库/蒸馏测试老师」', ['atoms', 'distill', 'persona'].every(k => (dFiles[k] || '').includes('蒸馏测试老师')), dFiles);
+    document.querySelector('#mentorMsgs [data-eg]').click();
+    await until(() => !M.job && M.chat && M.chat.messages.length === 2, 20000);
+    await mentorAsk('第二个问题');
+    ok('提了两个问题，「收藏整个对话」能点', M.chat.messages.length === 4 && !document.querySelector('#mentorSaveAll').disabled
+      && document.querySelector('#mentorMsgs [data-save="1"]').textContent.includes('☆ 收藏'));
+    document.querySelector('#mentorSaveAll').click();
+    ok('一键收藏整个对话：两条回答都收藏，按钮变成「★ 已收藏」，「收藏整个对话」变灰', await until(() => M.chat.messages.filter(x => x.role === 'assistant').every(x => x.saved)
+      && document.querySelector('#mentorSaveAll').disabled && document.querySelector('#mentorMsgs [data-save="3"]').textContent.includes('★ 已收藏')),
+      toasts().slice(-2));
+    const dFav = await api('mentor_favorites', { id: dm.id });
+    ok('对话精选：有了，能在 Obsidian 里打开', dFav.exists && dFav.uri.startsWith('obsidian://open?') && !document.querySelector('#mentorFav').disabled, dFav);
+    await api('mentor_remove', { id: dm.id });
+    await api('settings', { settings: { obsidian: { vault: '' } } });
     document.querySelector('#libTabs [data-view="course"]').click();
     if (coursePath && S.path !== coursePath) await window.openPath(coursePath);
 
