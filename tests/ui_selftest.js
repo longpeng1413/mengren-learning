@@ -117,11 +117,11 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     document.querySelector('#btnAiDock').click(); await wait(100);
     ok('AI 区移到右侧', document.querySelector('#aiPanel').parentElement.id === 'aiDockSide' && document.querySelector('#aiDockSide').getBoundingClientRect().width > 250);
     const sp = document.querySelector('#aiSplit');
-    const M = document.querySelector('#stageMain').getBoundingClientRect();
+    const stageRect = document.querySelector('#stageMain').getBoundingClientRect();
     ok('右侧 AI 区的拖动条可见', sp.getBoundingClientRect().width >= 10 && getComputedStyle(sp).display !== 'none');
     for (const target of [600, 380]) {
-      sp.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, clientX: M.right - 450 }));
-      sp.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 1, clientX: M.right - target }));
+      sp.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, clientX: stageRect.right - 450 }));
+      sp.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 1, clientX: stageRect.right - target }));
       sp.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
       await wait(50);
       const w = document.querySelector('#aiDockSide').getBoundingClientRect().width;
@@ -368,6 +368,40 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       ok('朗读：关闭后播放条消失', !TTS.active() && !document.querySelector('.tts-bar'));
       savePrefs({ tts_engine: 'edge', tts_rate: 1 });
     }
+
+    // 老师工作台（mentor.js）：导入测试老师 → 提问（假 AI）→ 出处变成可点的标签 → 收藏 → 点出处跳回课程
+    const coursePath = S.path;
+    document.querySelector('#libTabs [data-view="mentor"]').click();
+    ok('老师工作台：切到「老师」，显示对话区、隐藏媒体库和课程', S.view === 'mentor' && !document.querySelector('#mentorMain').hidden
+      && document.querySelector('#libBody').hidden && !document.querySelector('#mentorList').hidden && document.querySelector('#stageMain').hidden);
+    const added = await api('mentor_add', { folder: base + 'kb\\04、外部知识转化库\\测试老师' });
+    await loadMentors();
+    await openMentor(added.mentor.id);
+    ok('导入老师：列表里有他，找到了课程的视频，开场介绍列出课程和示例问题', added.mentor.sources[0].found
+      && document.querySelector('#mentorList').textContent.includes('测试老师') && document.querySelectorAll('#mentorMsgs [data-eg]').length === 4
+      && document.querySelector('#mentorMsgs').textContent.includes('演示课'), added.mentor.sources);
+    const ans = document.createElement('div');
+    ans.innerHTML = answerHTML('先算风险［S01 00:02］，见［S01-01］；还有［S09 00:01］。\n\n> 【AI 推测：测试老师可能的看法，不是课程内容】这里是推测。');
+    markLabels(ans);
+    ok('回答里的出处变成可点的标签，观点库和课程里没有的标红，「AI 推测」单独一个框',
+      ans.querySelectorAll('a.cite:not(.bad)').length === 2 && ans.querySelectorAll('a.cite.bad').length === 1
+      && ans.querySelector('a.cite').dataset.t === '2' && !!ans.querySelector('.ai-guess') && !ans.querySelector('a.tslink'), ans.innerHTML);
+    document.querySelector('#mentorMsgs [data-eg]').click();
+    ok('点示例问题就提问；回答写完存进对话记录，列表里出现这个对话（标题是问题）', await until(() => !M.job && M.chat && M.chat.messages.length === 2
+      && M.chat.messages[1].role === 'assistant' && ((document.querySelector('#mentorList .mt-chat.active') || {}).textContent || '').includes('交易系统包括哪些方面'), 20000),
+      [String(M.chat), M.chat && M.chat.messages.length, M.seq, M.cur && M.cur.mentor.id, M.job, toasts().slice(-3), (document.querySelector('#mentorList') || {}).textContent]);
+    document.querySelector('#mentorMsgs [data-save="1"]').click();
+    ok('收藏到 Obsidian：按钮变成「已收藏」', await until(() => M.chat.messages[1].saved && document.querySelector('#mentorMsgs [data-save="1"]').disabled));
+    const cite = document.createElement('a');
+    cite.className = 'cite'; cite.dataset.sid = 'S01'; cite.dataset.t = '2';
+    document.querySelector('#mentorMsgs .msg.assistant .bubble').append(cite);
+    cite.click();
+    ok('点出处：切回课程，打开那节课', await until(() => S.view === 'course' && S.path && S.path.toLowerCase().endsWith('演示视频.mp4') && !document.querySelector('#stageMain').hidden, 10000), [S.view, S.path]);
+    document.querySelector('#libTabs [data-view="mentor"]').click();
+    ok('再切回「老师」：刚才的对话还在', await until(() => S.view === 'mentor' && document.querySelectorAll('#mentorMsgs .msg').length === 2));
+    await api('mentor_remove', { id: added.mentor.id });
+    document.querySelector('#libTabs [data-view="course"]').click();
+    if (coursePath && S.path !== coursePath) await window.openPath(coursePath);
 
     // 媒体库树形显示、展开收起、拖动排序、改名、新格式（test-media\ui-lib：1、第一讲\{2、乙,1、甲}.avi、资料\补充.epub、预告.avi）
     const libBase = base.replace(/ui\\$/, 'ui-lib\\');

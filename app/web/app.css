@@ -471,3 +471,34 @@ body.mode-book .video-only { display: none !important; }
 .db-acct .db-name { flex: 0 0 9em; }
 .db-spent { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; font-size: 13px; }
 .test-result { white-space: pre-line; }
+
+/* ---------- 老师工作台（mentor.js） ---------- */
+.lib-tabs { display: flex; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+.lib-tab { border: 0; background: none; color: var(--muted); padding: 3px 12px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+.lib-tab.active { background: var(--accent-weak); color: var(--text); }
+.mentor-list { padding-top: 4px; }
+.mt-teacher { display: flex; align-items: center; gap: 6px; padding: 8px 8px 6px; margin-top: 6px; border-radius: 7px; cursor: pointer; font-weight: 700; color: var(--accent); }
+.mt-teacher:hover, .mt-chat:hover { background: var(--hover); }
+.mt-teacher .grow { flex: 1; }
+.mt-teacher .muted { font-weight: 400; font-size: 12px; color: var(--muted); }
+.mt-chat { display: block; padding: 5px 8px 5px 22px; border-radius: 7px; cursor: pointer; font-size: 13px; color: color-mix(in srgb, var(--text) 82%, var(--muted)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mt-chat.active { background: var(--accent-weak); color: var(--text); }
+.mt-chat small { color: var(--muted); margin-left: 6px; }
+.mt-empty { color: var(--muted); font-size: 13px; padding: 14px 10px; line-height: 1.8; }
+.stage-mentor { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 0 12px 12px 0; }
+.mentor-head { display: flex; align-items: center; gap: 8px; padding: 10px 4px 8px; flex: none; }
+.mentor-title b { font-size: 16px; color: var(--accent); margin-right: 10px; }
+.mentor-msgs { flex: 1; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; min-height: 0; line-height: 1.85; }
+.mentor-msgs .msg.assistant .bubble { max-width: 860px; }
+.mentor-msgs .msg-actions { display: flex; gap: 6px; margin-top: 6px; }
+.mentor-msgs .msg-meta { font-size: 12px; color: var(--muted); margin-right: 6px; align-self: center; }
+.mentor-intro { color: var(--muted); max-width: 760px; }
+.mentor-intro h3 { color: var(--text); margin: 4px 0 8px; }
+.mentor-intro .ask-eg { display: inline-block; margin: 4px 6px 0 0; }
+.mentor-input { display: flex; gap: 8px; align-items: flex-end; padding-top: 10px; flex: none; }
+.mentor-input textarea { flex: 1; resize: vertical; min-height: 48px; max-height: 240px; }
+a.cite { display: inline-block; padding: 0 6px; margin: 0 1px; border-radius: 5px; font-size: 12px; line-height: 1.6; background: var(--accent-weak); border: 1px solid var(--accent-line); color: var(--accent); cursor: pointer; text-decoration: none; white-space: nowrap; font-family: var(--mono); vertical-align: 1px; }
+a.cite:hover { background: var(--accent); color: var(--accent-ink); }
+a.cite.bad { background: color-mix(in srgb, var(--danger) 14%, transparent); border-color: var(--danger); color: var(--danger); cursor: help; }
+.ai-guess, .ai-own { border-left: 4px solid #5aa9ff; background: color-mix(in srgb, #5aa9ff 10%, transparent); padding: 6px 12px; border-radius: 6px; margin: 8px 0; }
+.ai-own { border-left-color: #b07cff; background: color-mix(in srgb, #b07cff 10%, transparent); }

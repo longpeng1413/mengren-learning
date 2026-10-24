@@ -16,7 +16,7 @@ const TTS = (() => {
   const CACHE_LIMIT = 8, PREFETCH = 4, RESUME_FOLLOW = 6000, RETRY = [600, 1500], BOTTOM_GAP = 60;
   const PROGRESS_KEY = 'tts-progress', PROGRESS_LIMIT = 200, PROGRESS_DAYS = 180;
   const BLOCK = /^(P|LI|H[1-6]|TD|TH|BLOCKQUOTE|DIV|DT|DD|TR|UL|OL|TABLE|SECTION|BR|HR)$/;
-  const SKIP = 'a.tslink, pre, img, svg, button, script, style, .msg.user, .doubt-tag';
+  const SKIP = 'a.tslink, a.cite, pre, img, svg, button, script, style, .msg.user, .doubt-tag, .msg-actions';
   const ICON = {
     prev: '<path d="M19 20L9 12l10-8z"/><path d="M5 19V5"/>', next: '<path d="M5 4l10 8-10 8z"/><path d="M19 5v14"/>',
     play: '<path d="M7 4l13 8-13 8z"/>', pause: '<path d="M7 4h4v16H7zM14 4h4v16h-4z"/>', again: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
@@ -34,7 +34,7 @@ const TTS = (() => {
   const hasHighlight = () => !!(window.CSS && CSS.highlights && window.Highlight);
 
   /* ---------- 切句（照 speech-text.mjs：按句末标点切，超过 80 字在逗号等处切开；每个字记住它在页面上的位置） ---------- */
-  const isTs = n => !!n && n.nodeType === 1 && n.matches('a.tslink');
+  const isTs = n => !!n && n.nodeType === 1 && n.matches('a.tslink, a.cite');
   function segments(root) {
     const out = [];
     let chars = [];
@@ -101,6 +101,10 @@ const TTS = (() => {
 
   /* ---------- 读哪里：课程重点页读课程重点，AI 对话页读 AI 的回答（不读你自己的提问） ---------- */
   function source() {
+    if (S.view === 'mentor') {  // 老师工作台：读老师的回答（mentor.js）
+      const cid = typeof M !== 'undefined' && M.chat ? M.chat.id : 'new';
+      return { root: $('#mentorMsgs'), pane: 'mentor:' + cid, name: '老师的回答', anchor: $('.mentor-head') };
+    }
     const tab = ($('.ai-tabs .tab.active') || {}).dataset || {};
     if (tab.tab === 'chat') return { root: $('#chatBox'), pane: 'chat', name: 'AI 对话' };
     return { root: $('#summaryBox'), pane: 'summary', name: '课程重点' };
@@ -133,16 +137,16 @@ const TTS = (() => {
   /* ---------- 开始、暂停、停止 ---------- */
   function start(mode) {
     const src = source();
-    if (!src.root || !S.path) return toast('先打开一节课');
+    if (!src.root || (!S.path && S.view !== 'mentor')) return toast('先打开一节课');
     const segs = segments(src.root);
     if (!segs.length) return toast(`${src.name}里还没有可以朗读的文字`);
     stop(true);
-    const key = S.path + '|' + src.pane;
+    const key = (S.view === 'mentor' ? '' : S.path) + '|' + src.pane;
     let i = 0;
     if (typeof mode === 'number') i = Math.max(0, Math.min(segs.length - 1, mode));  // 双击的那一句
     else if (mode === 'here') i = firstVisible(segs);
     else if (mode !== 'start') i = resumeIndex(key, segs);
-    s = { root: src.root, key, name: src.name, segs, i, state: 'playing', follow: true, handScroll: 0, programmatic: 0, cleanup: [] };
+    s = { root: src.root, anchor: src.anchor, key, name: src.name, segs, i, state: 'playing', follow: true, handScroll: 0, programmatic: 0, cleanup: [] };
     const v = $('#video'); if (v && !v.paused) v.pause();  // 边听边看：先停下视频
     mount();
     listen();
@@ -311,7 +315,7 @@ const TTS = (() => {
       <button class="btn icon-only small" data-t="more" title="更多">${svg('more')}</button>
       <button class="btn icon-only small" data-t="close" title="关闭朗读">${svg('close')}</button>
       <div class="tts-progress"><i></i></div>`;
-    $('.ai-tabs').after(bar);
+    (s.anchor || $('.ai-tabs')).after(bar);
     bar.onclick = e => {
       const b = e.target.closest('[data-t]'); if (!b) return;
       e.stopPropagation();  // 不然这次点击传到窗口，会把刚打开的语速 / 更多菜单马上关掉（2026-10-21 用户报告点了没反应）

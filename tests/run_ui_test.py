@@ -43,6 +43,17 @@ def main():
     shutil.copy(ROOT / 'test-media' / '测试书籍.pdf', UI_AI / '《AI整理测试书》.pdf')
     for name in ('演示视频.mp4', '演示视频.mp4.猛人字幕.json', '旧格式.avi', '测试书籍.pdf'):
         shutil.copy(ROOT / 'test-media' / name, UI / name)
+    # 老师工作台用的测试老师：一个小 Obsidian 库，观点库来源表指向课程笔记，笔记属性里的视频文件是上面的演示视频
+    kb = UI / 'kb'
+    (kb / '.obsidian').mkdir(parents=True)
+    (kb / '03').mkdir()
+    (kb / '03' / '演示课.md').write_text(f'---\n视频文件: "{(UI / "演示视频.mp4").as_posix()}"\n---\n\n# 演示课\n', encoding='utf-8')
+    teacher = kb / '04、外部知识转化库' / '测试老师'
+    teacher.mkdir(parents=True)
+    (teacher / '01、观点库（逐节提取）.md').write_text(
+        '| 编号 | 课程 | 笔记 |\n| --- | --- | --- |\n| S01 | 演示课 | [[演示课]] |\n\n'
+        '| 编号 | 观点 | 条件 / 边界 | 出处 | 类型 |\n| --- | --- | --- | --- | --- |\n| S01-01 | 风险要先算好。 | — | S01 00:02 | 观点 |\n', encoding='utf-8')
+    (teacher / '03、老师画像（对话用）.md').write_text('# 测试老师画像\n', encoding='utf-8')
 
     env = dict(os.environ, APPDATA=str(TD / 'appdata'), LOCALAPPDATA=str(TD / 'local'), PYTHONIOENCODING='utf-8')
     if '--exe' in sys.argv:

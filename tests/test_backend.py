@@ -1063,6 +1063,70 @@ for node in ast.walk(ast.parse((ROOT / 'app' / 'bridge.py').read_text(encoding='
             bad.append(node.value)
 check('选择文件对话框的筛选写法都是对的', not bad, bad)
 
+# 老师工作台（core/mentor.py）：导入蒸馏好的老师文件夹，按老师画像对话，收藏到 Obsidian
+from core import jobs, llm as _llm, mentor  # noqa: E402
+KB = TMP / 'kb'
+(KB / '.obsidian').mkdir(parents=True)
+(KB / '03、收集箱').mkdir()
+(KB / '03、收集箱' / '演示课.md').write_text(f'---\n视频文件: "{(MEDIA / "演示视频.mp4").as_posix()}"\n人工校对: false\n---\n\n# 演示课\n', encoding='utf-8')
+TEACHER = KB / '04、外部知识转化库' / '测试老师'
+TEACHER.mkdir(parents=True)
+(TEACHER / '01、观点库（逐节提取）.md').write_text(
+    '# 测试老师：观点库\n\n## 来源\n\n| 编号 | 课程 | 笔记 |\n| --- | --- | --- |\n| S01 | 演示课 | [[演示课]] |\n| S02 | 不存在的课 | [[没有这篇笔记]] |\n\n'
+    '### 观点\n\n| 编号 | 观点 | 条件 / 边界 | 出处 | 类型 |\n| --- | --- | --- | --- | --- |\n'
+    '| S01-01 | 峰级的入门很重要，要先学会画峰级线。 | — | S01 00:02–00:04 | 观点 |\n'
+    '| S01-02 | 止损要设在结构外面。 | 只适用于日内 | S01 00:06 | 方法 |\n\n'
+    '### 老师自述\n\n| 编号 | 内容 | 出处 |\n| --- | --- | --- |\n| S01-A1 | 自己偏做日内。 | S01 00:00 |\n', encoding='utf-8')
+(TEACHER / '03、老师画像（对话用）.md').write_text('# 测试老师画像\n\n## 一、规则\n出处写成 ［S01 00:02］。\n', encoding='utf-8')
+mt = mentor.add(str(TEACHER))
+check('老师工作台：导入老师文件夹，按来源表找到课程笔记里的视频（找不到的标出来）', mt['name'] == '测试老师'
+      and [(s['sid'], s['found']) for s in mt['sources']] == [('S01', True), ('S02', False)], mt['sources'])
+try:
+    mentor.add(str(TEACHER))
+    check('同一位老师不能重复导入', False)
+except mentor.MentorError:
+    check('同一位老师不能重复导入', True)
+ov = mentor.overview(mt['id'])
+check('读出观点库每一条（编号、出处时间），老师自述也算', ov['atoms']['S01-01']['t'] == 2 and ov['atoms']['S01-02']['src'] == 'S01 00:06'
+      and 'S01-A1' in ov['atoms'], ov['atoms'])
+msgs, used = mentor.build_messages(mentor.get(mt['id']), [], '峰级线怎么画')
+sysmsg = msgs[0]['content']
+check('交给 AI 的资料：老师画像 + 观点库 + 相关的课程原文 + 出处规则', '# 测试老师画像' in sysmsg and '[S01-01]' in sysmsg
+      and '# 和这个问题相关的课程原文' in sysmsg and '只能引用上面给出的编号和时间' in sysmsg and msgs[-1]['content'] == '峰级线怎么画'
+      and used['atoms'] == 3, used)
+check('挑相关的：字词重合多的排前面', mentor.rank('止损设在哪', [{'t': '峰级线的画法'}, {'t': '止损要设在结构外面'}], lambda x: x['t'], 1)[0]['t'] == '止损要设在结构外面')
+check('出处那一秒前后的原话（鼠标停在出处上显示）', mentor.quote(mt['id'], 'S01', 2)['text'].startswith('[00:'))
+_old_stream, _old_check = _llm.stream, _llm.check
+_llm.stream = lambda s, n, m, cancel=None, json_mode=False: iter(['峰级线要先找高低点', '［S01 00:02］。'])
+_llm.check = lambda *a, **k: None
+c = api.call('mentor_chat', {'id': mt['id']})['chat']
+r = api.call('mentor_ask', {'id': mt['id'], 'cid': c['id'], 'question': '峰级线怎么画？'})
+for _ in range(100):
+    j = jobs.get(r['job'])
+    if j.status != 'running':
+        break
+    time.sleep(0.05)
+_llm.stream, _llm.check = _old_stream, _old_check
+c = mentor.load_chat(mt['id'], c['id'])
+check('提问：问答都存进对话记录，第一句问题当标题，记下用的模型', r['ok'] and [m['role'] for m in c['messages']] == ['user', 'assistant']
+      and c['messages'][1]['content'] == '峰级线要先找高低点［S01 00:02］。' and c['title'] == '峰级线怎么画？' and c['messages'][1].get('model'), c)
+check('搜索对话：按内容也能找到', [x['id'] for x in mentor.search(mt['id'], '高低点')] == [c['id']] and mentor.search(mt['id'], '没有这句') == [])
+sv = api.call('mentor_save', {'id': mt['id'], 'cid': c['id'], 'index': 1})
+fav = (TEACHER / '对话精选.md').read_text(encoding='utf-8')
+check('收藏：问答追加到老师文件夹的「对话精选.md」，标记已收藏', sv['ok'] and '峰级线怎么画？' in fav and '峰级线要先找高低点' in fav
+      and sv['chat']['messages'][1].get('saved'), fav[:200])
+api.call('mentor_save', {'id': mt['id'], 'cid': c['id'], 'index': 1})
+check('再收藏前先备份原来的对话精选（最多留 30 份）', len(list((config.DATA_DIR / 'backups' / '对话精选').glob('测试老师-*.md'))) == 1
+      and (TEACHER / '对话精选.md').read_text(encoding='utf-8').count('**问：**') == 2)
+check('只能收藏老师的回答', not api.call('mentor_save', {'id': mt['id'], 'cid': c['id'], 'index': 0})['ok'])
+api.call('mentor_chat_rename', {'id': mt['id'], 'cid': c['id'], 'title': '画线'})
+check('对话改名', mentor.list_chats(mt['id'])[0]['title'] == '画线')
+api.call('mentor_chat_delete', {'id': mt['id'], 'cid': c['id']})
+check('删除对话', mentor.list_chats(mt['id']) == [])
+api.call('mentor_remove', {'id': mt['id']})
+check('移除老师：软件里的记录删掉，Obsidian 里的文件不动', api.call('mentor_list', {})['mentors'] == []
+      and (TEACHER / '01、观点库（逐节提取）.md').is_file() and (TEACHER / '对话精选.md').is_file())
+
 # 朗读（core/tts.py）：中括号里的视频时间不读
 from core import tts  # noqa: E402
 check('朗读：去掉 [01:50]、[1:00:29]、[01:42]-[02:23] 这类时间，别的方括号照读',

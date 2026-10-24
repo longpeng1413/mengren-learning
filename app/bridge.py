@@ -6,7 +6,7 @@ import threading
 import time
 from pathlib import Path
 
-from core import asr, bgqueue, book, cache, codex_auth, config, doc as docs, frames, glossary, jobs, library, llm, media, tasks, tts, workflow
+from core import asr, bgqueue, book, cache, codex_auth, config, doc as docs, frames, glossary, jobs, library, llm, media, mentor, tasks, tts, workflow
 from core.log import LOG_DIR, log
 
 MEDIA_FILTER = ('音视频和文档 (*.mp4;*.m4v;*.mov;*.mkv;*.webm;*.avi;*.flv;*.ts;*.wmv;*.3gp;*.mpg;*.mpeg;'
@@ -204,6 +204,98 @@ class Api:
     def do_bg_clear(self, b):
         bgqueue.clear_finished()
         return {'items': bgqueue.items()}
+
+    # ---------------------------------------------------------- 老师工作台 ----
+    def do_mentor_list(self, b):
+        return {'mentors': mentor.list_mentors()}
+
+    def do_mentor_add(self, b):
+        """导入一个蒸馏好的老师文件夹（04、外部知识转化库/老师名）。没给路径就弹出选择文件夹的窗口。"""
+        folder = b.get('folder')
+        if not folder:
+            import webview
+            vault = (config.load().get('obsidian') or {}).get('vault') or ''
+            start = os.path.join(vault, '04、外部知识转化库') if vault and os.path.isdir(os.path.join(vault, '04、外部知识转化库')) else vault
+            r = self._window.create_file_dialog(webview.FileDialog.FOLDER, directory=start or '')
+            folder = r[0] if r else None
+            if not folder:
+                return {'mentor': None}
+        try:
+            m = mentor.add(folder)
+        except mentor.MentorError as e:
+            raise ValueError(str(e))
+        return {'mentor': m, 'mentors': mentor.list_mentors()}
+
+    def do_mentor_open(self, b):
+        try:
+            return mentor.overview(b.get('id'))
+        except mentor.MentorError as e:
+            raise ValueError(str(e))
+
+    def do_mentor_refresh(self, b):
+        """课程笔记或视频挪了位置后，重新按来源表找一遍。"""
+        mentor.refresh(b.get('id'))
+        return mentor.overview(b.get('id'))
+
+    def do_mentor_remove(self, b):
+        mentor.remove(b.get('id'))
+        return {'mentors': mentor.list_mentors()}
+
+    def do_mentor_chat(self, b):
+        """打开一个对话；没给 cid 就新建一个。"""
+        cid = b.get('cid')
+        return {'chat': mentor.load_chat(b.get('id'), cid) if cid else mentor.new_chat(b.get('id'))}
+
+    def do_mentor_chats(self, b):
+        return {'chats': mentor.search(b.get('id'), b.get('q') or '')}
+
+    def do_mentor_chat_rename(self, b):
+        return {'chat': mentor.rename_chat(b.get('id'), b.get('cid'), b.get('title'))}
+
+    def do_mentor_chat_delete(self, b):
+        if b.get('all'):
+            return {'deleted': mentor.delete_all_chats(b.get('id'))}
+        mentor.delete_chat(b.get('id'), b.get('cid'))
+        return {'deleted': 1}
+
+    def do_mentor_ask(self, b):
+        """向老师提问：按老师画像 + 观点库 + 相关原文交给「对话」用的 AI，边写边显示；问答写进对话记录（中途停止也保存已写的部分）。"""
+        mid, cid, q = b.get('id'), b.get('cid'), str(b.get('question') or '').strip()
+        if not q:
+            raise ValueError('问题是空的')
+        s = config.load()
+        name = s['chat']
+        llm.check(s, name)
+        m = mentor.get(mid)
+        chat = mentor.load_chat(mid, cid)
+        messages, used = mentor.build_messages(m, chat['messages'], q)
+        model = workflow._model_of(s, name)
+        mentor.append(mid, cid, {'role': 'user', 'content': q})
+        log.info('老师对话：%s，资料 %d 字（观点 %d/%d 条，原文 %d 段），%s', m['name'], used['chars'], used['atoms'], used['atoms_total'], used['windows'], model)
+
+        def run(job):
+            parts = []
+            try:
+                for piece in llm.stream(s, name, messages, job.cancel):
+                    parts.append(piece)
+                    job.push([piece])
+            finally:
+                text = ''.join(parts).strip()
+                if text:
+                    stopped = job.cancel.is_set()
+                    mentor.append(mid, cid, {'role': 'assistant', 'content': text + ('\n\n（已停止）' if stopped else ''), 'model': model})
+            return {'chat': mentor.load_chat(mid, cid), 'used': used}
+        return {'job': jobs.start('mentor', run).id, 'used': used}
+
+    def do_mentor_save(self, b):
+        """收藏一条回答到 Obsidian 的「对话精选.md」。"""
+        try:
+            return mentor.save_favorite(b.get('id'), b.get('cid'), b.get('index'))
+        except mentor.MentorError as e:
+            raise ValueError(str(e))
+
+    def do_mentor_quote(self, b):
+        return mentor.quote(b.get('id'), str(b.get('sid') or ''), float(b.get('t') or 0))
 
     def do_tts(self, b):
         """朗读一句话（Edge 在线 / 百度）：返回 mp3 的 base64，只在内存里，界面播完就丢。"""

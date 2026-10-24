@@ -488,6 +488,7 @@ async function pickAndOpen() {
 }
 window.openPath = async function (path) {
   if (S.job && !(S.jobInfo && S.jobInfo.id === S.job && S.jobInfo.detachable)) return toast('这个任务做完前不能切换（只要几十秒），请稍等或点上方的「取消」', { error: true });
+  if (S.view === 'mentor' && typeof switchView === 'function') switchView('course');  // 在老师工作台里打开课程（拖入文件等）：切回课程
   try {
     await flushSave();
     const d = await api('open', { path });
@@ -532,6 +533,12 @@ function setSource(src) {
   S.resumePending = S.resumeAt > 3;
   v.src = src; v.playbackRate = +$('#speed').value;
   v.addEventListener('loadedmetadata', () => {
+    const j = S.jumpTo;  // 从老师工作台的出处跳过来：直接跳到那一秒播放（mentor.js）
+    if (j && S.path && j.path === S.path.toLowerCase()) {
+      S.jumpTo = null; S.resumePending = false;
+      v.currentTime = Math.min(j.t, Math.max(0, (v.duration || j.t) - 1)); v.play().catch(() => {});
+      return;
+    }
     const t = S.resumeAt;
     if (S.resumePending && t < (v.duration || 0) - 3) {
       v.currentTime = t;

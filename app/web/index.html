@@ -65,14 +65,17 @@
   <!-- 媒体库 -->
   <aside class="library" id="library">
     <div class="lib-head">
-      <span class="lib-title">媒体库</span>
+      <div class="lib-tabs" id="libTabs"><button class="lib-tab active" data-view="course" title="媒体库：视频、音频、书籍">课程</button><button class="lib-tab" data-view="mentor" title="老师工作台：和蒸馏好的老师对话">老师</button></div>
       <span class="grow"></span>
-      <button class="btn icon-only small" id="libAddFolder" title="添加文件夹（包括子文件夹里的音视频）"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v6m-3-3h6"/></svg></button>
-      <button class="btn icon-only small" id="libAddFiles" title="添加文件"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M12 12v6m-3-3h6"/></svg></button>
-      <button class="btn icon-only small" id="libRefresh" title="刷新"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
+      <button class="btn icon-only small mentor-only" id="mentorAdd" hidden title="导入老师：选择「04、外部知识转化库」里蒸馏好的老师文件夹"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M19 8v6m-3-3h6"/></svg></button>
+      <button class="btn icon-only small course-only" id="libAddFolder" title="添加文件夹（包括子文件夹里的音视频）"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v6m-3-3h6"/></svg></button>
+      <button class="btn icon-only small course-only" id="libAddFiles" title="添加文件"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M12 12v6m-3-3h6"/></svg></button>
+      <button class="btn icon-only small course-only" id="libRefresh" title="刷新"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
     </div>
-    <div class="lib-search"><input id="libSearch" placeholder="筛选文件名"></div>
-    <div class="lib-body" id="libBody"></div>
+    <div class="lib-search course-only"><input id="libSearch" placeholder="筛选文件名"></div>
+    <div class="lib-search mentor-only" hidden><input id="mentorSearch" placeholder="搜索对话（标题和内容）"></div>
+    <div class="lib-body course-only" id="libBody"></div>
+    <div class="lib-body mentor-only mentor-list" id="mentorList" hidden></div>
   </aside>
   <div class="splitter" id="libSplit" title="拖动调整媒体库宽度"></div>
 
@@ -88,6 +91,22 @@
           <button class="btn big" id="btnHelp2">使用说明</button>
         </div>
         <div class="recent-list" id="recentList"></div>
+      </div>
+    </div>
+
+    <!-- 老师工作台：和蒸馏好的老师对话（mentor.js） -->
+    <div class="stage-mentor" id="mentorMain" hidden>
+      <div class="mentor-head">
+        <div class="mentor-title"><b id="mentorName">老师工作台</b><span class="muted" id="mentorChatTitle"></span></div>
+        <span class="grow"></span>
+        <span class="ai-model" id="mentorModel"></span>
+        <button class="btn small tts-btn" id="mentorTts" title="朗读（边听边看）：读老师的回答"><svg viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M3 14h3v6H4a1 1 0 0 1-1-1zM21 14h-3v6h2a1 1 0 0 0 1-1z"/></svg>朗读</button>
+        <button class="btn small" id="mentorNew" title="和这位老师开一个新对话">新对话</button>
+      </div>
+      <div class="mentor-msgs" id="mentorMsgs"></div>
+      <div class="mentor-input">
+        <textarea id="mentorInput" rows="3" placeholder="向老师提问…（Enter 发送，Shift+Enter 换行）"></textarea>
+        <button class="btn primary" id="mentorSend">发送</button>
       </div>
     </div>
 
@@ -356,6 +375,7 @@
       <button data-h="frames">画面（课件和板书）</button>
       <button data-h="summary">课程重点和查漏</button>
       <button data-h="chat">AI 对话</button>
+      <button data-h="mentor">老师工作台（和老师对话）</button>
       <button data-h="pipeline">一键整理</button>
       <button data-h="export">下载字幕</button>
       <button data-h="clip">剪藏到 Obsidian</button>
@@ -541,6 +561,31 @@
           <li>AI 读过这节课的全部字幕和术语表，可以问任何内容；回答里的时间点可以点击跳转。</li>
           <li>下面的快捷问题：概括要点、解释难点、出复习题、整理方法、找识别错误。</li>
           <li>对话记录跟着这节课保存。</li>
+        </ul>
+      </section>
+
+      <section data-h="mentor" hidden>
+        <h3>老师工作台（和老师对话）</h3>
+        <p>把一位老师的全部课程蒸馏好以后，AI 就能按这位老师的知识和思路和你对话，像向老师本人提问一样。</p>
+        <h4>怎么开始</h4>
+        <ul>
+          <li><b>先有蒸馏好的老师文件夹</b>：Obsidian「04、外部知识转化库」里用老师名字建的文件夹，里面要有「观点库」和「老师画像」两份文件（文件名里带这几个字）；「课程蒸馏」有更好。观点库开头的「来源」表写着 S01、S02……对应哪篇课程笔记。</li>
+          <li><b>导入</b>：左栏顶上切到「老师」，点人像加号按钮，选这个老师文件夹。软件会按来源表找到每篇课程笔记里记的视频，出处才能跳转；找不到视频的课会标出来。</li>
+          <li>Obsidian 里的观点库、老师画像以那边为准：你在 Obsidian 里改了，下一次提问就用改过的。</li>
+        </ul>
+        <h4>对话</h4>
+        <ul>
+          <li><b>提问</b>：下面输入框里打字，Enter 发送（Shift + Enter 换行），写的时候点「停止」可以停下。第一次打开有几个示例问题，点一下就问。</li>
+          <li><b>出处</b>：课程里讲过的内容带出处，例如 <code>S02 19:54</code>（第 2 节课 19 分 54 秒）或 <code>S02-21</code>（观点库第 2 节第 21 条）。<b>鼠标停在出处上能看到那一秒前后的原话；点一下切到「课程」，打开那节课从那一秒开始播放。</b>看完点左上角「老师」回到对话。观点库和课程里都找不到的出处会标成红色，那多半是 AI 编的，要小心。</li>
+          <li><b>蓝色框「AI 推测」</b>：课程里没讲的问题，AI 按老师讲过的原则推测他可能怎么看，不是课程内容。<b>紫色框「AI 自己的看法」</b>：只在你要求时才有，不代表老师。</li>
+          <li><b>收藏到 Obsidian</b>：觉得好的回答点它，连同你的问题追加到老师文件夹里的「对话精选.md」（写之前会备份）。</li>
+          <li><b>朗读</b>：对话区右上角的「朗读」读老师的回答，用法和课程重点的朗读一样。</li>
+        </ul>
+        <h4>对话记录</h4>
+        <ul>
+          <li>每位老师可以有多个对话，都保存在软件里，左栏按时间列出；上面的搜索框能按标题和内容找。「新对话」开一个新的。</li>
+          <li>右键对话：改名、删除。右键老师：重新查找课程（笔记或视频挪了位置后）、在资源管理器中打开老师文件夹、清空全部对话、移除这位老师（只删软件里的记录，Obsidian 里的文件不动）。</li>
+          <li>每次提问，软件会把老师画像、课程蒸馏、观点库和最相关的十几段课程原文一起交给「设置 → 任务用哪个 AI」里「对话」用的 AI（一次大约三万多字），用的是那个 AI 的额度。</li>
         </ul>
       </section>
 
@@ -920,5 +965,6 @@
 <div class="toasts" id="toasts"></div>
 <script src="app.js"></script>
 <script src="tts.js"></script>
+<script src="mentor.js"></script>
 </body>
 </html>
