@@ -319,15 +319,20 @@ def running(mid):
 
 
 # --------------------------------------------------------------- 调 AI ----
-def _ask(job, settings, name, messages, label, json_mode=False):
-    """调一次 AI（边收边显示写了多少字）；临时出错按 workflow 的规则重试。"""
+def _ask(job, settings, name, messages, label, json_mode=False, on_piece=None):
+    """调一次 AI（边收边显示写了多少字）；临时出错按 workflow 的规则重试。
+    on_piece：边写边把文字交出去（圆桌讨论用）；重试前先交一个 None，表示前面交出去的作废。"""
     tries = 0
     while True:
         try:
             parts, n = [], 0
+            if on_piece and tries:
+                on_piece(None)
             for piece in llm.stream(settings, name, messages, job.cancel, json_mode=json_mode):
                 parts.append(piece)
                 n += len(piece)
+                if on_piece:
+                    on_piece(piece)
                 if len(parts) % 30 == 0:
                     job.report(job.progress, f'{label}：AI 已写 {n} 字…')
             if job.cancel.is_set():

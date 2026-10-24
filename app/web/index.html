@@ -101,9 +101,19 @@
         <span class="grow"></span>
         <span class="ai-model" id="mentorModel"></span>
         <button class="btn small tts-btn" id="mentorTts" title="朗读（边听边看）：读老师的回答"><svg viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M3 14h3v6H4a1 1 0 0 1-1-1zM21 14h-3v6h2a1 1 0 0 0 1-1z"/></svg>朗读</button>
-        <button class="btn small" id="mentorSaveAll" title="把这个对话里还没收藏的回答，一次都收藏到 Obsidian 的「对话精选」（已经收藏的不重复）">★ 收藏整个对话</button>
-        <button class="btn small" id="mentorFav" title="在 Obsidian 里打开这位老师的「对话精选」">对话精选</button>
-        <button class="btn small" id="mentorNew" title="和这位老师开一个新对话">新对话</button>
+        <button class="btn small teacher-tools" id="mentorSaveAll" title="把这个对话里还没收藏的回答，一次都收藏到 Obsidian 的「对话精选」（已经收藏的不重复）">★ 收藏整个对话</button>
+        <button class="btn small teacher-tools" id="mentorFav" title="在 Obsidian 里打开这位老师的「对话精选」">对话精选</button>
+        <button class="btn small teacher-tools" id="mentorNew" title="和这位老师开一个新对话">新对话</button>
+        <span class="round-tools" id="roundTools" hidden>
+          <button class="btn small" id="rtReply" title="每位老师看了别人的回答后再回应一轮（只用他自己课程里的内容），然后重新总结">让老师们互相回应</button>
+          <button class="btn small" id="rtSummary" title="按现在每位老师的回答，重新写一次总结">重新总结</button>
+          <button class="btn small" id="rtSave" title="把整场讨论存进 Obsidian「04、外部知识转化库/02、主题蒸馏资料」的一个主题文件夹（再收藏就更新同一个文件）">★ 收藏到 Obsidian</button>
+        </span>
+        <span class="round-tools" id="topicTools" hidden>
+          <button class="btn small" id="tpOpen" title="在 Obsidian 里打开这份主题蒸馏">在 Obsidian 里打开</button>
+          <button class="btn small" id="tpRedo" title="用现在各位老师的资料重新蒸馏（覆盖前备份）">重新蒸馏</button>
+        </span>
+        <button class="btn small" id="mentorPrompts" title="查看软件蒸馏和对话时交给 AI 的提示词（知识库里也存了一份：02、规则体系/01、通用规则/08、AI蒸馏提示词）">提示词</button>
       </div>
       <div class="mentor-distill" id="mentorDistill" hidden>
         <span class="md-msg" id="mdMsg"></span>
@@ -355,6 +365,35 @@
       <span class="grow"></span>
       <button value="ok" class="btn primary" id="dsOk">开始蒸馏</button>
     </div>
+  </form>
+</dialog>
+
+<!-- 圆桌讨论 / 主题蒸馏：选几位老师（round.js 的 openMulti） -->
+<dialog id="dlgMulti" class="dialog distill-dlg">
+  <form method="dialog">
+    <h2 id="mlTitle">新建圆桌讨论</h2>
+    <p class="muted" id="mlInfo"></p>
+    <label class="ds-row topic-only">主题 <input id="mlTopic" placeholder="例如：止损、仓位管理、交易系统怎么建"></label>
+    <label class="ds-row topic-only">想重点看什么（可以不填） <input id="mlNote" placeholder="例如：止损放在哪、亏了要不要加仓"></label>
+    <label class="ds-row topic-only">结果放在哪个主题文件夹 <select id="mlFolder"></select></label>
+    <div class="ds-tools"><span>选老师（至少两位）</span><span class="muted" id="mlCount"></span></div>
+    <div class="ds-list" id="mlList"></div>
+    <p class="muted ds-note" id="mlCost"></p>
+    <div class="dialog-btns">
+      <button value="cancel" class="btn">取消</button>
+      <span class="grow"></span>
+      <button value="ok" class="btn primary" id="mlOk">开始</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 查看提示词（round.js 的 showPrompts） -->
+<dialog id="dlgPrompts" class="dialog settings prompts-dlg">
+  <form method="dialog">
+    <h2>蒸馏和对话用的提示词</h2>
+    <p class="muted">这是软件实际交给 AI 的原文。知识库里也存了一份一样的：<code>02、规则体系/01、通用规则/08、AI蒸馏提示词</code>。想改提示词请告诉 AI 改软件（软件不读那份文件）。</p>
+    <div id="prList" class="prompts-list"></div>
+    <div class="dialog-btns"><span class="grow"></span><button value="close" class="btn primary">关闭</button></div>
   </form>
 </dialog>
 
@@ -614,6 +653,24 @@
           <li><b>蓝色框「AI 推测」</b>：课程里没讲的问题，AI 按老师讲过的原则推测他可能怎么看，不是课程内容。<b>紫色框「AI 自己的看法」</b>：只在你要求时才有，不代表老师。</li>
           <li><b>☆ 收藏</b>：觉得好的回答点它下面的「☆ 收藏」，连同你的问题追加到老师文件夹里的「对话精选.md」（写之前会备份），按钮变成「★ 已收藏」。<b>★ 收藏整个对话</b>（对话区右上角）：这个对话里还没收藏的回答一次都收藏，已经收藏的不重复。<b>对话精选</b>：在 Obsidian 里打开收藏的内容。</li>
           <li><b>朗读</b>：对话区右上角的「朗读」读老师的回答，用法和课程重点的朗读一样。</li>
+        </ul>
+        <h4>圆桌讨论（几位老师一起讨论一个问题）</h4>
+        <ul>
+          <li><b>新建</b>：左栏老师下面的「圆桌讨论 ＋ 新建」（或人像加号按钮里的「新建圆桌讨论」），勾选两位以上蒸馏好的老师。</li>
+          <li><b>提问</b>：每位老师<b>只用自己的老师画像和课程资料</b>各自回答，一位一位写出来；出处按是哪位老师说的来认，点了跳到他那节课那一秒。几位老师都答完，AI 自动写总结：共识、分歧和原因、各自的适用条件、还待验证的问题（总结是 AI 归纳的，不是任何一位老师的原话）。</li>
+          <li><b>让老师们互相回应</b>：每位老师看了别人的回答再回应一轮，仍然只能用自己课程里的内容，超出的标「AI 推测」，然后重新总结。「重新总结」只重写总结。</li>
+          <li><b>★ 收藏到 Obsidian</b>：选一个主题文件夹，整场讨论存进「04、外部知识转化库/02、主题蒸馏资料/那个主题/日期、问题、多位老师讨论.md」；以后再点就更新同一个文件（覆盖前备份）。</li>
+          <li>每提一个问题调用 AI「老师人数 + 1」次。讨论记录保存在软件里；右键可以改名、删除。</li>
+        </ul>
+        <h4>主题蒸馏（写书时参考）</h4>
+        <ul>
+          <li><b>新建</b>：左栏「主题蒸馏 ＋ 新建」，填主题（例如「止损」），可以写想重点看什么，选结果放在哪个主题文件夹（交易认知、交易系统、分析技术、操作技术、执行力管理、跨主题综合），勾选两位以上老师。</li>
+          <li><b>在后台做</b>：先从每位老师的观点库里挑出和主题相关的条目和课程原文，AI 整理出「他关于这个主题讲了什么」；再合并成一份比较文档：一句话、每位老师怎么说、共识、分歧和原因、适用条件和边界、来源质量、还待验证的问题。写进「04、外部知识转化库/02、主题蒸馏资料/那个主题/日期、主题、跨来源蒸馏.md」。</li>
+          <li>做好后在软件里也能看，出处写成 <code>人间落叶 S02-21</code> 这样，点了跳到那位老师那节课；对不上的出处标红，文末也列出来。右键可以重新蒸馏（覆盖前备份）、删除记录（Obsidian 里的文件不动）。</li>
+        </ul>
+        <h4>提示词</h4>
+        <ul>
+          <li>对话区右上角的「提示词」：显示软件蒸馏和对话时交给 AI 的提示词原文（逐节提取、合并、写画像、对话、圆桌讨论、主题蒸馏）。知识库「02、规则体系/01、通用规则/08、AI蒸馏提示词」里也存了一份一样的。</li>
         </ul>
         <h4>对话记录</h4>
         <ul>
@@ -1000,5 +1057,6 @@
 <script src="app.js"></script>
 <script src="tts.js"></script>
 <script src="mentor.js"></script>
+<script src="round.js"></script>
 </body>
 </html>

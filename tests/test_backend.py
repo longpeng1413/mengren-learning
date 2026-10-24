@@ -1225,6 +1225,76 @@ check('老师文件夹挪进「01、老师分身蒸馏资料」后，软件自�
       and mentor.overview(mv['id'])['files']['atoms'].endswith('01、观点库（逐节提取）.md'), mentor.get(mv['id'])['folder'])
 mentor.remove(mv['id'])
 
+# 圆桌讨论和主题蒸馏（core/roundtable.py，假 AI）
+from core import roundtable  # noqa: E402
+MS = KB / '04、外部知识转化库' / '01、老师分身蒸馏资料'
+pair = []
+for n in ('甲老师', '乙老师'):
+    shutil.copytree(TEACHER, MS / n)
+    (MS / n / '03、老师画像（对话用）.md').write_text(f'# {n}画像\n', encoding='utf-8')
+    pair.append(mentor.add(str(MS / n))['id'])
+
+
+def _wait(job_id):
+    for _ in range(400):
+        if jobs.get(job_id).status != 'running':
+            return jobs.get(job_id)
+        time.sleep(0.05)
+    return jobs.get(job_id)
+
+
+try:
+    roundtable.new_round(pair[:1])
+    e_ = ''
+except roundtable.RoundError as e:
+    e_ = str(e)
+check('圆桌：至少两位老师', '至少选两位' in e_, e_)
+calls, asks = [], []
+_llm.stream, _llm.check = (lambda s, n, m, cancel=None, json_mode=False: (calls.append(m[0]['content']), asks.append(m[-1]['content']), fake_ai.stream(s, n, m, cancel, json_mode))[2]), (lambda *a, **k: None)
+rc = api.call('round_new', {'mentors': pair})['chat']
+r_ = api.call('round_ask', {'cid': rc['id'], 'question': '风险怎么定？'})
+j_ = _wait(r_['job'])
+rc = roundtable.load_round(rc['id'])
+check('圆桌：每位老师各自回答（只带他自己的画像），最后 AI 总结', j_.status == 'done'
+      and [(x['role'], x.get('name')) for x in rc['messages']] == [('user', None), ('teacher', '甲老师'), ('teacher', '乙老师'), ('summary', 'AI 总结')]
+      and '# 甲老师画像' in calls[0] and '乙老师画像' not in calls[0] and '你只代表「甲老师」' in calls[0]
+      and '# 乙老师画像' in calls[1] and calls[2] == roundtable.ROUND_SUMMARY_SYSTEM and rc['title'] == '风险怎么定？', [x['role'] for x in rc['messages']])
+check('圆桌：边写边推给界面（谁在说、写了什么）', any(isinstance(x, dict) and x.get('kind') == 'start' and x.get('who') == pair[1] for x in j_.items)
+      and any(isinstance(x, dict) and x.get('kind') == 'text' and x.get('who') == 'summary' for x in j_.items))
+calls.clear()
+j_ = _wait(api.call('round_reply', {'cid': rc['id']})['job'])
+rc = roundtable.load_round(rc['id'])
+check('圆桌：互相回应一轮（看到别的老师的回答），再重新总结', j_.status == 'done'
+      and [x.get('round') for x in rc['messages'] if x['role'] == 'teacher'] == [1, 1, 2, 2] and rc['messages'][-1]['role'] == 'summary'
+      and '## 乙老师的回答' in asks[-3] and '## 甲老师的回答' in asks[-2] and '风险怎么定？' in asks[-3] and len(calls) == 3, asks[-3:])
+sv = api.call('round_save', {'cid': rc['id'], 'folder': roundtable.TOPIC_FOLDERS[3]})
+RF = Path(sv['file'])
+check('圆桌：收藏到「02、主题蒸馏资料/04、操作技术相关资料/日期、问题、多位老师讨论.md」', sv['ok'] and RF.parent.name == '04、操作技术相关资料'
+      and RF.parent.parent.name == '02、主题蒸馏资料' and RF.name.endswith('、风险怎么定、多位老师讨论.md')
+      and '### 乙老师（回应其他老师）' in RF.read_text(encoding='utf-8') and '### AI 总结' in RF.read_text(encoding='utf-8'), sv)
+api.call('round_save', {'cid': rc['id'], 'folder': roundtable.TOPIC_FOLDERS[3]})
+check('圆桌：再收藏更新同一个文件，覆盖前备份', len(list(RF.parent.glob('*.md'))) == 1
+      and len(list((config.DATA_DIR / 'backups' / '圆桌讨论').glob('*.md'))) == 1)
+calls.clear()
+tp = api.call('topic_start', {'topic': '止损', 'mentors': pair, 'folder': roundtable.TOPIC_FOLDERS[0]})
+j_ = _wait(tp['job'])
+tg = api.call('topic_get', {'id': tp['topic']['id']})
+check('主题蒸馏：每位老师先整理一次，再合并；写进「02、主题蒸馏资料/对应主题/日期、主题、跨来源蒸馏.md」', j_.status == 'done'
+      and calls == [roundtable.TOPIC_TEACHER_SYSTEM, roundtable.TOPIC_TEACHER_SYSTEM, roundtable.TOPIC_MERGE_SYSTEM]
+      and tg['text'].replace('\r\n', '\n').startswith('---\n类型: 主题蒸馏\n主题: 止损') and '## 一、一句话' in tg['text'] and tg['topic']['file'].endswith('、止损、跨来源蒸馏.md')
+      and tg['names'] == {'甲老师': pair[0], '乙老师': pair[1]}, (j_.status, j_.error, {k: v for k, v in tg.items() if k != 'text'}, tg.get('text', '')[:300]))
+_llm.stream, _llm.check = _old_stream, _old_check
+check('主题蒸馏：查出出处里老师不对、编号不存在的', roundtable.bad_refs('［甲老师 S01-01］［甲老师 S09-01］［丙 S01-01］［乙老师 S01 00:02］',
+      {'甲老师': mentor.get(pair[0]), '乙老师': mentor.get(pair[1])}) == ['丙 S01-01', '甲老师 S09-01'])
+pm = roundtable.prompts_markdown()
+check('提示词：软件用的每一种都能显示、能生成知识库文件，和代码里的一字不差', len(roundtable.prompt_list()) == 11
+      and distill.EXTRACT_SYSTEM.strip() in pm and roundtable.TOPIC_MERGE_SYSTEM.strip() in pm and mentor.CHAT_RULES in pm)
+api.call('round_delete', {'cid': rc['id']})
+api.call('topic_delete', {'id': tp['topic']['id']})
+check('删除圆桌讨论、主题蒸馏记录（Obsidian 里写好的文件不动）', roundtable.list_rounds() == [] and roundtable.list_topics() == [] and RF.is_file())
+for mid in pair:
+    mentor.remove(mid)
+
 # 朗读（core/tts.py）：中括号里的视频时间不读
 from core import tts  # noqa: E402
 check('朗读：去掉 [01:50]、[1:00:29]、[01:42]-[02:23] 这类时间，别的方括号照读',

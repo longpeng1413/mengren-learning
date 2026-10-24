@@ -6,7 +6,9 @@
    - 「☆ 收藏」把这条问答追加到老师文件夹里的「对话精选.md」；「★ 收藏整个对话」一次收藏还没收藏的。
    - 蒸馏（后台在 app/core/distill.py）：从媒体库选课 → 后台逐节提取、合并、写画像 → 写进 Obsidian；进度在对话区上方和左栏。 */
 const M = { list: [], cur: null, chat: null, job: null, searchHits: null, quotes: {}, seq: 0,  // seq：每次打开老师 / 对话编号，晚到的旧结果作废
-  distill: {}, polling: false };  // distill：正在蒸馏的老师 {老师id: {job, progress, message}}
+  distill: {}, polling: false,  // distill：正在蒸馏的老师 {老师id: {job, progress, message}}
+  ov: {} };  // ov：打开过的老师的资料（来源、观点编号），圆桌讨论、主题蒸馏里认出处用 {老师id: overview}
+const roundOn = () => typeof R !== 'undefined' && !!R.mode;  // 正在看圆桌讨论或主题蒸馏（round.js）
 S.view = 'course';
 
 /* ---------- 课程 / 老师 切换 ---------- */
@@ -42,25 +44,28 @@ async function loadMentors() {
     }
   }
   if (Object.keys(M.distill).length) pollDistill();
+  if (typeof loadRounds === 'function') await loadRounds();
   renderMentorList();
-  if (!M.cur && M.list.length) await openMentor(M.list[0].id, (M.list[0].chats[0] || {}).id);
+  if (roundOn()) renderMentorHead(), renderMentorMsgs();
+  else if (!M.cur && M.list.length) await openMentor(M.list[0].id, (M.list[0].chats[0] || {}).id);
   else renderMentorHead(), renderMentorMsgs();
 }
 function renderMentorList() {
   const box = $('#mentorList'), q = $('#mentorSearch').value.trim();
+  const extra = typeof roundListHTML === 'function' ? roundListHTML(q) : '';
   if (!M.list.length) {
-    box.innerHTML = '<div class="mt-empty">还没有老师。<br>点上方的人像加号按钮：从媒体库的课蒸馏一位新老师，或导入 Obsidian「04、外部知识转化库/01、老师分身蒸馏资料」里已经蒸馏好的老师文件夹。</div>';
+    box.innerHTML = '<div class="mt-empty">还没有老师。<br>点上方的人像加号按钮：从媒体库的课蒸馏一位新老师，或导入 Obsidian「04、外部知识转化库/01、老师分身蒸馏资料」里已经蒸馏好的老师文件夹。</div>' + extra;
     return;
   }
-  box.innerHTML = M.list.map(m => {
+  box.innerHTML = '<div class="mt-section-label">老师</div>' + M.list.map(m => {
     const chats = (M.searchHits && M.searchHits[m.id]) || m.chats || [];
     const miss = (m.sources || []).filter(s => !s.found).length;
     return `<div class="mt-teacher" data-mid="${m.id}" title="点一下开一个新对话；右键：${m.distilled ? '更新蒸馏、' : ''}重新查找课程、清空对话、移除"><span>${esc(m.name)}</span><span class="grow"></span>`
       + `<span class="mt-tag">${distillTag(m)}</span>`
       + `<span class="muted">${(m.sources || []).length ? `${m.sources.length} 节课` : ''}${miss ? `，${miss} 节找不到视频` : ''}</span></div>`
-      + chats.map(c => `<div class="mt-chat ${M.chat && M.chat.id === c.id ? 'active' : ''}" data-mid="${m.id}" data-cid="${c.id}" title="${esc(c.title)}（${esc(c.updated)}，${c.count} 条）。右键：改名、删除">${esc(c.title)}<small>${esc((c.updated || '').slice(5, 10))}</small></div>`).join('')
+      + chats.map(c => `<div class="mt-chat ${!roundOn() && M.chat && M.chat.id === c.id ? 'active' : ''}" data-mid="${m.id}" data-cid="${c.id}" title="${esc(c.title)}（${esc(c.updated)}，${c.count} 条）。右键：改名、删除">${esc(c.title)}<small>${esc((c.updated || '').slice(5, 10))}</small></div>`).join('')
       + (q && !chats.length ? '<div class="mt-empty">没有找到</div>' : '');
-  }).join('');
+  }).join('') + extra;
 }
 async function openMentor(mid, cid) {
   const my = ++M.seq;
@@ -70,12 +75,18 @@ async function openMentor(mid, cid) {
     const chat = cid ? (await api('mentor_chat', { id: mid, cid })).chat : null;  // 新对话：发第一句时才建
     if (my !== M.seq) return;  // 这期间又打开了别的老师 / 对话，或者已经开始提问：这次的结果不要了
     if (cur !== M.cur) { M.cur = cur; M.quotes = {}; }
+    M.ov[mid] = cur;
     M.chat = chat;
+    if (typeof R !== 'undefined') R.mode = null;  // 从圆桌讨论 / 主题蒸馏回到和一位老师对话
   } catch (e) { if (my === M.seq) fail(e); }
   if (my !== M.seq) return;
   renderMentorHead(); renderMentorMsgs(); renderMentorList();
 }
 function renderMentorHead() {
+  $$('.teacher-tools').forEach(el => { el.hidden = roundOn(); });
+  $('#mentorSend').textContent = (roundOn() ? R.job : M.job) ? '停止' : '发送';
+  if (roundOn()) return renderRoundHead();
+  $('#roundTools').hidden = true; $('#topicTools').hidden = true;
   const name = M.cur ? M.cur.mentor.name : '老师工作台';
   $('#mentorName').textContent = name;
   $('#mentorChatTitle').textContent = M.cur ? (M.chat ? M.chat.title : '新对话') : '';
@@ -95,23 +106,29 @@ async function refreshMentorList() {
 }
 
 /* ---------- 回答的显示：出处变成可点的小标签，AI 推测换颜色 ---------- */
-function citeHTML(inner) {
+/* ctx：{mid: 这段话是哪位老师说的, names: {老师名: 老师id}}。出处可以带老师名（［人间落叶 S02-21］，圆桌总结和主题蒸馏里这样写）。 */
+function citeHTML(inner, ctx = {}) {
+  let mid = ctx.mid || (M.cur && M.cur.mentor.id);
   return inner.split(/[、,，;；]\s*/).map(part => {
-    const p = part.trim();
-    let m, sid, t = null, ok = false, label = p, aid = '';
+    let p = part.trim(), who = '';
+    const nm = p.match(/^([^\sS][^\s]{0,19})\s+(S\d{2,3}.*)$/);
+    if (nm && ctx.names) { who = nm[1]; p = nm[2]; mid = ctx.names[who] || ''; }
+    const ov = M.ov[mid];
+    let m, sid, t = null, ok = false, aid = '';
     if ((m = p.match(/^(S\d{2,3})\s+(\d{1,2}:\d{2}(?::\d{2})?)/))) {
-      sid = m[1]; t = parseTs(m[2]); ok = !!M.cur && M.cur.mentor.sources.some(s => s.sid === sid);
+      sid = m[1]; t = parseTs(m[2]); ok = !!ov && ov.mentor.sources.some(s => s.sid === sid);
     } else if ((m = p.match(/^(S\d{2,3}-[A-Za-z0-9]+)/))) {
       aid = m[1]; sid = aid.split('-')[0];
-      const a = M.cur && M.cur.atoms[aid];
+      const a = ov && ov.atoms[aid];
       ok = !!a; t = a ? a.t : null;
-    } else return esc(p);
-    return `<a class="cite${ok ? '' : ' bad'}" data-sid="${sid}" data-t="${t == null ? '' : t}" data-aid="${aid}"${ok ? '' : ' title="观点库和课程里找不到这个出处，可能是 AI 编的"'}>${esc(label)}</a>`;
+    } else return esc((who ? who + ' ' : '') + p);
+    const label = (who ? who + ' ' : '') + p;
+    return `<a class="cite${ok ? '' : ' bad'}" data-mid="${esc(mid || '')}" data-sid="${sid}" data-t="${t == null ? '' : t}" data-aid="${aid}"${ok ? '' : ' title="观点库和课程里找不到这个出处，可能是 AI 编的"'}>${esc(label)}</a>`;
   }).join(' ');
 }
-function answerHTML(text) {
+function answerHTML(text, ctx = {}) {
   const marks = [];
-  const pre = String(text || '').replace(/[［\[]\s*(S\d{2,3}[^］\]\n]{0,80})\s*[］\]]/g, (all, inner) => `\u0001${marks.push(citeHTML(inner)) - 1}\u0002`);
+  const pre = String(text || '').replace(/[［\[]\s*((?:[^\s［\]］\[]{1,20}\s+)?S\d{2,3}[^］\]\n]{0,80})\s*[］\]]/g, (all, inner) => `\u0001${marks.push(citeHTML(inner, ctx)) - 1}\u0002`);
   return md(pre).replace(/\u0001(\d+)\u0002/g, (_, k) => marks[+k]);
 }
 function markLabels(root) {
@@ -123,6 +140,7 @@ function markLabels(root) {
 }
 function renderMentorMsgs() {
   const box = $('#mentorMsgs');
+  if (roundOn()) return renderRoundMsgs();
   if (!M.cur) {
     box.innerHTML = '<div class="mentor-intro"><h3>老师工作台</h3><p>先点左上方的人像加号按钮：从媒体库的课蒸馏一位新老师（AI 逐节提取观点库、合并成课程蒸馏、写老师画像），或导入 Obsidian「04、外部知识转化库/01、老师分身蒸馏资料」里已经蒸馏好的老师文件夹。之后就能按老师画像和他对话：课程里讲过的都带出处，点出处跳到那节课那一秒；超出课程的会标「AI 推测」。</p></div>';
     return;
@@ -159,6 +177,7 @@ function renderMentorMsgs() {
 
 /* ---------- 提问 ---------- */
 async function mentorAsk(q) {
+  if (roundOn()) return roundAsk(q);
   if (M.job) { api('cancel', { id: M.job }).catch(() => {}); return; }  // 「停止」
   q = String(q == null ? $('#mentorInput').value : q).trim();
   if (!q || !M.cur) return;
@@ -205,18 +224,20 @@ $('#mentorNew').onclick = () => { if (M.cur) { M.chat = null; renderMentorHead()
 $('#mentorTts').onclick = () => $('#btnTts').click();  // 朗读按当前所在的区域读（tts.js 的 source）
 
 /* ---------- 出处：点了跳视频，停在上面看原话 ---------- */
-async function mentorJump(sid, t) {
-  const s = M.cur && M.cur.mentor.sources.find(x => x.sid === sid);
+async function mentorJump(mid, sid, t) {
+  const ov = M.ov[mid] || (M.cur && M.cur.mentor.id === mid ? M.cur : null);
+  const s = ov && ov.mentor.sources.find(x => x.sid === sid);
   if (!s || !s.found) return toast(`找不到 ${sid} 的视频。可以右键老师「重新查找课程」`, { error: true });
   t = +t || 0;
   switchView('course');
   if (S.path && S.path.toLowerCase() === s.path.toLowerCase() && S.mode !== 'book') seek(t, true);
   else { S.jumpTo = { path: s.path.toLowerCase(), t }; await window.openPath(s.path); }
-  toast(`${sid}《${s.title}》${fmt(t)}。点左上角「老师」回到对话`, { ms: 7000 });
+  toast(`${ov.mentor.name} ${sid}《${s.title}》${fmt(t)}。点左上角「老师」回到${roundOn() ? '刚才的页面' : '对话'}`, { ms: 7000 });
 }
 $('#mentorMsgs').addEventListener('click', async e => {
   const c = e.target.closest('a.cite');
-  if (c) { if (!c.classList.contains('bad') && c.dataset.sid) mentorJump(c.dataset.sid, c.dataset.t); return; }
+  if (c) { if (!c.classList.contains('bad') && c.dataset.sid) mentorJump(c.dataset.mid || (M.cur && M.cur.mentor.id), c.dataset.sid, c.dataset.t); return; }
+  if (roundOn()) return;  // 圆桌讨论、主题蒸馏里的按钮在 round.js 里处理
   const eg = e.target.closest('[data-eg]');
   if (eg) return mentorAsk(eg.dataset.eg);
   const sv = e.target.closest('[data-save]');
@@ -241,12 +262,14 @@ $('#mentorMsgs').addEventListener('click', async e => {
 });
 $('#mentorMsgs').addEventListener('mouseover', async e => {
   const c = e.target.closest('a.cite');
-  if (!c || c.title || c.classList.contains('bad') || !M.cur || !c.dataset.sid) return;
-  const a = c.dataset.aid && M.cur.atoms[c.dataset.aid];
-  if (a) { c.title = `${c.dataset.aid}（${a.src}）\n${a.text}\n\n点一下跳到视频`; return; }
-  const key = c.dataset.sid + '@' + c.dataset.t;
+  if (!c || c.title || c.classList.contains('bad') || !c.dataset.sid) return;
+  const mid = c.dataset.mid || (M.cur && M.cur.mentor.id), ov = M.ov[mid];
+  if (!ov) return;
+  const a = c.dataset.aid && ov.atoms[c.dataset.aid];
+  if (a) { c.title = `${ov.mentor.name} ${c.dataset.aid}（${a.src}）\n${a.text}\n\n点一下跳到视频`; return; }
+  const key = mid + '@' + c.dataset.sid + '@' + c.dataset.t;
   if (!M.quotes[key]) {
-    try { M.quotes[key] = await api('mentor_quote', { id: M.cur.mentor.id, sid: c.dataset.sid, t: +c.dataset.t || 0 }); } catch (_) { return; }
+    try { M.quotes[key] = await api('mentor_quote', { id: mid, sid: c.dataset.sid, t: +c.dataset.t || 0 }); } catch (_) { return; }
   }
   const q = M.quotes[key];
   c.title = `《${q.title}》\n${q.text || '（这一处没有字幕）'}\n\n点一下跳到视频`;
@@ -257,9 +280,14 @@ $('#mentorAdd').onclick = e => {
   e.stopPropagation();  // 不然窗口的 click 会马上关掉刚打开的菜单
   const r = e.currentTarget.getBoundingClientRect();
   showCtx(r.left, r.bottom + 4, `<button class="menu-item" data-a="distill" title="AI 逐节提取观点库，再合并成课程蒸馏、写老师画像，写进 Obsidian">从媒体库的课蒸馏一位新老师…</button>
-    <button class="menu-item" data-a="import" title="Obsidian「04、外部知识转化库/01、老师分身蒸馏资料」里已经有观点库和老师画像的老师文件夹">导入已经蒸馏好的老师文件夹…</button>`, m => {
+    <button class="menu-item" data-a="import" title="Obsidian「04、外部知识转化库/01、老师分身蒸馏资料」里已经有观点库和老师画像的老师文件夹">导入已经蒸馏好的老师文件夹…</button>
+    <div class="menu-sep"></div>
+    <button class="menu-item" data-a="round" title="就一个问题请几位老师一起讨论：各自回答、可以互相回应，AI 总结共识和分歧">新建圆桌讨论（几位老师一起讨论）…</button>
+    <button class="menu-item" data-a="topic" title="选一个主题和几位老师，AI 比较他们分别怎么说，写进 Obsidian 的「02、主题蒸馏资料」">新建主题蒸馏（比较几位老师）…</button>`, m => {
     $('[data-a=distill]', m).onclick = () => { m.hidden = true; openDistill({}); };
     $('[data-a=import]', m).onclick = () => { m.hidden = true; importMentor(); };
+    $('[data-a=round]', m).onclick = () => { m.hidden = true; openMulti('round'); };
+    $('[data-a=topic]', m).onclick = () => { m.hidden = true; openMulti('topic'); };
   });
 };
 async function importMentor() {
@@ -446,13 +474,13 @@ async function pollDistill() {
   } finally { M.polling = false; renderDistillBar(); }
 }
 $('#mentorList').addEventListener('click', e => {
-  const c = e.target.closest('.mt-chat');
+  const c = e.target.closest('.mt-chat[data-cid]');  // 圆桌讨论、主题蒸馏的条目在 round.js 里处理
   if (c) return openMentor(c.dataset.mid, c.dataset.cid);
   const t = e.target.closest('.mt-teacher');
   if (t) openMentor(t.dataset.mid);
 });
 $('#mentorList').addEventListener('contextmenu', e => {
-  const c = e.target.closest('.mt-chat'), t = e.target.closest('.mt-teacher');
+  const c = e.target.closest('.mt-chat[data-cid]'), t = e.target.closest('.mt-teacher');
   if (!c && !t) return;
   e.preventDefault();
   if (c) {

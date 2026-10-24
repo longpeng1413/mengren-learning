@@ -523,3 +523,22 @@ a.cite.bad { background: color-mix(in srgb, var(--danger) 14%, transparent); bor
 .ds-status li { display: flex; align-items: center; gap: 10px; padding: 3px 0; border-bottom: 1px dashed var(--line); }
 .ds-status li > span:first-child { flex: 1; }
 .fav-btn.saved { color: var(--accent); opacity: .85; }
+
+/* 圆桌讨论、主题蒸馏、提示词（round.js） */
+.mt-section-label { font-size: 12px; color: var(--muted); padding: 8px 8px 0; }
+.mt-sep { height: 1px; background: var(--line); margin: 12px 4px 4px; }
+.mt-section { display: flex; align-items: center; gap: 6px; padding: 8px 8px 6px; margin-top: 4px; border-radius: 7px; cursor: pointer; font-weight: 700; color: var(--accent); }
+.mt-section:hover { background: var(--hover); }
+.mt-section .grow { flex: 1; }
+.mt-section .muted { font-weight: 400; font-size: 12px; }
+.rt-who { font-weight: 700; color: var(--accent); margin: 2px 0 4px; }
+.rt-who small { font-weight: 400; color: var(--muted); margin-left: 8px; }
+.mentor-msgs .msg.rt-teacher .bubble { border-left: 3px solid var(--accent); }
+.mentor-msgs .msg.rt-summary .bubble { border-left: 3px solid var(--muted); background: var(--panel2); }
+.mentor-doc { max-width: 900px; }
+.menu-sep { height: 1px; background: var(--line); margin: 4px 6px; }
+.prompts-dlg { width: 860px; }
+.prompts-list { max-height: 62vh; overflow: auto; }
+.prompts-list details { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; margin: 6px 0; }
+.prompts-list summary { cursor: pointer; font-weight: 700; }
+.prompts-list pre { white-space: pre-wrap; font-size: 12.5px; line-height: 1.6; background: var(--panel2); padding: 8px 10px; border-radius: 6px; }

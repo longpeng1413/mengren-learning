@@ -437,6 +437,49 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       toasts().slice(-2));
     const dFav = await api('mentor_favorites', { id: dm.id });
     ok('对话精选：有了，能在 Obsidian 里打开', dFav.exists && dFav.uri.startsWith('obsidian://open?') && !document.querySelector('#mentorFav').disabled, dFav);
+    // 圆桌讨论、主题蒸馏、提示词（round.js，假 AI）。软件的 R 被这个脚本里的 R（结果列表）挡住了，用间接 eval 取全局的
+    const RT = (0, eval)('R');
+    const t2 = await api('mentor_add', { folder: base + 'kb\\04、外部知识转化库\\测试老师' });
+    await loadMentors();
+    ok('左栏老师下面有「圆桌讨论」「主题蒸馏」两组', !!document.querySelector('#mentorList .mt-section[data-new=round]') && !!document.querySelector('#mentorList .mt-section[data-new=topic]'));
+    document.querySelector('#mentorList .mt-section[data-new=round]').click();
+    ok('新建圆桌：列出蒸馏好的老师，默认都勾上', await until(() => document.querySelector('#dlgMulti').open && document.querySelectorAll('#mlList input:checked').length === 2
+      && document.querySelector('.topic-only').hidden));
+    document.querySelector('#mlOk').click();
+    ok('开始讨论：顶上显示两位老师和圆桌的按钮，和一位老师对话的按钮藏起来', await until(() => RT.mode === 'round' && RT.round
+      && document.querySelector('#mentorChatTitle').textContent.includes('测试老师') && !document.querySelector('#roundTools').hidden && document.querySelector('#mentorSaveAll').hidden));
+    await roundAsk('风险怎么定？');
+    ok('圆桌提问：两位老师各自回答，再 AI 总结', RT.round.messages.map(x => x.role).join() === 'user,teacher,teacher,summary'
+      && document.querySelectorAll('#mentorMsgs .rt-teacher').length === 2 && !!document.querySelector('#mentorMsgs .rt-summary') && !RT.job, RT.round.messages.map(x => x.role));
+    const cdiv = document.createElement('div');
+    cdiv.innerHTML = answerHTML('见［测试老师 S01-01］和［蒸馏测试老师 S01-01］，还有［别人 S01-01］。', { names: roundNames() });
+    ok('总结里带老师名的出处：认得出是哪位老师的，认不出的标红', cdiv.querySelectorAll('a.cite:not(.bad)').length === 2 && cdiv.querySelectorAll('a.cite.bad').length === 1
+      && cdiv.querySelector('a.cite').dataset.mid === t2.mentor.id && cdiv.textContent.includes('别人 S01-01'), cdiv.innerHTML);
+    await roundAction('round_reply');
+    ok('让老师们互相回应：多了两段回应和新的总结', RT.round.messages.filter(x => x.round === 2).length === 2 && document.querySelectorAll('#mentorMsgs .rt-teacher').length === 4
+      && RT.round.messages[RT.round.messages.length - 1].role === 'summary');
+    document.querySelector('#rtSave').click();
+    ok('收藏菜单列出六个主题文件夹', await until(() => document.querySelectorAll('#ctxMenu [data-f]').length === 6));
+    document.querySelector('#ctxMenu [data-f]').click();
+    ok('收藏到 Obsidian：记下文件，按钮变成「更新」', await until(() => RT.round.saved && document.querySelector('#rtSave').textContent.includes('更新')));
+    document.querySelector('#mentorList .mt-section[data-new=topic]').click();
+    await until(() => document.querySelector('#dlgMulti').open);
+    document.querySelector('#mlTopic').value = '风险';
+    document.querySelector('#mlOk').click();
+    ok('主题蒸馏：后台做完，软件里显示结果，左栏有这一条', await until(() => RT.mode === 'topic' && RT.topic && RT.topic.text && !!document.querySelector('#mentorMsgs .mentor-doc')
+      && !Object.keys(RT.tjobs).length && !!document.querySelector('#mentorList .tp-item'), 30000), [RT.mode, RT.topic && RT.topic.topic, toasts().slice(-2)]);
+    ok('主题蒸馏的页面：不能对话，有「在 Obsidian 里打开」', document.querySelector('#mentorInput').disabled && !document.querySelector('#topicTools').hidden && !document.querySelector('#tpOpen').disabled);
+    document.querySelector('#mentorPrompts').click();
+    ok('提示词：显示 11 种，第一种是逐节提取观点库', await until(() => document.querySelector('#dlgPrompts').open && document.querySelectorAll('#prList details').length === 11
+      && document.querySelector('#prList pre').textContent.includes('观点库')));
+    document.querySelector('#dlgPrompts').close();
+    document.querySelector('#mentorList .mt-teacher').click();
+    ok('点老师：回到和一位老师对话，圆桌的按钮藏起来', await until(() => !RT.mode && document.querySelector('#roundTools').hidden && document.querySelector('#topicTools').hidden
+      && !document.querySelector('#mentorSaveAll').hidden));
+    for (const r of RT.rounds) await api('round_delete', { cid: r.id });
+    for (const t of RT.topics) await api('topic_delete', { id: t.id });
+    await api('mentor_remove', { id: t2.mentor.id });
+
     await api('mentor_remove', { id: dm.id });
     await api('settings', { settings: { obsidian: { vault: '' } } });
     document.querySelector('#libTabs [data-view="course"]').click();

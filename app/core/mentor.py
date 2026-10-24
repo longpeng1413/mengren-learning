@@ -341,8 +341,17 @@ def rank(query, items, key, k):
     return [x for _, x in scored[:k]]
 
 
-def build_messages(m, history, question):
-    """交给 AI 的资料和对话。返回 (messages, 用了哪些资料的说明)。"""
+CHAT_RULES = (
+    '1. 严格按上面「老师画像」第一节的规则回答，用老师的思路和说话方式。\n'
+    '2. 出处只能写成 ［S02 19:54］（课程原文时间）或 ［S02-21］（观点库编号），而且只能引用上面给出的编号和时间，不许编造出处。\n'
+    '3. 课程里没讲的，按规则标【AI 推测：……不是课程内容】，说清从哪几条推出来；推不出来就照实说课程没讲。\n'
+    '4. 用户没要求时，不加 AI 自己的观点；用户要求时另起一段标【AI 自己的看法，不代表老师】。\n'
+    '5. 用中文，先结论后理由，最后给能马上做的事；不给具体的买卖建议。'
+)
+
+
+def build_messages(m, history, question, extra=''):
+    """交给 AI 的资料和对话。返回 (messages, 用了哪些资料的说明)。extra：圆桌讨论时追加的说明（只代表这一位老师等）。"""
     f = files_of(m['folder'])
     persona, distill, atoms_md = _read(f['persona']), _read(f['distill']), _read(f['atoms'])
     if not persona or not atoms_md:
@@ -362,12 +371,8 @@ def build_messages(m, history, question):
         + (f'---\n# 课程蒸馏（整体体系）\n{distill}\n\n' if distill else '')
         + f'---\n# 观点库（{"全部" if picked is atoms else "和这个问题相关的部分"}，编号可作出处）\n{atom_lines}\n\n'
         f'---\n# 和这个问题相关的课程原文（字幕片段）\n{win_lines}\n\n'
-        '---\n# 这一次回答的要求\n'
-        '1. 严格按上面「老师画像」第一节的规则回答，用老师的思路和说话方式。\n'
-        '2. 出处只能写成 ［S02 19:54］（课程原文时间）或 ［S02-21］（观点库编号），而且只能引用上面给出的编号和时间，不许编造出处。\n'
-        '3. 课程里没讲的，按规则标【AI 推测：……不是课程内容】，说清从哪几条推出来；推不出来就照实说课程没讲。\n'
-        '4. 用户没要求时，不加 AI 自己的观点；用户要求时另起一段标【AI 自己的看法，不代表老师】。\n'
-        '5. 用中文，先结论后理由，最后给能马上做的事；不给具体的买卖建议。'
+        '---\n# 这一次回答的要求\n' + CHAT_RULES
+        + (f'\n\n---\n{extra}' if extra else '')
     )
     messages = [{'role': 'system', 'content': system}]
     for h in (history or [])[-HISTORY_TURNS:]:

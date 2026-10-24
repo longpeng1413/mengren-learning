@@ -134,6 +134,12 @@
   - 写进 Obsidian（`write_files`）前整份备份到 `backups\蒸馏\老师名-时间\`（每位老师 20 份）；`written` 记写出去的指纹，上次写完之后用户在 Obsidian 里改过（或不是软件写的，比如手工做的人间落叶）时，`start` 先返回 `conflict`，界面确认后 `force`。
   - 在 `jobs` 里跑（同一位老师同时只跑一个，`_running`），临时出错按 workflow 的 `RETRIES` / `RETRY_WAIT` 重试，额度用完直接停；界面在对话区上方 `#mentorDistill` 和左栏标签显示进度，可以照常切课。job 只在内存里，软件退出就停，下次「继续蒸馏」从没做完的接着做。正在蒸馏的老师不能移除。
   - 用设置里「对话」的 AI（和课程重点同一个）。界面自测的假 AI 在 `fake_ai._distill_reply`（按系统提示词认是哪一步）。
+- **圆桌讨论、主题蒸馏**（2026-10-24，`core/roundtable.py`，`bridge.do_round_* / do_topic_* / do_prompts`，界面 `web/round.js`，规则是知识库蒸馏规范 V2.0 第六节）：
+  - 圆桌：选两位以上蒸馏好的老师提问 → 每位老师用 `mentor.build_messages(…, extra=ROUND_ANSWER)` 各自回答（只带他自己的画像、资料和他自己以前的回答）→ `ROUND_SUMMARY_SYSTEM` 总结；「互相回应」用 `ROUND_REPLY` 把别的老师第一轮的回答给他。一位一次 AI，顺序做，job 条目是 `{kind: start|text|reset|done, who: 老师id|summary}`，界面 `followRound` 边写边显示。记录在 `%APPDATA%\猛人学习\roundtables\`；「收藏到 Obsidian」整场写 `04/02、主题蒸馏资料/主题/日期、问题、多位老师讨论.md`（`round_md`，再收藏更新同一个文件，覆盖前备份到 `backups\圆桌讨论`）。
+  - 主题蒸馏：每位老师用 `mentor.rank` 从观点库挑 80 条、原文挑 8 段（本机打分）→ `TOPIC_TEACHER_SYSTEM` 整理一次（一条都没挑到就不调 AI，写「资料里没有讲到」）→ `TOPIC_MERGE_SYSTEM` 合并 → 写 `日期、主题、跨来源蒸馏.md`；`bad_refs` 查 ［老师名 S02-21］ 对不上的在文末列出。记录在 `topics\`。
+  - 出处：老师自己的回答还是 ［S02 19:54］，界面按这段是哪位老师说的（`answerHTML(text, {mid})`）认；总结和主题蒸馏里是 ［老师名 S02-21］（`{names}`）。`M.ov` 缓存每位老师的来源和观点编号；`mentorJump(mid, sid, t)`。
+  - 和 mentor.js 共用对话区：`R.mode`（'round' | 'topic'）不为空时，`renderMentorHead / renderMentorMsgs / mentorAsk` 交给 round.js。**界面自测脚本里有自己的 `R`（结果列表），要用 `(0, eval)('R')` 取软件的**（和以前 `const M` 挡住一样）。
+  - **提示词只有一份：代码里的常量**。`roundtable.prompt_list()` 列出全部 11 种（界面「提示词」按钮显示），`prompts_markdown()` 生成知识库《02、规则体系/01、通用规则/08、AI蒸馏提示词》。**改了任何蒸馏 / 对话提示词，要重新生成那份文件**（软件不读它；用户要能在知识库里看到原文）。
 - **保存冲突**：字幕文件新增 `rev`（每次保存加 1）。`doc.save(path, doc, base_rev)` 发现磁盘上的 rev 和调用方读到的不一样就不写、返回 `conflict`；界面（`save()` / `onSaveConflict()`）问用户「重新打开看自动整理的结果」还是「保留我的覆盖」。写文件用 `doc.write_lock`（`%APPDATA%\猛人学习\locks\`）防止两个进程同时写。
 - Agent 正在整理的课有 `locks\<key>.busy` 标记（记着进程号，进程不在了就失效），界面打开时提示。
 - AI 校对前存一份「AI 校对前」历史版本（最多 5 份，和重新识别共用），不满意可以在「历史版本」里恢复。

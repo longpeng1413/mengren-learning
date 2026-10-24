@@ -6,7 +6,7 @@ import threading
 import time
 from pathlib import Path
 
-from core import asr, bgqueue, book, cache, codex_auth, config, distill, doc as docs, frames, glossary, jobs, library, llm, media, mentor, tasks, tts, workflow
+from core import asr, bgqueue, book, cache, codex_auth, config, distill, doc as docs, frames, glossary, jobs, library, llm, media, mentor, roundtable, tasks, tts, workflow
 from core.log import LOG_DIR, log
 
 MEDIA_FILTER = ('音视频和文档 (*.mp4;*.m4v;*.mov;*.mkv;*.webm;*.avi;*.flv;*.ts;*.wmv;*.3gp;*.mpg;*.mpeg;'
@@ -350,6 +350,59 @@ class Api:
     def do_distill_start(self, b):
         """开始（或接着）蒸馏，后台做；在 Obsidian 里改过要覆盖的文件时先返回 conflict 让用户确认。"""
         return self._distill(distill.start, b.get('id'), bool(b.get('force')))
+
+    # -------------------------------------- 圆桌讨论、主题蒸馏（roundtable.py） ----
+    @staticmethod
+    def _round(fn, *a, **k):
+        try:
+            return fn(*a, **k)
+        except (roundtable.RoundError, distill.DistillError, mentor.MentorError) as e:
+            raise ValueError(str(e))
+
+    def do_prompts(self, b):
+        """软件用的全部蒸馏提示词（界面「查看提示词」）。"""
+        return {'prompts': roundtable.prompt_list()}
+
+    def do_round_list(self, b):
+        return {'rounds': roundtable.list_rounds(), 'topics': roundtable.list_topics(), 'folders': roundtable.TOPIC_FOLDERS}
+
+    def do_round_new(self, b):
+        return {'chat': self._round(roundtable.new_round, b.get('mentors') or [])}
+
+    def do_round_load(self, b):
+        c = self._round(roundtable.load_round, b.get('cid'))
+        return {'chat': c, 'running': roundtable.running(c['id'])}
+
+    def do_round_ask(self, b):
+        """圆桌提问：每位老师各自回答，再总结；后台做，job 的条目是 {kind: start|text|reset|done, who, …}。"""
+        return self._round(roundtable.ask, b.get('cid'), b.get('question'), b.get('summarize', True) is not False)
+
+    def do_round_reply(self, b):
+        return self._round(roundtable.reply, b.get('cid'), b.get('summarize', True) is not False)
+
+    def do_round_summary(self, b):
+        return self._round(roundtable.summarize, b.get('cid'))
+
+    def do_round_rename(self, b):
+        return {'chat': self._round(roundtable.rename_round, b.get('cid'), b.get('title'))}
+
+    def do_round_delete(self, b):
+        self._round(roundtable.delete_round, b.get('cid'))
+        return {}
+
+    def do_round_save(self, b):
+        """整场讨论收藏到 Obsidian 的「02、主题蒸馏资料/对应主题」。"""
+        return self._round(roundtable.save_round, b.get('cid'), b.get('folder'))
+
+    def do_topic_get(self, b):
+        return self._round(roundtable.get_topic, b.get('id'))
+
+    def do_topic_start(self, b):
+        return self._round(roundtable.start_topic, b.get('topic'), b.get('mentors') or [], b.get('folder'), b.get('note') or '', b.get('id'))
+
+    def do_topic_delete(self, b):
+        self._round(roundtable.delete_topic, b.get('id'))
+        return {}
 
     def do_tts(self, b):
         """朗读一句话（Edge 在线 / 百度）：返回 mp3 的 base64，只在内存里，界面播完就丢。"""

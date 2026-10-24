@@ -58,6 +58,13 @@ def _distill_reply(system):
         return '## 一、一句话\n\n假 AI 合并的课程蒸馏（S01-01、S01-02）。\n\n## 三、核心观点（合并后）\n\n1. **风险先算**（S01-01）'
     if system == distill.PERSONA_SYSTEM:
         return '## 二、他是谁\n\n- 假老师［S01-A1］\n\n## 八、他没讲、或明确不碰的\n\n- 止盈（未讲明）'
+    from . import roundtable
+    if system == roundtable.ROUND_SUMMARY_SYSTEM:
+        return '### 共识\n\n- 都说风险要先算（假 AI 总结）\n\n### 分歧和原因\n\n- 没有'
+    if system == roundtable.TOPIC_TEACHER_SYSTEM:
+        return '### 他的主要观点\n\n- 风险先算（假 AI）'
+    if system == roundtable.TOPIC_MERGE_SYSTEM:
+        return '## 一、一句话\n\n假 AI 写的主题蒸馏。\n\n## 三、共识\n\n- 风险先算'
     return None
 
 
