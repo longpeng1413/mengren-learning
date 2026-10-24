@@ -7,7 +7,7 @@
 2. 合并成课程蒸馏：观点库不大就整份交给 AI；太大（峰级这种几十节的课）先按顺序分组写小结，再合并。
    AI 写的编号在观点库里找不到的，程序在文末标出来。
 3. 老师画像：第一节「给 AI 的规则」由程序固定写（对话时 AI 严格按它来），后面几节 AI 依据课程蒸馏、老师自述、术语写。
-4. 写进 Obsidian `04、外部知识转化库/老师名/`，文件名和人间落叶的一样；覆盖之前先备份到
+4. 写进 Obsidian `04、外部知识转化库/01、老师分身蒸馏资料/老师名/`，文件名和人间落叶的一样；覆盖之前先备份到
    `%APPDATA%\\猛人学习\\backups\\蒸馏\\老师名-时间\\`（每位老师留 20 份）。上次写完之后在 Obsidian 里改过的，开始前先问用户。
 
 以后老师又有新课：加进来再蒸馏，只提取新课和字幕改过的课，再重新合并。课程编号 S01… 一旦分配就不变
@@ -26,6 +26,7 @@ from . import config, doc as docs, llm, mentor, tasks
 from .log import log
 
 KB_DIR = '04、外部知识转化库'
+MENTOR_SUB = '01、老师分身蒸馏资料'   # 知识库《AI知识蒸馏规范》V2.0：04 分成「01、老师分身蒸馏资料」「02、主题蒸馏资料」
 FILES = {'atoms': '01、观点库（逐节提取）.md', 'distill': '02、课程蒸馏.md', 'persona': '03、老师画像（对话用）.md'}
 CHUNK_CHARS = 50000      # 一节课的字幕超过这么多字，分几段提取
 MERGE_LIMIT = 90000      # 观点库不超过这么多字，整份交给 AI 合并；超过就先分组小结
@@ -195,7 +196,7 @@ def save_state(mid, st):
 def _vault():
     v = (config.load().get('obsidian') or {}).get('vault') or ''
     if not v or not Path(v).is_dir():
-        raise DistillError('先在「设置 → Obsidian」里选好 Obsidian 库的位置，蒸馏结果要写进库里的「04、外部知识转化库」')
+        raise DistillError('先在「设置 → Obsidian」里选好 Obsidian 库的位置，蒸馏结果要写进库里的「04、外部知识转化库/01、老师分身蒸馏资料」')
     return v
 
 
@@ -203,7 +204,7 @@ def target_folder(name):
     name = re.sub(r'[\\/:*?"<>|]', '', str(name or '')).strip()
     if not name:
         raise DistillError('请填老师的名字')
-    return Path(_vault()) / KB_DIR / name
+    return Path(_vault()) / KB_DIR / MENTOR_SUB / name
 
 
 def _lesson_doc(path):

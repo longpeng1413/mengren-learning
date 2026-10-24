@@ -1,6 +1,6 @@
 """老师工作台（2026-10-24，用户要求「AI 按老师画像，忠实地用老师的知识和我对话」）。
 
-一位「老师」= Obsidian 里 `04、外部知识转化库/老师名/` 文件夹，里面有蒸馏好的：
+一位「老师」= Obsidian 里 `04、外部知识转化库/01、老师分身蒸馏资料/老师名/` 文件夹，里面有蒸馏好的：
 - `…观点库….md`：逐节提取的观点表（编号 S01-05、出处 S01 05:19、类型），开头「来源」表把 S01… 对应到课程笔记；
 - `…老师画像….md`：给 AI 的扮演规则和老师的信念、思路、比喻、风格（第一节就是规则：出处怎么标、超出课程怎么标）；
 - `…课程蒸馏….md`（可选）：整体体系。
@@ -164,11 +164,35 @@ def _load_json(path, default=None):
         return default
 
 
+KB_DIR, MENTOR_SUB = '04、外部知识转化库', '01、老师分身蒸馏资料'
+
+
+def _relocate(m):
+    """老师文件夹不在记下的位置了：知识库 2026-10-24 把老师文件夹挪进了 `04、外部知识转化库/01、老师分身蒸馏资料/`，
+    按老位置推出新位置（再看设置里的 Obsidian 库），找到就改记录。"""
+    f = m.get('folder') or ''
+    if not f or os.path.isdir(f):
+        return m
+    p = Path(f)
+    cands = [q / MENTOR_SUB / p.name for q in p.parents if q.name == KB_DIR][:1]
+    v = (config.load().get('obsidian') or {}).get('vault') or ''
+    if v:
+        cands.append(Path(v) / KB_DIR / MENTOR_SUB / p.name)
+    for c in cands:
+        if c.is_dir():
+            m['folder'] = str(c)
+            _save_json(_mdir(m['id']) / 'mentor.json', {k: x for k, x in m.items() if k != 'chats'})
+            break
+    return m
+
+
 def list_mentors(chats=True):
     out = []
     if MENTOR_DIR.is_dir():
         for d in sorted(MENTOR_DIR.iterdir()):
             m = _load_json(d / 'mentor.json')
+            if m and m.get('id'):
+                m = _relocate(m)
             if m:
                 out.append(dict(m, chats=list_chats(m['id'])) if chats else m)
             for t in d.glob('**/*.tmp'):  # 写到一半退出留下的临时文件
@@ -188,7 +212,7 @@ def get(mid):
     m = _load_json(_mdir(mid) / 'mentor.json')
     if not m:
         raise MentorError('没有这位老师')
-    return m
+    return _relocate(m)
 
 
 def add(folder):

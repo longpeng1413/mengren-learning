@@ -210,15 +210,16 @@ class Api:
         return {'mentors': mentor.list_mentors()}
 
     def do_mentor_pick(self, b):
-        """弹出选择文件夹的窗口（从「04、外部知识转化库」开始）。选好以后界面先显示「正在查找课程笔记…」，再调 mentor_add。"""
+        """弹出选择文件夹的窗口（从「04、外部知识转化库/01、老师分身蒸馏资料」开始）。选好以后界面先显示「正在查找课程笔记…」，再调 mentor_add。"""
         import webview
         vault = (config.load().get('obsidian') or {}).get('vault') or ''
-        start = os.path.join(vault, distill.KB_DIR) if vault and os.path.isdir(os.path.join(vault, distill.KB_DIR)) else vault
+        tries = [os.path.join(vault, distill.KB_DIR, distill.MENTOR_SUB), os.path.join(vault, distill.KB_DIR)] if vault else []
+        start = next((p for p in tries if os.path.isdir(p)), vault)
         r = self._window.create_file_dialog(webview.FileDialog.FOLDER, directory=start or '')
         return {'folder': r[0] if r else ''}
 
     def do_mentor_add(self, b):
-        """导入一个蒸馏好的老师文件夹（04、外部知识转化库/老师名）。没给路径就弹出选择文件夹的窗口。"""
+        """导入一个蒸馏好的老师文件夹（04、外部知识转化库/01、老师分身蒸馏资料/老师名）。没给路径就弹出选择文件夹的窗口。"""
         folder = b.get('folder')
         if not folder:
             folder = self.do_mentor_pick(b)['folder']

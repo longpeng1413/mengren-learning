@@ -49,7 +49,7 @@ async function loadMentors() {
 function renderMentorList() {
   const box = $('#mentorList'), q = $('#mentorSearch').value.trim();
   if (!M.list.length) {
-    box.innerHTML = '<div class="mt-empty">还没有老师。<br>点上方的人像加号按钮：从媒体库的课蒸馏一位新老师，或导入 Obsidian「04、外部知识转化库」里已经蒸馏好的老师文件夹。</div>';
+    box.innerHTML = '<div class="mt-empty">还没有老师。<br>点上方的人像加号按钮：从媒体库的课蒸馏一位新老师，或导入 Obsidian「04、外部知识转化库/01、老师分身蒸馏资料」里已经蒸馏好的老师文件夹。</div>';
     return;
   }
   box.innerHTML = M.list.map(m => {
@@ -124,7 +124,7 @@ function markLabels(root) {
 function renderMentorMsgs() {
   const box = $('#mentorMsgs');
   if (!M.cur) {
-    box.innerHTML = '<div class="mentor-intro"><h3>老师工作台</h3><p>先点左上方的人像加号按钮：从媒体库的课蒸馏一位新老师（AI 逐节提取观点库、合并成课程蒸馏、写老师画像），或导入 Obsidian「04、外部知识转化库」里已经蒸馏好的老师文件夹。之后就能按老师画像和他对话：课程里讲过的都带出处，点出处跳到那节课那一秒；超出课程的会标「AI 推测」。</p></div>';
+    box.innerHTML = '<div class="mentor-intro"><h3>老师工作台</h3><p>先点左上方的人像加号按钮：从媒体库的课蒸馏一位新老师（AI 逐节提取观点库、合并成课程蒸馏、写老师画像），或导入 Obsidian「04、外部知识转化库/01、老师分身蒸馏资料」里已经蒸馏好的老师文件夹。之后就能按老师画像和他对话：课程里讲过的都带出处，点出处跳到那节课那一秒；超出课程的会标「AI 推测」。</p></div>';
     return;
   }
   const msgs = (M.chat && M.chat.messages) || [];
@@ -257,7 +257,7 @@ $('#mentorAdd').onclick = e => {
   e.stopPropagation();  // 不然窗口的 click 会马上关掉刚打开的菜单
   const r = e.currentTarget.getBoundingClientRect();
   showCtx(r.left, r.bottom + 4, `<button class="menu-item" data-a="distill" title="AI 逐节提取观点库，再合并成课程蒸馏、写老师画像，写进 Obsidian">从媒体库的课蒸馏一位新老师…</button>
-    <button class="menu-item" data-a="import" title="Obsidian「04、外部知识转化库」里已经有观点库和老师画像的老师文件夹">导入已经蒸馏好的老师文件夹…</button>`, m => {
+    <button class="menu-item" data-a="import" title="Obsidian「04、外部知识转化库/01、老师分身蒸馏资料」里已经有观点库和老师画像的老师文件夹">导入已经蒸馏好的老师文件夹…</button>`, m => {
     $('[data-a=distill]', m).onclick = () => { m.hidden = true; openDistill({}); };
     $('[data-a=import]', m).onclick = () => { m.hidden = true; importMentor(); };
   });

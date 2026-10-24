@@ -410,7 +410,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('蒸馏窗口：列出媒体库文件夹里的课', await until(() => document.querySelector('#dlgDistill').open && document.querySelectorAll('#dsList input').length > 0));
     document.querySelector('#dsName').value = '蒸馏测试老师';
     document.querySelector('#dsName').dispatchEvent(new Event('input'));
-    ok('蒸馏窗口：显示结果写到 Obsidian 的哪个文件夹', await until(() => document.querySelector('#dsTarget').textContent.includes('04、外部知识转化库\\蒸馏测试老师')),
+    ok('蒸馏窗口：显示结果写到 Obsidian 的哪个文件夹', await until(() => document.querySelector('#dsTarget').textContent.includes('04、外部知识转化库\\01、老师分身蒸馏资料\\蒸馏测试老师')),
       document.querySelector('#dsTarget').textContent);
     const dBoxes = [...document.querySelectorAll('#dsList input')];
     const dDemo = dBoxes.find(b => b.dataset.path.toLowerCase().endsWith('演示视频.mp4'));

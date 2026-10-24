@@ -1167,8 +1167,8 @@ check('蒸馏：没有字幕的课不能选', '还没有字幕' in e_ or '不在
 _old_stream, _old_check = _llm.stream, _llm.check
 _llm.stream, _llm.check = fake_ai.stream, (lambda *a, **k: None)
 dm = api.call('distill_create', {'name': '蒸馏老师', 'paths': [str(DS / '第一课.mp4')]})['mentor']
-DT = KB / '04、外部知识转化库' / '蒸馏老师'
-check('蒸馏：新建老师只记下用哪些课，结果写到「04、外部知识转化库/老师名」', dm['folder'] == str(DT) and dm.get('distilled')
+DT = KB / '04、外部知识转化库' / '01、老师分身蒸馏资料' / '蒸馏老师'
+check('蒸馏：新建老师只记下用哪些课，结果写到「04、外部知识转化库/01、老师分身蒸馏资料/老师名」', dm['folder'] == str(DT) and dm.get('distilled')
       and [x['state'] for x in distill.status(dm['id'])['lessons']] == ['todo'])
 res = distill.run(dm['id'], jobs.Job('distill'))
 A = (DT / '01、观点库（逐节提取）.md').read_text(encoding='utf-8')
@@ -1216,6 +1216,14 @@ check('蒸馏：出处时间超出课程长度的标「时间待核对」', dist
       and distill._fix_src('S03', 'S03 01:00-02:00', 600) == ('S03 01:00–02:00', True))
 _llm.stream, _llm.check = _old_stream, _old_check
 api.call('mentor_remove', {'id': dm['id']})
+OLD = KB / '04、外部知识转化库' / '搬家老师'
+shutil.copytree(TEACHER, OLD)
+mv = mentor.add(str(OLD))
+shutil.move(str(OLD), str(KB / '04、外部知识转化库' / '01、老师分身蒸馏资料' / '搬家老师'))
+check('老师文件夹挪进「01、老师分身蒸馏资料」后，软件自己找到新位置、改好记录',
+      mentor.get(mv['id'])['folder'] == str(KB / '04、外部知识转化库' / '01、老师分身蒸馏资料' / '搬家老师')
+      and mentor.overview(mv['id'])['files']['atoms'].endswith('01、观点库（逐节提取）.md'), mentor.get(mv['id'])['folder'])
+mentor.remove(mv['id'])
 
 # 朗读（core/tts.py）：中括号里的视频时间不读
 from core import tts  # noqa: E402
