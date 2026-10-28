@@ -497,6 +497,13 @@ def facts_for(path, d, settings=None, opts=None, probe=True):
                  no_summary=lambda: library.folder_no_summary(path))
 
 
+def todo_for(path, steps=None, opts=None):
+    """「整个文件夹排进后台整理」用：按 steps（不给就是一键整理默认的）这节课还要做哪几步。不探测视频、不读书，几百节也快。"""
+    d = docs.load(path) or {}
+    kind = 'book' if kind_of(path) == 'book' else 'video'
+    return pending_steps(d, kind, facts_for(path, d, opts=opts, probe=False), stages_for(path, steps))[0]
+
+
 def pending_now(path, d):
     """界面打开、重新读取一节课时：还差哪几步（媒体库的「未整理完」跟着更新）。"""
     kind = 'book' if kind_of(path) == 'book' else 'video'

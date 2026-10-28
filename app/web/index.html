@@ -348,6 +348,33 @@
   </form>
 </dialog>
 
+<!-- 整个文件夹排进后台整理（app.js 的 openFolderBg） -->
+<dialog id="dlgFolderBg" class="dialog">
+  <form method="dialog">
+    <h2 id="fbTitle">整个文件夹排进后台整理</h2>
+    <p class="muted" id="fbInfo"></p>
+    <div class="field">
+      <label class="check"><input type="checkbox" id="fbAsr"> 生成字幕（已经有字幕的跳过）</label>
+      <label class="check"><input type="checkbox" id="fbCorrect"> AI 按术语表校对（校对过的跳过）</label>
+      <label class="check"><input type="checkbox" id="fbFrames"> 挑必要的插图，并用画面复核存疑句（只对视频，音频自动跳过）</label>
+      <label class="check"><input type="checkbox" id="fbTranslate"> 翻译成中文（只对英文课程）</label>
+      <label class="check"><input type="checkbox" id="fbSummary"> 生成课程重点（不勾 = 这个文件夹设成「不写课程重点」）</label>
+      <label class="check"><input type="checkbox" id="fbTerms"> 找出新术语（先记在每节课里，打开那节课时再勾选确认）</label>
+    </div>
+    <div class="field"><div class="label">老师 / 术语表（绑定到这个文件夹）</div><select id="fbTeacher"></select></div>
+    <div class="field"><div class="label">课程里说的是</div>
+      <div class="seg-choice"><label><input type="radio" name="fbLang" value="zh"> 中文</label><label><input type="radio" name="fbLang" value="en"> 英文</label></div></div>
+    <div class="field" id="fbDbField"><div class="label">生成字幕：豆包用哪种模型</div><select id="fbDbModel"></select>
+      <div class="label db-acct-pick">用哪个账号</div><select id="fbDbAcct" class="db-acct-pick"></select></div>
+    <p class="hint">只排还没整理完的课，做过的步骤自动跳过；一次整理一节，可以照常看课、校对。规则记在这个文件夹上（下层文件夹沿用），以后右键单节课「排进后台整理」也按它。
+      额度用完时这一批剩下的会停下。软件彻底退出后排队就没了，再点一次会从没做完的接着排。不剪藏，校对完你自己剪。</p>
+    <div class="dialog-btns">
+      <button value="cancel" class="btn">取消</button>
+      <button value="ok" class="btn primary">开始排队</button>
+    </div>
+  </form>
+</dialog>
+
 <!-- 新术语 -->
 <!-- 老师蒸馏：从媒体库选课（mentor.js 的 openDistill） -->
 <dialog id="dlgDistill" class="dialog distill-dlg">

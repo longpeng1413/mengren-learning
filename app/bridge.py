@@ -4,6 +4,7 @@ import os
 import subprocess
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from core import asr, bgqueue, book, cache, codex_auth, config, distill, doc as docs, frames, glossary, jobs, library, llm, media, mentor, roundtable, tasks, tts, workflow
@@ -191,10 +192,70 @@ class Api:
 
     # ---------------------------------------------------------- 后台整理 ----
     def do_bg_add(self, b):
-        """排进后台整理（一键整理、媒体库右键「排进后台整理」）。没给 steps：按一键整理默认的步骤，只做还没做完的。"""
+        """排进后台整理（一键整理、媒体库右键「排进后台整理」）。没给 steps：所在文件夹定了整理规则就按规则，
+        没有就按一键整理默认的步骤；都是只做还没做完的。"""
         path, steps, redo, more = self._step_args(b, need_steps=False)
-        it = bgqueue.add(path, steps or None, redo if steps else (), b.get('lang'), b.get('provider'), more)
+        rule = None if steps else library.folder_rule(path)
+        if rule and workflow.kind_of(path) != 'book':
+            provider, opts = self._rule_job(rule)
+            it = bgqueue.add(path, rule['steps'], (), rule['lang'], provider, opts)
+        else:
+            it = bgqueue.add(path, steps or None, redo if steps else (), b.get('lang'), b.get('provider'), more)
         return {'item': it, 'items': bgqueue.items()}
+
+    @staticmethod
+    def _rule_job(rule):
+        """文件夹的整理规则 → (识别服务, 整理选项)。和一键整理对话框一样：没选老师也做 AI 校对（只改明显的错别字）。"""
+        provider = config.load().get('asr_en' if rule.get('lang') == 'en' else 'asr_zh')
+        opts = {'allow_no_teacher': True}
+        if provider == 'doubao':
+            opts.update({k: rule[k] for k in ('doubao_model', 'doubao_account') if rule.get(k)})
+        return provider, opts
+
+    def do_folder_rule(self, b):
+        """「整个文件夹排进后台整理」对话框：这个文件夹（含沿用上层）的整理规则、老师、写不写课程重点，里面有几节课。"""
+        folder = os.path.abspath(str(b.get('path') or ''))
+        files = library.scan(folder)
+        books = sum(1 for p in files if workflow.kind_of(p) == 'book')
+        return dict(library.folder_settings(folder), lessons=len(files) - books, books=books)
+
+    def do_bg_add_folder(self, b):
+        """整个文件夹排进后台整理（2026-10-28，用户的文件夹有几百节课）：按对话框里定的规则，把还没整理完的课一节一节排进去。
+        规则、老师、写不写课程重点记在这个文件夹上（下层沿用，以后右键单节排队也按它）。书的步骤不一样，不排。"""
+        folder = os.path.abspath(str(b.get('path') or ''))
+        if not os.path.isdir(folder):
+            raise ValueError('找不到这个文件夹：' + folder)
+        steps = [str(x) for x in b.get('steps') or []]
+        bad = [x for x in steps if x not in workflow.VIDEO_STAGES]
+        if bad or not steps:
+            raise ValueError('不认识的步骤：' + '、'.join(bad) if bad else '没有勾选要做的步骤')
+        rule = {'steps': steps, 'lang': 'en' if b.get('lang') == 'en' else 'zh',
+                'doubao_model': str(b.get('doubao_model') or ''), 'doubao_account': str(b.get('doubao_account') or '')}
+        changes = {'rule': rule, 'no_summary': 'summary' not in steps}
+        if 'teacher' in b and (b.get('teacher') or '') != library.folder_settings(folder)['teacher']:
+            changes['teacher'] = b.get('teacher') or ''
+        library.set_folder(folder, **changes)
+        provider, opts = self._rule_job(rule)
+        facts_opts = dict(opts, lang=rule['lang'])
+        batch = uuid.uuid4().hex[:10]
+        n = {'added': 0, 'done': 0, 'busy': 0, 'books': 0, 'errors': 0}
+        for path in library.scan(folder):
+            if workflow.kind_of(path) == 'book':
+                n['books'] += 1
+            elif bgqueue.queued(path):
+                n['busy'] += 1
+            else:
+                try:
+                    todo = workflow.todo_for(path, steps, facts_opts)
+                    if todo:
+                        bgqueue.add(path, steps, (), rule['lang'], provider, opts, batch=batch)
+                except Exception:  # noqa: BLE001  一节读不出（字幕文件坏了等）不影响别的
+                    log.exception('整个文件夹排队：%s', path)
+                    n['errors'] += 1
+                    continue
+                n['added' if todo else 'done'] += 1
+        log.info('整个文件夹排进后台整理：%s %s', folder, n)
+        return dict(n, items=bgqueue.items())
 
     def do_bg_list(self, b):
         return {'items': bgqueue.items()}
@@ -724,7 +785,7 @@ class Api:
         return {'groups': library.view()}
 
     def do_library_set(self, b):
-        library.set_folder(b.get('path') or '', **{k: b[k] for k in ('teacher', 'collapsed', 'name', 'no_summary') if k in b})
+        library.set_folder(b.get('path') or '', **{k: b[k] for k in ('teacher', 'collapsed', 'name', 'no_summary', 'rule') if k in b})
         return {'groups': library.view() if b.get('refresh') else None}
 
     # ------------------------------------------------------------ 日志与退出 ----

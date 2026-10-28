@@ -4,7 +4,7 @@ library.json（%APPDATA%\\猛人学习）：
 - folders：加进来的文件夹（最上层）[{path, name, teacher, collapsed, added}]；
 - files：单独加进来的文件 [路径]；
 - order：最上层的顺序 [路径]（文件夹和单个文件混在一起，默认按加入的先后，用户可以拖动）；
-- dirs：下层文件夹的设置 {小写路径: {teacher, collapsed, summary}}（绑定的老师、是否收起、写不写课程重点）；
+- dirs：下层文件夹的设置 {小写路径: {teacher, collapsed, summary, rule}}（绑定的老师、是否收起、写不写课程重点、整理规则）；
 - orders：用户在某个文件夹里拖出来的顺序 {小写路径: [文件名或文件夹名…]}。
 
 排列规则（用户 2026-10-14 定的）：
@@ -14,6 +14,8 @@ library.json（%APPDATA%\\猛人学习）：
 - 每一层文件夹都能绑定老师，没绑定的沿用最近一层上级的（folder_teacher）。
 - 每一层文件夹都能设「不写课程重点」（summary: 'off'；子文件夹可以设回 'on'；空着沿用上层，最上层默认写），
   灵修类这种逐字稿课程只识别、校对，直接蒸馏（2026-10-28 用户要求按文件夹选，不按老师；folder_no_summary）。
+- 每一层文件夹都能记一套整理规则 rule {steps, lang, doubao_model, doubao_account}：「整个文件夹排进后台整理」时定的，
+  下层沿用；以后右键单节课「排进后台整理」也按它（folder_rule）。
 识别的文件：音视频（media.MEDIA_EXT）和文档（book.LIB_EXT）；字幕、txt、软件自己的 json 等不列。
 「_」或「.」开头的文件夹（例如「_关键帧缓存」）不列。"""
 import json
@@ -313,8 +315,9 @@ def add_folder(path, merge=None):
             conf = lib['dirs'].setdefault(_key(f['path']), {})
             if f.get('teacher'):
                 conf['teacher'] = f['teacher']
-            if f.get('summary'):
-                conf['summary'] = f['summary']
+            for name in ('summary', 'rule'):
+                if f.get(name):
+                    conf[name] = f[name]
             conf['collapsed'] = bool(f.get('collapsed'))
         gone = {_key(f['path']) for f in children} | {_key(p) for p in singles}
         lib['folders'] = [f for f in lib['folders'] if _key(f['path']) not in gone]
@@ -365,7 +368,7 @@ def remove(kind, path):
 
 
 def set_folder(path, **changes):
-    """改一个文件夹的设置：teacher、collapsed、name（只有最上层）、no_summary（True / False：这里的课写不写课程重点）。"""
+    """改一个文件夹的设置：teacher、collapsed、name（只有最上层）、no_summary（True / False：这里的课写不写课程重点）、rule（整理规则）。"""
     lib = load()
     if path == '':  # 以前的「单个文件」一组
         save(lib)
@@ -376,17 +379,18 @@ def set_folder(path, **changes):
         changes['summary'] = '' if want == (_nearest(_summary_binds(lib), path) or 'on') else want
     top = next((f for f in lib['folders'] if _key(f['path']) == k), None)
     if top is not None:
-        for name in ('teacher', 'collapsed', 'name', 'summary'):
+        for name in ('teacher', 'collapsed', 'name', 'summary', 'rule'):
             if name in changes:
                 top[name] = changes[name]
     else:
         conf = lib['dirs'].setdefault(k, {})
-        for name in ('teacher', 'collapsed', 'summary'):
+        for name in ('teacher', 'collapsed', 'summary', 'rule'):
             if name in changes:
                 conf[name] = changes[name]
-        if not conf.get('summary'):
-            conf.pop('summary', None)
-        if not any(conf.get(x) for x in ('teacher', 'collapsed', 'summary')):
+        for name in ('summary', 'rule'):
+            if not conf.get(name):
+                conf.pop(name, None)
+        if not any(conf.get(x) for x in ('teacher', 'collapsed', 'summary', 'rule')):
             lib['dirs'].pop(k, None)
     save(lib)
 
@@ -441,6 +445,19 @@ def folder_teacher(media_path):
 def folder_no_summary(media_path):
     """视频所在文件夹（或最近一层设过的上级）设了「不写课程重点」。"""
     return _nearest(_summary_binds(load()), media_path) == 'off'
+
+
+def folder_rule(media_path):
+    """视频所在文件夹（或最近一层设过的上级）的整理规则，没有就是 None。"""
+    return _nearest(_binds(load(), 'rule'), media_path) or None
+
+
+def folder_settings(folder):
+    """一个文件夹自己的设置加上沿用上层的：{teacher, no_summary, rule}（「整个文件夹排进后台整理」对话框用）。"""
+    lib = load()
+    conf = _conf(lib, _key(folder))
+    at = lambda name: conf.get(name) or _nearest(_binds(lib, name), folder)  # noqa: E731
+    return {'teacher': at('teacher') or '', 'no_summary': at('summary') == 'off', 'rule': at('rule') or None}
 
 
 def _nearest(binds, media_path):

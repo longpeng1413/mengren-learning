@@ -704,6 +704,37 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('菜单里显示已经打开（✓）', document.querySelector('#ctxMenu [data-a=nosum]').textContent.includes('✓'));
     document.querySelector('#ctxMenu [data-a=nosum]').click();
     ok('再点一次改回要写', await until(() => S.noSummary === false && !(libNode(nsTop.path) || {}).no_summary));
+    // 整个文件夹排进后台整理（2026-10-28）
+    folderMenu(nsTop.path, 20, 20);
+    document.querySelector('#ctxMenu [data-a=bgall]').click();
+    ok('文件夹菜单「整个文件夹排进后台整理…」：弹出规则对话框，写明里面有几节课，默认步骤勾上', await until(() => document.querySelector('#dlgFolderBg').open)
+      && /有 \d+ 节音视频/.test(document.querySelector('#fbInfo').textContent) && document.querySelector('#fbAsr').checked
+      && document.querySelector('#fbSummary').checked && document.querySelector('#fbTeacher').options.length > 1, document.querySelector('#fbInfo').textContent);
+    ['fbFrames', 'fbSummary', 'fbTranslate'].forEach(id => { document.getElementById(id).checked = false; });
+    // 真的排队会整理后面测试要用的课：截下发给后台的请求（后台排队在 test_agent.py 里测）
+    const realApi = window.api;
+    let sent = null;
+    window.api = async (name, body) => name === 'bg_add_folder' ? (sent = body, { added: 0, done: 2, busy: 0, books: 1, errors: 0, items: S.bg }) : realApi(name, body);
+    document.querySelector('#dlgFolderBg').close('ok');
+    ok('开始排队：按勾选的步骤、语言、老师、豆包模型交给后台，提示结果', await until(() => sent && toasts().some(t => t.includes('没有要整理的课')), 10000)
+      && JSON.stringify(sent.steps) === '["transcribe","correct","terms"]' && sent.path === nsTop.path && sent.lang && 'teacher' in sent && 'doubao_model' in sent,
+      [sent, toasts()]);
+    window.api = realApi;
+    await api('library_set', { path: nsTop.path, rule: { steps: ['translate'], lang: 'zh', doubao_model: '', doubao_account: '' }, no_summary: true });
+    folderMenu(nsTop.path, 20, 20);
+    document.querySelector('#ctxMenu [data-a=bgall]').click();
+    ok('再打开：带出上次定的规则', await until(() => document.querySelector('#dlgFolderBg').open) && document.querySelector('#fbInfo').textContent.includes('上次定的规则')
+      && document.querySelector('#fbTranslate').checked && !document.querySelector('#fbAsr').checked && !document.querySelector('#fbSummary').checked);
+    document.querySelector('#dlgFolderBg').close();
+    await api('library_set', { path: nsTop.path, rule: null, no_summary: false });
+    await loadLibrary();
+    ok('还原文件夹设置', !(libNode(nsTop.path) || {}).no_summary && !(await api('folder_rule', { path: nsTop.path })).rule);
+    const bgSaved2 = S.bg;
+    S.bg = Array.from({ length: 30 }, (_, i) => ({ id: 'q' + i, path: `D:\\课\\${i}.mp4`, title: '课' + i, status: i ? 'waiting' : 'running', progress: 0 }));
+    bgMenu(20, 20);
+    ok('后台整理列表：几百节排着时只列前 10 节，有「全部停下」', document.querySelectorAll('#ctxMenu [data-bg-open]').length === 10
+      && !!document.querySelector('#ctxMenu [data-bg-all]') && document.querySelector('#ctxMenu').textContent.includes('还排着 30 节'));
+    closeMenus(); S.bg = bgSaved2;
 
     // 剪藏
     await api('settings', { settings: { obsidian: { vault: base, folder: 'clip-test', teacher_subfolder: true } } });

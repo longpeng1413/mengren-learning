@@ -364,6 +364,56 @@ while bgqueue.busy() and time.time() < t_end:  # 等它停下，免得后面数�
     time.sleep(0.2)
 check('全部停下', not bgqueue.busy())
 Api().call('bg_clear', {})
+
+
+def wait_bg():
+    t_end = time.time() + 60
+    while bgqueue.busy() and time.time() < t_end:
+        time.sleep(0.2)
+
+
+# 整个文件夹排进后台整理（2026-10-28，几百节课的文件夹）：规则记在文件夹上，只排还没整理完的
+BATCH = TMP / '灵修课'
+(BATCH / '第一季').mkdir(parents=True)
+for n in ('1、觉察.mp4', '2、臣服.mp4', '第一季/3、喜悦.mp4'):
+    shutil.copy(ROOT / 'test-media' / '演示视频.mp4', BATCH / n)
+B1, B2, B3 = (str(BATCH / n) for n in ('1、觉察.mp4', '2、臣服.mp4', '第一季/3、喜悦.mp4'))
+pre = docs.new(B3, {'duration': 9})
+pre.update(segments=[{'start': 0.0, 'end': 2.0, 'text': '大家好', 'tr': ''}], corrected=True, steps={'transcribe': 1, 'correct': 1, 'terms': 1})
+docs.save(B3, pre)
+library.add_folder(str(BATCH))
+info = Api().call('folder_rule', {'path': str(BATCH)})
+check('整个文件夹排队：对话框知道里面有几节课，还没有规则', info['lessons'] == 3 and info['books'] == 0 and info['rule'] is None, info)
+rule_req = {'path': str(BATCH), 'steps': ['transcribe', 'correct', 'terms'], 'lang': 'zh', 'teacher': teacher['id'],
+            'doubao_model': 'flash', 'doubao_account': ''}
+FAIL['transcribe'] = [1, asr.QuotaError('豆包额度用完了（测试）')]
+r1 = Api().call('bg_add_folder', rule_req)
+check('整个文件夹排队：只排还没整理完的（已经按规则做完的跳过）', r1['ok'] and r1['added'] == 2 and r1['done'] == 1, r1)
+check('整个文件夹排队：规则、老师、不写课程重点记在文件夹上，下层沿用',
+      library.folder_rule(B3)['steps'] == ['transcribe', 'correct', 'terms'] and library.folder_teacher(B3) == teacher['id']
+      and library.folder_no_summary(B3) and Api().call('folder_rule', {'path': str(BATCH)})['rule']['doubao_model'] == 'flash')
+wait_bg()
+bq = {Path(x['path']).name: x for x in Api().call('bg_list', {})['items']}
+check('额度用完：这一节没做完，同一批剩下的停下（不一节接一节地失败）', bq['1、觉察.mp4']['status'] == 'failed'
+      and bq['1、觉察.mp4']['batch_stopped'] == 1 and bq['2、臣服.mp4']['status'] == 'cancelled', bq)
+FAIL.pop('transcribe', None)
+cb = calls.copy()
+r2 = Api().call('bg_add_folder', rule_req)
+wait_bg()
+check('额度恢复后再排一次：从没做完的接着做，用规则里选的豆包模型，不写课程重点', r2['added'] == 2 and calls['asr'] - cb['asr'] == 2
+      and seen['asr_pick'] == 'flash' and calls['summary'] == cb['summary'] and all(docs.load(p)['corrected'] for p in (B1, B2))
+      and not docs.load(B1).get('summary'), (r2, calls - cb))
+r3 = Api().call('bg_add_folder', rule_req)
+check('都整理完了：再排一次没有要排的', r3['added'] == 0 and r3['done'] == 3, r3)
+B4 = str(BATCH / '第一季' / '4、新加的.mp4')
+shutil.copy(ROOT / 'test-media' / '演示视频.mp4', B4)
+a4 = Api().call('bg_add', {'path': B4})
+check('文件夹定了规则：单节课右键「排进后台整理」也按它', a4['item']['steps'] == ['transcribe', 'correct', 'terms'], a4['item'])
+bgqueue.cancel()
+wait_bg()
+check('整个文件夹排队：没勾步骤不排', not Api().call('bg_add_folder', dict(rule_req, steps=[]))['ok'])
+Api().call('bg_clear', {})
+library.remove('folder', str(BATCH))
 t8 = wf.process(EN, model='local', steps=['transcribe'], redo=['transcribe'])
 check('本地模型：接口留着，明确报「还不支持」', t8['status'] == 'failed' and t8['error']['error_code'] == 'not_supported')
 t9 = wf.process(EN)
