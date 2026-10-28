@@ -4,7 +4,7 @@ library.json（%APPDATA%\\猛人学习）：
 - folders：加进来的文件夹（最上层）[{path, name, teacher, collapsed, added}]；
 - files：单独加进来的文件 [路径]；
 - order：最上层的顺序 [路径]（文件夹和单个文件混在一起，默认按加入的先后，用户可以拖动）；
-- dirs：下层文件夹的设置 {小写路径: {teacher, collapsed}}（绑定的老师、是否收起）；
+- dirs：下层文件夹的设置 {小写路径: {teacher, collapsed, summary}}（绑定的老师、是否收起、写不写课程重点）；
 - orders：用户在某个文件夹里拖出来的顺序 {小写路径: [文件名或文件夹名…]}。
 
 排列规则（用户 2026-10-14 定的）：
@@ -12,6 +12,8 @@ library.json（%APPDATA%\\猛人学习）：
 - 文件夹里同一层：带数字序号的（1、 01. 第3讲 三、…）按序号排在前面，没有序号的按下载（创建）时间排在后面；
 - 没有序号的可以拖到任意位置，软件记住；带序号的之间永远按序号（拖乱了界面会提示改名）；
 - 每一层文件夹都能绑定老师，没绑定的沿用最近一层上级的（folder_teacher）。
+- 每一层文件夹都能设「不写课程重点」（summary: 'off'；子文件夹可以设回 'on'；空着沿用上层，最上层默认写），
+  灵修类这种逐字稿课程只识别、校对，直接蒸馏（2026-10-28 用户要求按文件夹选，不按老师；folder_no_summary）。
 识别的文件：音视频（media.MEDIA_EXT）和文档（book.LIB_EXT）；字幕、txt、软件自己的 json 等不列。
 「_」或「.」开头的文件夹（例如「_关键帧缓存」）不列。"""
 import json
@@ -137,7 +139,8 @@ def _status(path, positions, env=None):
         item['duration'] = d.get('duration') or 0
     if env is not None:
         from . import workflow  # workflow 也用 library，放这里免得互相引用
-        item['pending'] = workflow.pending_in_scan(path, d, env['facts'], _bound_teacher(env['binds'], path))
+        item['no_summary'] = _nearest(env['summary'], path) == 'off'
+        item['pending'] = workflow.pending_in_scan(path, d, env['facts'], _nearest(env['binds'], path), item['no_summary'])
     pos = positions.get(os.path.abspath(path).lower())
     if pos:
         item['pos'] = pos.get('t', 0)
@@ -183,12 +186,15 @@ def _ctime(path):
         return 0
 
 
-def _tree(path, lib, positions, budget, top=False, env=None):
-    """一个文件夹的树：{type, path, name, top, teacher, collapsed, missing, count, num, children}。没有任何可列文件的子文件夹不显示。"""
+def _tree(path, lib, positions, budget, top=False, env=None, inherit=''):
+    """一个文件夹的树：{type, path, name, top, teacher, collapsed, summary, no_summary, missing, count, num, children}。
+    summary 是这一层自己的设置（'on' / 'off' / 空），no_summary 是算上上层之后的结果；inherit 是上层的结果。没有任何可列文件的子文件夹不显示。"""
     k = _key(path)
-    conf = lib['dirs'].get(k, {})
+    conf = _conf(lib, k)
+    own = conf.get('summary') or ''
     node = {'type': 'folder', 'path': path, 'name': Path(path).name or path, 'top': top, 'teacher': conf.get('teacher') or '',
-            'collapsed': bool(conf.get('collapsed')), 'missing': not os.path.isdir(path), 'count': 0, 'children': []}
+            'collapsed': bool(conf.get('collapsed')), 'summary': own, 'no_summary': (own or inherit) == 'off',
+            'missing': not os.path.isdir(path), 'count': 0, 'children': []}
     if node['missing']:
         return node
     dirs, files = _listdir(path)
@@ -196,7 +202,7 @@ def _tree(path, lib, positions, budget, top=False, env=None):
     for d in dirs:
         if budget[0] <= 0:
             break
-        child = _tree(d.path, lib, positions, budget, env=env)
+        child = _tree(d.path, lib, positions, budget, env=env, inherit=own or inherit)
         if child['count']:
             entries.append(dict(child, ctime=_ctime(d.path), fname=d.name))
     for f in files:
@@ -225,7 +231,7 @@ def view():
         k = _key(p)
         if k in by_key:
             f = by_key[k]
-            node = _tree(f['path'], lib, positions, budget, top=True, env=env)
+            node = _tree(f['path'], lib, positions, budget, top=True, env=env, inherit=_nearest(env['summary'], f['path']) if env else '')
             node.update(name=f.get('name') or node['name'], teacher=f.get('teacher') or '', collapsed=bool(f.get('collapsed')))
             out.append(node)
         elif k in files and os.path.isfile(files[k]):
@@ -307,6 +313,8 @@ def add_folder(path, merge=None):
             conf = lib['dirs'].setdefault(_key(f['path']), {})
             if f.get('teacher'):
                 conf['teacher'] = f['teacher']
+            if f.get('summary'):
+                conf['summary'] = f['summary']
             conf['collapsed'] = bool(f.get('collapsed'))
         gone = {_key(f['path']) for f in children} | {_key(p) for p in singles}
         lib['folders'] = [f for f in lib['folders'] if _key(f['path']) not in gone]
@@ -357,22 +365,28 @@ def remove(kind, path):
 
 
 def set_folder(path, **changes):
+    """改一个文件夹的设置：teacher、collapsed、name（只有最上层）、no_summary（True / False：这里的课写不写课程重点）。"""
     lib = load()
     if path == '':  # 以前的「单个文件」一组
         save(lib)
         return
     k = _key(path)
+    if 'no_summary' in changes:  # 和上层一样就不单独记（以后改上层，这里跟着变）
+        want = 'off' if changes.pop('no_summary') else 'on'
+        changes['summary'] = '' if want == (_nearest(_summary_binds(lib), path) or 'on') else want
     top = next((f for f in lib['folders'] if _key(f['path']) == k), None)
     if top is not None:
-        for name in ('teacher', 'collapsed', 'name'):
+        for name in ('teacher', 'collapsed', 'name', 'summary'):
             if name in changes:
                 top[name] = changes[name]
     else:
         conf = lib['dirs'].setdefault(k, {})
-        for name in ('teacher', 'collapsed'):
+        for name in ('teacher', 'collapsed', 'summary'):
             if name in changes:
                 conf[name] = changes[name]
-        if not conf.get('teacher') and not conf.get('collapsed'):
+        if not conf.get('summary'):
+            conf.pop('summary', None)
+        if not any(conf.get(x) for x in ('teacher', 'collapsed', 'summary')):
             lib['dirs'].pop(k, None)
     save(lib)
 
@@ -397,21 +411,40 @@ def _scan_env(lib):
     except Exception:  # noqa: BLE001  读设置出错时不显示「未整理完」，列表照样能用
         log.exception('媒体库：准备「还差哪几步」的判断出错')
         return None
-    return {'facts': facts, 'binds': _teacher_binds(lib)}
+    return {'facts': facts, 'binds': _teacher_binds(lib), 'summary': _summary_binds(lib)}
+
+
+def _conf(lib, k):
+    """一层文件夹的设置：最上层的在 folders 里，下层的在 dirs 里。"""
+    return next((f for f in lib['folders'] if _key(f['path']) == k), None) or lib['dirs'].get(k, {})
+
+
+def _binds(lib, name):
+    binds = {_key(f['path']): f.get(name) for f in lib['folders'] if f.get(name)}
+    binds.update({k: v.get(name) for k, v in lib['dirs'].items() if v.get(name)})
+    return binds
 
 
 def _teacher_binds(lib):
-    binds = {_key(f['path']): f.get('teacher') for f in lib['folders'] if f.get('teacher')}
-    binds.update({k: v.get('teacher') for k, v in lib['dirs'].items() if v.get('teacher')})
-    return binds
+    return _binds(lib, 'teacher')
+
+
+def _summary_binds(lib):
+    return _binds(lib, 'summary')
 
 
 def folder_teacher(media_path):
     """视频所在文件夹绑定的老师：自己没绑定就沿用最近一层上级的（加进来的文件夹和下层文件夹都算）。"""
-    return _bound_teacher(_teacher_binds(load()), media_path)
+    return _nearest(_teacher_binds(load()), media_path)
 
 
-def _bound_teacher(binds, media_path):
+def folder_no_summary(media_path):
+    """视频所在文件夹（或最近一层设过的上级）设了「不写课程重点」。"""
+    return _nearest(_summary_binds(load()), media_path) == 'off'
+
+
+def _nearest(binds, media_path):
+    """从文件（文件夹）所在的上一层往上找，最近一层设过的值；都没设返回空。"""
     d = os.path.dirname(_key(media_path))
     while True:
         if binds.get(d):

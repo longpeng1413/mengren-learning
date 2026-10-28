@@ -307,10 +307,10 @@ class Facts:
     真正整理时（Ctx.facts）用到才去查（例如探测视频有没有画面）；列「还没整理完」时（scan_facts）整个媒体库共用一份，
     不探测文件、不读术语表文件，所以快。has_video / vision / toc 可以给值，也可以给「用到时再算」的函数。"""
 
-    def __init__(self, settings, opts=None, teacher=None, has_video=True, vision=None, toc=None):
+    def __init__(self, settings, opts=None, teacher=None, has_video=True, vision=None, toc=None, no_summary=False):
         self.settings = settings
         self.opts = opts or {}
-        self._v = {'teacher': teacher, 'has_video': has_video, 'vision': vision, 'toc': toc}
+        self._v = {'teacher': teacher, 'has_video': has_video, 'vision': vision, 'toc': toc, 'no_summary': no_summary}
 
     def _get(self, k):
         v = self._v[k]
@@ -333,6 +333,10 @@ class Facts:
         """书的目录；列「还没整理完」时不读书（None = 不知道，当作没有）"""
         return self._get('toc')
 
+    def no_summary(self):
+        """媒体库里这节课所在的文件夹设了「不写课程重点」（library.folder_no_summary）"""
+        return bool(self._get('no_summary'))
+
     def lang(self, d):
         t = self.teacher() or {}
         lang = self.opts.get('lang') or d.get('lang') or t.get('lang') or self.settings.get('last_lang') or 'zh'
@@ -351,6 +355,7 @@ def why_skip(name, d, f, force=False):
     st = _steps(d)
     summary = (d.get('summary') or '').strip()
     old = _old_summary(d)
+    no_summary = name in ('summary', 'review') and f.no_summary()
     if name == 'transcribe':
         if d.get('segments') and not force:
             return '已经有字幕（要重新识别：--steps transcribe --force）'
@@ -382,9 +387,13 @@ def why_skip(name, d, f, force=False):
     elif name == 'summary':
         if summary and not force:
             return '已经有课程重点'
+        if no_summary and not force:
+            return NO_SUMMARY
     elif name == 'review':
         if not summary:
             return '还没有课程重点'
+        if no_summary and not force:
+            return NO_SUMMARY
         if not f.settings.get('auto_review', True) and not force:
             return '设置里关掉了「自动查漏补缺」'
         if 'review' in st and not force:
@@ -414,6 +423,7 @@ def why_skip(name, d, f, force=False):
 
 
 NO_DOUBTS = '没有存疑句'
+NO_SUMMARY = '媒体库里这个文件夹设了「不写课程重点」（要写：界面上勾选，或 --steps summary --force）'
 
 
 def _pretend(name, d):
@@ -467,11 +477,12 @@ def scan_facts():
     return {'settings': s, 'teachers': {t['id']: t for t in config.load_teachers()}, 'vision': _vision_check(s)}
 
 
-def pending_in_scan(path, d, env, folder_teacher=''):
+def pending_in_scan(path, d, env, folder_teacher='', no_summary=False):
     """媒体库列表用：这节课（或这本书）还要做哪几步。d 是已经读出来的字幕文件（没有就是 None），不再读任何文件。"""
     kind = kind_of(path)
     tid = (d or {}).get('teacher') or folder_teacher
-    f = Facts(env['settings'], teacher=env['teachers'].get(tid) if tid else None, has_video=kind != 'audio', vision=env['vision'])
+    f = Facts(env['settings'], teacher=env['teachers'].get(tid) if tid else None, has_video=kind != 'audio', vision=env['vision'],
+              no_summary=no_summary)
     return pending_steps(d, 'book' if kind == 'book' else 'video', f)[0]
 
 
@@ -482,7 +493,8 @@ def facts_for(path, d, settings=None, opts=None, probe=True):
     tid = d.get('teacher') or library.folder_teacher(path)
     return Facts(s, opts, teacher=lambda: config.get_teacher(tid, resolve=False) if tid else None,
                  has_video=(lambda: media.probe(path).get('has_video')) if probe else kind_of(path) != 'audio',
-                 vision=lambda: _vision_check(s), toc=lambda: book.read(path).get('toc'))
+                 vision=lambda: _vision_check(s), toc=lambda: book.read(path).get('toc'),
+                 no_summary=lambda: library.folder_no_summary(path))
 
 
 def pending_now(path, d):

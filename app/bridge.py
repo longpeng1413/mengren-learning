@@ -125,7 +125,8 @@ class Api:
         if not d.get('teacher'):
             d['teacher'] = library.folder_teacher(path)
         out = {'path': path, 'info': info, 'doc': d, 'plan': plan, 'position': config.get_position(path),
-               'busy': tasks.busy(docs.media_key(path)), 'summary_changes': docs.summary_changes(d), 'pending': workflow.pending_now(path, d)}
+               'busy': tasks.busy(docs.media_key(path)), 'summary_changes': docs.summary_changes(d), 'pending': workflow.pending_now(path, d),
+               'no_summary': library.folder_no_summary(path)}
         cached = media.playable_path(path, info)
         if plan == 'direct':
             out['src'] = file_url(path)
@@ -723,7 +724,7 @@ class Api:
         return {'groups': library.view()}
 
     def do_library_set(self, b):
-        library.set_folder(b.get('path') or '', **{k: b[k] for k in ('teacher', 'collapsed', 'name') if k in b})
+        library.set_folder(b.get('path') or '', **{k: b[k] for k in ('teacher', 'collapsed', 'name', 'no_summary') if k in b})
         return {'groups': library.view() if b.get('refresh') else None}
 
     # ------------------------------------------------------------ 日志与退出 ----

@@ -119,6 +119,25 @@ check('老师：没绑定的沿用上一层，上一层也没有就是无', libr
 api.call('library_set', {'path': str(C), 'teacher': t2['id']})
 check('老师：上层绑定后，没单独绑定的子文件夹沿用上层', library.folder_teacher(str(C / '1、第一讲' / '1、a.mp4')) == t2['id']
       and library.folder_teacher(str(C / '资料' / '讲义.pdf')) == t1['id'])
+
+# 不写课程重点（按文件夹设，下层沿用，可以单独改回来）
+api.call('library_set', {'path': str(C), 'no_summary': True})
+course = api.call('library', {})['groups'][1]
+first = course['children'][0]
+check('不写课程重点：上层设了，下层文件夹和里面的课沿用', course['summary'] == 'off' and course['no_summary']
+      and first['summary'] == '' and first['no_summary'] and first['children'][0]['no_summary']
+      and library.folder_no_summary(str(C / '1、第一讲' / '1、a.mp4')), first)
+api.call('library_set', {'path': str(C / '资料'), 'no_summary': False})
+ziliao = next(c for c in api.call('library', {})['groups'][1]['children'] if c['name'] == '资料')
+check('不写课程重点：子文件夹可以单独改回要写', ziliao['summary'] == 'on' and not ziliao['no_summary']
+      and not library.folder_no_summary(str(C / '资料' / '讲义.pdf')) and library.folder_no_summary(str(C / '预告.mp4')))
+api.call('library_set', {'path': str(C / '1、第一讲'), 'no_summary': True})
+check('不写课程重点：和上层一样的不单独记', library._key(str(C / '1、第一讲')) not in library.load()['dirs'])
+api.call('library_set', {'path': str(C), 'no_summary': False})
+api.call('library_set', {'path': str(C / '资料'), 'no_summary': False})
+check('不写课程重点：都改回来以后，设置清干净（资料的老师还在）', not library.folder_no_summary(str(C / '预告.mp4'))
+      and library.load()['dirs'][library._key(str(C / '资料'))] == {'teacher': t1['id'], 'collapsed': False}, library.load()['dirs'])
+
 r = api.call('library_add_folder', {'path': str(C / '1、第一讲')})
 check('上层已经在了，再加子文件夹：提示已经在里面了，不重复加', r['status'] == 'inside' and r['parent_name'] == '课程')
 check('同一个文件夹再加一次：提示已经有了', api.call('library_add_folder', {'path': str(C)})['status'] == 'exists')

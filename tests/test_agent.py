@@ -596,6 +596,16 @@ old8.update(segments=[{'start': 0.0, 'end': 2.0, 'text': '大家好', 'tr': ''}]
 docs.save(L8, old8)
 check('旧字幕文件：只校对过、没写课程重点 → 没整理完，从找插图往后做（没有存疑句不用复核）',
       item_of(L8)['pending_steps'] == ['frames', 'summary', 'review', 'terms'] and item_of(L8)['state'] == '有字幕', item_of(L8))
+# 媒体库文件夹设了「不写课程重点」（灵修类逐字稿课程，2026-10-28）
+library.set_folder(str(COURSE), no_summary=True)
+check('文件夹设了不写课程重点：课程重点、查漏不算没做', item_of(L8)['pending_steps'] == ['frames', 'terms']
+      and wf.info(L8)['skipped_steps'].get('summary') == wf.NO_SUMMARY, (item_of(L8), wf.info(L8)['skipped_steps']))
+c8 = calls.copy()
+wf.process(L8, steps=['summary'])
+check('文件夹设了不写课程重点：只做还没做完的步骤时跳过，不调 AI', calls == c8 and not docs.load(L8).get('summary'))
+wf.process(L8, steps=['summary'], redo=['summary'])
+check('文件夹设了不写课程重点：界面上勾选（重做）时照样写', (docs.load(L8).get('summary') or '').strip())
+library.set_folder(str(COURSE), no_summary=False)
 
 # 不该做的步骤不算没做：中文不翻译、音频没有画面、没有老师不校对不找新术语
 S0 = config.load()
@@ -610,6 +620,7 @@ check('能看图的 AI 没设好：找插图、复核跳过，不算没做', wf.
       == ['transcribe', 'correct', 'summary', 'review', 'terms'])
 check('设置里关掉「自动查漏补缺」：查漏不算没做', wf.pending_steps(dict(done_zh, steps={'summary': 1}), 'video',
       wf.Facts(dict(S0, auto_review=False), teacher=None, has_video=False, vision=('', 'x')))[0] == [])
+check('不写课程重点：还没整理的音频只差生成字幕', wf.pending_steps({}, 'video', wf.Facts(S0, has_video=False, no_summary=True))[0] == ['transcribe'])
 check('书：章节都整理完、没写全书总览 → 没整理完', wf.pending_steps({'kind': 'book', 'chapters': [{'title': '第一章', 'md': '内容'}]}, 'book',
       wf.Facts(S0))[0] == ['overview'])
 

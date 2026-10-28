@@ -220,6 +220,13 @@ function libNode(path, nodes = S.lib) {
   }
   return null;
 }
+/* 这节课所在的最里层文件夹是不是「不写课程重点」（后台已经算好了上层沿用） */
+function libNoSummary(path, nodes = S.lib) {
+  for (const n of nodes || []) {
+    if (n.type === 'folder' && insideDir(path, n.path)) return libNoSummary(path, n.children) ?? !!n.no_summary;
+  }
+  return null;
+}
 const insideDir = (path, dir) => !!path && !!dir && path.toLowerCase().startsWith(dir.toLowerCase().replace(/[\\/]+$/, '') + '\\');
 /* 整理步骤的中文名（和 workflow.LABELS 一样） */
 const STEP_LABEL = { transcribe: '生成字幕', correct: 'AI 校对', frames: '找关键帧', recheck: '用画面复核存疑句', translate: '翻译',
@@ -227,7 +234,7 @@ const STEP_LABEL = { transcribe: '生成字幕', correct: 'AI 校对', frames: '
 /* 有整理结果、但一键整理默认的步骤还没做完（例如写完课程重点后额度用完，查漏、新术语没做）：标「未整理完」 */
 function pendingTag(it) {
   const left = it.pending || [];
-  const done = it.book ? it.book.total && it.book.done === it.book.total : it.summary;
+  const done = it.book ? it.book.total && it.book.done === it.book.total : it.summary || (it.no_summary && it.subs);  // 不写课程重点的文件夹：有字幕就算整理过
   if (!done || !left.length) return '';
   return `<span class="tag warn" title="一键整理还差：${left.map(n => STEP_LABEL[n] || n).join('、')}。打开后用一键整理（做过的步骤会自动跳过），或让 AI 用命令行 --todo 接着整理">未整理完</span>`;
 }
@@ -268,6 +275,8 @@ function folderHTML(n, depth, parent, q, chain) {
       <svg class="caret" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
       <span class="lib-gname">${esc(n.name)}</span>
       ${t ? `<span class="lib-gteacher" title="这个文件夹（和没单独绑定的下层文件夹）里的课用这位老师的术语表">${esc(t.name)}</span>` : ''}
+      ${n.summary === 'off' ? '<span class="lib-gteacher" title="这个文件夹（和没单独设置的下层文件夹）里的课不写课程重点：一键整理默认不勾，后台整理和命令行跳过">不写重点</span>'
+    : n.summary === 'on' ? '<span class="lib-gteacher" title="上层设了不写课程重点，这个文件夹单独设成要写">写重点</span>' : ''}
       <span class="lib-gcount">${n.count}</span>
       <button class="lib-more" data-more="${esc(n.path)}" title="更多">⋯</button>
     </div>
@@ -337,6 +346,7 @@ function folderMenu(path, x, y) {
   const n = libNode(path); if (!n) return;
   showCtx(x, y, `<div class="menu-label">这个文件夹的老师 / 术语表</div>
     <select data-a="teacher">${teacherOptions(n.teacher, n.top ? '不指定' : '不指定（沿用上一层）')}</select>
+    <button class="menu-item" data-a="nosum" title="灵修类这种逐字稿课程：只识别、校对，直接蒸馏老师。打开后一键整理默认不勾「生成课程重点」，后台整理和命令行跳过课程重点和查漏补缺，媒体库不再因为没写重点标「未整理完」。下层文件夹沿用，也能单独改回来">${n.no_summary ? '✓ ' : ''}这里的课不写课程重点</button>
     <button class="menu-item" data-a="rename">重命名…</button>
     <button class="menu-item" data-a="rescan">重新扫描</button>
     <button class="menu-item" data-a="reveal">在资源管理器中打开</button>
@@ -347,6 +357,14 @@ function folderMenu(path, x, y) {
       n.teacher = e.target.value; m.hidden = true;
       await api('library_set', { path: n.path, teacher: n.teacher }); renderLibrary();
       toast(n.teacher ? '已设置：这个文件夹和它下面没单独绑定的文件夹，里面的课都用这位老师的术语表' : (n.top ? '已取消绑定' : '已取消绑定，沿用上一层文件夹的设置'));
+    };
+    $('[data-a=nosum]', m).onclick = async () => {
+      m.hidden = true;
+      const off = !n.no_summary;
+      try { await loadLibrary((await api('library_set', { path: n.path, no_summary: off, refresh: true })).groups); } catch (e) { fail(e); return; }
+      if (S.path && insideDir(S.path, n.path)) S.noSummary = libNoSummary(S.path);
+      toast(off ? `「${n.name}」里的课以后不写课程重点：一键整理默认不勾，后台整理和命令行跳过（想写某一节时，在一键整理里勾上就行）`
+        : `「${n.name}」里的课以后照常写课程重点`, { ms: 6000 });
     };
     $('[data-a=rename]', m).onclick = () => { m.hidden = true; renameNode(n); };
     $('[data-a=rescan]', m).onclick = () => { m.hidden = true; loadLibrary(); };
@@ -510,6 +528,7 @@ window.openPath = async function (path) {
     $('#optLoop').checked = false; S.loopIdx = null; updateLoopHint();
     S.docStale = libFiles().some(it => it.stale && it.path.toLowerCase() === d.path.toLowerCase());
     S.lastSaved = d.doc.updated || null; S.rev = d.doc.rev || 0; S.summaryChanges = d.summary_changes || 0; S.pending = d.pending || [];
+    S.noSummary = !!d.no_summary;
     $('#btnUndo').disabled = true;
     $('#empty').hidden = true; $('#stageMain').hidden = false;
     $('#fileTitle').textContent = d.doc.title; $('#fileTitle').title = d.path; document.title = `${d.doc.title} - 猛人学习`;
@@ -1403,7 +1422,8 @@ function openPipeline() {
   };
   $$('input[name=plLang]').forEach(r => r.onchange = sync);
   sync();
-  $('#plSummary').checked = true;
+  $('#plSummary').checked = !S.noSummary;  // 媒体库文件夹设了「不写课程重点」时默认不勾
+  $('#plSummaryText').textContent = S.noSummary ? '生成课程重点（这个文件夹设了不写，要写这一节就勾上）' : '生成课程重点';
   $('#plClip').checked = false;
   $('#plTerms').checked = true;
   termsLabel();

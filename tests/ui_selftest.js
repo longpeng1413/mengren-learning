@@ -312,6 +312,8 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       && !itemHTML({ path: 'x.mp4', name: 'x', subs: 5, pending: ['correct', 'summary'] }).includes('未整理完')
       && itemHTML({ path: 'x.pdf', name: 'x', book: { done: 2, total: 2 }, pending: ['overview'] }).includes('未整理完')
       && !itemHTML({ path: 'x.pdf', name: 'x', book: { done: 1, total: 2 }, pending: ['organize', 'overview'] }).includes('未整理完'));
+    ok('媒体库「未整理完」：不写课程重点的文件夹里，有字幕就算整理过', itemHTML({ path: 'x.mp4', name: 'x', subs: 5, no_summary: true, pending: ['terms'] }).includes('未整理完')
+      && !itemHTML({ path: 'x.mp4', name: 'x', subs: 5, no_summary: true, pending: [] }).includes('未整理完'));
     ok('翻译：中文字幕自己选了翻译也照样翻', await startTranslate(false) && S.doc.segments.every(s => s.tr.startsWith('中文：')));
     const termsP = findTerms(false);
     ok('新术语：放进待勾选并打开对话框', await until(() => document.querySelector('#dlgTerms').open) && S.doc.terms_pending.terms[0].term === '假AI新术语');
@@ -684,6 +686,24 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('打开 avi 时自动用文件夹没有绑定的老师（空）', S.doc.teacher === '');
     await window.openPath(base + '演示视频.mp4');
     ok('再次打开从上次进度继续', await until(() => Math.abs(v.currentTime - 21.3) < 0.6, 5000), v.currentTime);
+
+    // 文件夹菜单「这里的课不写课程重点」（2026-10-28，灵修类逐字稿课程直接蒸馏）
+    const nsTop = S.lib.find(n => n.type === 'folder' && insideDir(S.path, n.path));
+    ok('打开的课在媒体库文件夹里，刚打开时照常写课程重点', !!nsTop && S.noSummary === false, S.path);
+    folderMenu(nsTop.path, 20, 20);
+    ok('文件夹菜单有「这里的课不写课程重点」', !!document.querySelector('#ctxMenu [data-a=nosum]') && !document.querySelector('#ctxMenu [data-a=nosum]').textContent.includes('✓'));
+    document.querySelector('#ctxMenu [data-a=nosum]').click();
+    ok('设了不写课程重点：文件夹名旁边标「不写重点」，正开着的课跟着知道', await until(() => S.noSummary === true && (libNode(nsTop.path) || {}).no_summary)
+      && document.querySelector(`.lib-ghead[data-folder="${CSS.escape(nsTop.path)}"]`).textContent.includes('不写重点'));
+    openPipeline();
+    ok('设了不写课程重点：一键整理默认不勾「生成课程重点」，旁边写明原因', !document.querySelector('#plSummary').checked
+      && document.querySelector('#plSummaryText').textContent.includes('设了不写'));
+    document.querySelector('#dlgPipeline').close();
+    ok('重新打开这节课：后台也说是不写课程重点', (await api('open', { path: S.path })).no_summary === true);
+    folderMenu(nsTop.path, 20, 20);
+    ok('菜单里显示已经打开（✓）', document.querySelector('#ctxMenu [data-a=nosum]').textContent.includes('✓'));
+    document.querySelector('#ctxMenu [data-a=nosum]').click();
+    ok('再点一次改回要写', await until(() => S.noSummary === false && !(libNode(nsTop.path) || {}).no_summary));
 
     // 剪藏
     await api('settings', { settings: { obsidian: { vault: base, folder: 'clip-test', teacher_subfolder: true } } });
