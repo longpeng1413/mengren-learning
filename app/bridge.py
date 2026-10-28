@@ -465,6 +465,15 @@ class Api:
         """把勾选的新术语和识别错误加进老师的术语表（关联了 Obsidian 文件就写进文件，先备份）。"""
         return glossary.add(b.get('teacher'), b.get('terms'), b.get('errors'), str(b.get('title') or ''))
 
+    def do_glossary_plan(self, b):
+        """新老师的第一节课：术语表会建在哪里、已有的老师、这节课往上可以绑定老师的文件夹。"""
+        return glossary.plan(str(b.get('path') or ''))
+
+    def do_glossary_create(self, b):
+        """新老师的第一节课：建老师档案和 Obsidian 术语表、绑定文件夹、写入勾选的术语。"""
+        r = glossary.create(b.get('name'), b.get('terms'), b.get('errors'), str(b.get('title') or ''), str(b.get('bind') or ''))
+        return dict(r, teachers=config.load_teachers(), groups=library.view() if r.get('bound') else None)
+
     def do_coverage(self, b):
         d = b.get('doc') or {}
         ratio, gaps = llm.coverage(d.get('segments'), d.get('summary') or '')

@@ -1398,14 +1398,15 @@ function openPipeline() {
   $('#plTeacher').onchange = () => {
     const t = teacherById($('#plTeacher').value);
     if (t && !S.doc.lang) $$('input[name=plLang]').forEach(r => r.checked = r.value === t.lang);
-    $('#plTerms').checked = !!t;
+    termsLabel();
     sync();
   };
   $$('input[name=plLang]').forEach(r => r.onchange = sync);
   sync();
   $('#plSummary').checked = true;
   $('#plClip').checked = false;
-  $('#plTerms').checked = !!$('#plTeacher').value;
+  $('#plTerms').checked = true;
+  termsLabel();
   const vid = !!(S.info && S.info.has_video), nShots = (S.doc.frames || []).length;
   $('#plFrames').disabled = !vid;
   $('#plFrames').checked = vid && !nShots && providerReady(S.settings.vision);
@@ -1417,6 +1418,11 @@ function openPipeline() {
   dlg.returnValue = '';
   dlg.showModal();
   dlg.onclose = () => { if (dlg.returnValue === 'ok') runPipeline(); };
+}
+function termsLabel() {  // 没选老师时，「新术语」= 找出这节课的专用术语、建这位老师的术语表
+  const lb = $('#plTermsText');
+  if (lb) lb.textContent = $('#plTeacher').value ? '找出新术语，最后弹出来让你勾选，确认的加进术语表'
+    : '找出这节课的专用术语，最后弹出来让你勾选、填老师名字，建立这位老师的术语表（以后的课接着积累）';
 }
 async function runPipeline() {
   S.cancelPipeline = false;
@@ -1436,7 +1442,7 @@ async function runPipeline() {
     const provider = lang === 'en' ? S.settings.asr_en : S.settings.asr_zh;
     try {
       await flushSave();
-      await bgAdd({ path: S.path, steps, lang, provider, allow_no_teacher: true,
+      await bgAdd({ path: S.path, steps, lang, provider, allow_no_teacher: true, new_glossary: !S.doc.teacher,
         doubao_model: provider === 'doubao' ? $('#plDbModel').value : '', doubao_account: provider === 'doubao' ? $('#plDbAcct').value : '' },
       { clip, terms: steps.includes('terms') });
     } catch (e) { fail(e); return; }
@@ -1551,18 +1557,15 @@ async function doExport(kind) {
 
 /* ----------------------------------------------------------- 新术语 ---- */
 /* 从这节课里找术语表里还没有的新术语和识别错误，用户勾选确认后加进老师的术语表（逐课积累） */
-async function findTerms(auto) {
-  if (!teacherById(S.doc.teacher)) {
-    if (!auto) toast('先在顶栏选择老师，才知道加进哪份术语表', { error: true });
-    return !!auto;
-  }
+async function findTerms() {
+  const fresh = !teacherById(S.doc.teacher);  // 新老师的第一节课：找出专用术语，勾选后填老师名字、建术语表（2026-10-28 用户要求）
   try {
-    const res = await runSteps(['terms'], 'AI 正在找这节课的新术语…');
+    const res = await runSteps(['terms'], fresh ? 'AI 正在找这节课的专用术语…' : 'AI 正在找这节课的新术语…', fresh ? { opts: { new_glossary: true } } : {});
     renderDoc();
     const out = stepResult(res, 'terms');
     if (!out) return false;
     if (out.skipped !== undefined) { toast(out.skipped); return true; }
-    if (!S.doc.terms_pending) { toast('没有发现术语表里还没有的新术语'); return true; }
+    if (!S.doc.terms_pending) { toast(fresh ? '这节课没有找出专用术语' : '没有发现术语表里还没有的新术语'); return true; }
     await openTerms();
     return true;
   } catch (e) { fail(e); return false; }
@@ -1574,30 +1577,49 @@ function termRow(kind, x, i) {
     ? `<div class="tm-row" data-kind="term" data-i="${i}"><input type="checkbox" checked><input class="tm-in" data-f="term" value="${esc(x.term)}">${ts}${q}</div>`
     : `<div class="tm-row" data-kind="error" data-i="${i}"><input type="checkbox" checked><span class="tm-pair"><input class="tm-in" data-f="wrong" value="${esc(x.wrong)}"><span>→</span><input class="tm-in" data-f="right" value="${esc(x.right)}"></span>${ts}${q}</div>`;
 }
-function openTerms() {
-  const pend = S.doc.terms_pending; if (!pend) return Promise.resolve();
-  const t = teacherById(S.doc.teacher) || {};
+async function openTerms() {
+  const pend = S.doc.terms_pending; if (!pend) return;
+  const t = teacherById(S.doc.teacher);
   const dlg = $('#dlgTerms');
-  const file = t.terms_file ? t.terms_file.split(/[\\/]/).pop() : '';
-  $('#tmInfo').innerHTML = `加进 <b>${esc(t.name || '')}</b> 的术语表` +
-    (file ? `：写在「${esc(file)}」末尾的「逐课补充（猛人学习）」一节，写之前自动备份。` : '（老师档案里的术语）。') +
-    '只记录名称，不写定义。不对的去掉勾，写错的可以直接改；点时间可以回听。';
+  $('#tmNew').hidden = !!t;
+  if (t) {
+    const file = t.terms_file ? t.terms_file.split(/[\\/]/).pop() : '';
+    $('#tmTitle').textContent = '这节课的新术语';
+    $('#tmAdd').textContent = '加入术语表';
+    $('#tmInfo').innerHTML = `加进 <b>${esc(t.name || '')}</b> 的术语表` +
+      (file ? `：写在「${esc(file)}」末尾的「逐课补充（猛人学习）」一节，写之前自动备份。` : '（老师档案里的术语）。') +
+      '只记录名称，不写定义。不对的去掉勾，写错的可以直接改；点时间可以回听。';
+  } else {  // 新老师的第一节课：填老师名字，建术语表
+    let plan = { folder: '', teachers: [], binds: [] };
+    try { plan = await api('glossary_plan', { path: S.path }); } catch (e) { fail(e); }
+    $('#tmTitle').textContent = '建立这位老师的术语表';
+    $('#tmAdd').textContent = '建立术语表';
+    $('#tmInfo').innerHTML = '这节课还没有老师的术语表。勾选这节课的专用术语（不对的去掉勾，写错的直接改，点时间可以回听），填上老师名字：'
+      + (plan.folder ? `软件会在 Obsidian「02、规则体系/02、课程专用规则」里建一份「老师名课程术语表」（结构和峰级那份一样），关联到这位老师；`
+        : '还没有设置 Obsidian 库，术语先记在软件的老师档案里；')
+      + '再把下面选的文件夹绑定这位老师。以后这个文件夹里的课，识别时把这些术语当热词、校对时参考，每节课整理完继续找新术语让你勾选。只记录名称，不写定义。';
+    $('#tmNames').innerHTML = plan.teachers.map(n => `<option value="${esc(n)}">`).join('');
+    $('#tmName').value = '';
+    $('#tmBind').innerHTML = plan.binds.map(b => `<option value="${esc(b.path)}" ${b.top ? 'selected' : ''}>${esc(b.name)}${b.top ? '（加进媒体库的文件夹）' : ''}</option>`).join('')
+      + '<option value="">不绑定（以后每节课自己在顶栏选老师）</option>';
+  }
   $('#tmList').innerHTML =
     (pend.terms.length ? `<div class="tm-head">新术语（以后识别时当热词）</div>` + pend.terms.map((x, i) => termRow('term', x, i)).join('') : '') +
     (pend.errors.length ? `<div class="tm-head">识别错误（以后校对时参考）</div>` + pend.errors.map((x, i) => termRow('error', x, i)).join('') : '');
+  $('#tmAdd').onclick = e => { if (!t && !$('#tmName').value.trim()) { e.preventDefault(); toast('请填老师的名字', { error: true }); $('#tmName').focus(); } };
   dlg.returnValue = '';
   dlg.showModal();
   return new Promise(resolve => {
     dlg.onclose = async () => {
       const v = dlg.returnValue;
-      if (v === 'add') await addTerms();
+      if (v === 'add') await addTerms(t ? null : { name: $('#tmName').value.trim(), bind: $('#tmBind').value });
       else if (v === 'drop') { S.doc.terms_pending = null; markDirty(); save(); }
       updateButtons();
       resolve();
     };
   });
 }
-async function addTerms() {
+async function addTerms(fresh) {  // fresh：{name, bind} 新老师的第一节课，建老师档案和术语表
   const terms = [], errors = [];
   $$('#tmList .tm-row').forEach(row => {
     if (!$('input[type=checkbox]', row).checked) return;
@@ -1607,6 +1629,20 @@ async function addTerms() {
     else { const x = pend.errors[i]; if (val('wrong') && val('right')) errors.push({ ...x, wrong: val('wrong'), right: val('right') }); }
   });
   if (!terms.length && !errors.length) { toast('一条都没勾，术语表没有改动；这些候选还留着，点「新术语」可以再看'); return; }
+  if (fresh) {
+    try {
+      const r = await api('glossary_create', { name: fresh.name, bind: fresh.bind, terms, errors, title: S.doc.title });
+      S.teachers = r.teachers;
+      setDocTeacher(r.teacher);
+      S.doc.terms_pending = null; markDirty(); save();
+      if (r.groups) { S.lib = r.groups; renderLibrary(); }
+      renderTeacherSelect();
+      const where = r.file ? `「${r.file.split(/[\\/]/).pop()}」（Obsidian「02、规则体系/02、课程专用规则」）` : '软件的老师档案';
+      toast(`${r.created ? '已建立' : '已加进'}「${r.name}」的术语表：新术语 ${r.terms} 条，识别错误 ${r.errors} 条，写在${where}。`
+        + (r.bound ? `以后「${r.bound.split(/[\\/]/).pop()}」里的课都用这位老师。` : '') + '下次识别和校对就会用上', { ms: 10000 });
+    } catch (e) { fail(e); }
+    return;
+  }
   try {
     const r = await api('terms_add', { teacher: S.doc.teacher, terms, errors, title: S.doc.title });
     S.doc.terms_pending = null; markDirty(); save();

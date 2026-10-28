@@ -4,7 +4,11 @@
     ### 新术语        | 术语 | 首次出现 | 老师原话 |
     ### 识别错误      | ASR常见识别 | 正确术语 | 出处 |
 llm.terms_from_markdown 认得这两种表，下次识别和校对就会用上。文件其他部分一个字都不动；写之前先备份。
-没有关联文件时，加在老师档案手写的术语后面（「术语」和「错写 => 正确」）。"""
+没有关联文件时，加在老师档案手写的术语后面（「术语」和「错写 => 正确」）。
+
+新老师的第一节课（2026-10-28，用户要求）：还没有老师和术语表时也能找新术语，勾选后填老师名字，`create` 建老师档案、
+在 Obsidian `02、规则体系/02、课程专用规则/老师名课程术语表.md` 建一份术语表（结构照峰级那份：怎么用 / 术语 / 识别错误对照 /
+逐课补充）、关联上、把这节课所在的文件夹绑定这位老师，再把勾选的写进「逐课补充」。以后这个文件夹里的课照常逐课积累。"""
 import os
 import re
 import shutil
@@ -18,6 +22,78 @@ INTRO = '> 由「猛人学习」整理课程时找出、经人工勾选确认后
 TERM_HEAD = ['| 术语 | 首次出现 | 老师原话 |', '| --- | --- | --- |']
 ERR_HEAD = ['| ASR常见识别 | 正确术语 | 出处 |', '| --- | --- | --- |']
 CN = '零一二三四五六七八九'
+KB_DIR = ('02、规则体系', '02、课程专用规则')   # 新老师的术语表建在知识库的这里（和峰级术语表放在一起）
+
+
+def template(name):
+    """新老师术语表的初始内容（「逐课补充」由 merge_markdown 第一次写入时加在最后，成为第四节）。"""
+    tag = re.sub(r'[\s#,，、/\\]+', '', name) or '课程术语表'
+    return (f'---\ntitle: {name}课程术语表\ntype: 课程专用术语表\nstatus: 使用中\nscope: {name}的课程\ntags:\n  - 课程术语表\n  - {tag}\n---\n\n'
+            f'# {name}课程术语表\n\n'
+            f'> 由猛人学习在整理{name}的第一节课时建立（{time.strftime("%Y-%m-%d")}）。只适用于{name}的课程，其他老师不默认加载。\n\n'
+            '---\n\n# 一、怎么用\n\n'
+            '- **猛人学习每次读取本文件最新内容**：「二、术语」和「逐课补充」里的新术语作为识别热词；「三、识别错误对照」和「逐课补充」里的识别错误作为 AI 校对参考；整份文件作为 AI 理解课程用语的术语说明。\n'
+            '- **新术语**：每节课整理完，猛人学习列出候选 → 作者勾选 → 软件写入末尾「逐课补充（猛人学习）」，写入前自动备份。未经勾选的不写；只记名称，不补写定义。\n'
+            '- **作者可以自己整理**：把逐课补充里确认过的术语挪到「二、术语」并写上含义；在「三」里加识别错误对照。\n'
+            '- **识别错误只作参考**：AI 校对时结合上下文判断，不机械替换；只有「识别完直接替换」表里的才直接替换。\n\n'
+            '---\n\n# 二、术语\n\n| 术语 | 含义 |\n| --- | --- |\n\n'
+            '---\n\n# 三、识别错误对照\n\n| ASR常见识别 | 正确术语 | 说明 |\n| --- | --- | --- |\n\n'
+            '### 识别完直接替换\n\n只放确定不会误伤的长词。单字、短词（例如「分 → 峰」会把「部分」改成「部峰」）不能放这里，放上面的对照表。\n\n'
+            '| 直接替换的错写 | 正确术语 |\n| --- | --- |\n')
+
+
+def bind_choices(media_path):
+    """这节课往上、到加进媒体库的那个文件夹为止，可以绑定老师的各层文件夹（近的在前）。"""
+    from . import library
+    lib = library.load()
+    key = lambda p: os.path.normcase(os.path.abspath(p)).rstrip('\\/')
+    me = key(media_path)
+    tops = [f['path'] for f in lib['folders'] if me.startswith(key(f['path']) + os.sep)]
+    if not tops:
+        return []
+    top = max(tops, key=len)
+    out, d = [], os.path.dirname(os.path.abspath(media_path))
+    while True:
+        out.append({'path': d, 'name': Path(d).name, 'top': key(d) == key(top)})
+        parent = os.path.dirname(d)
+        if key(d) == key(top) or parent == d:
+            return out
+        d = parent
+
+
+def plan(media_path):
+    """新建术语表之前给界面看的：术语表会建在哪里、已有的老师名字、可以绑定的文件夹。"""
+    vault = (config.load().get('obsidian') or {}).get('vault') or ''
+    folder = Path(vault, *KB_DIR) if vault and os.path.isdir(vault) else None
+    return {'folder': str(folder) if folder else '', 'teachers': [t['name'] for t in config.load_teachers()],
+            'binds': bind_choices(media_path)}
+
+
+def create(name, terms, errors, lesson='', bind=''):
+    """新老师的第一节课：建老师档案和 Obsidian 术语表（已有同名老师就用他的），绑定文件夹，把勾选的写进去。
+    返回 add 的结果，加上 teacher（老师id）、created（是不是新建的老师）、file_created（是不是新建的术语表文件）。"""
+    name = re.sub(r'\s+', ' ', str(name or '')).strip()
+    if not name:
+        raise ValueError('请填老师的名字')
+    t = next((x for x in config.load_teachers() if x['name'] == name), None)
+    file_created, new_teacher = False, t is None
+    if new_teacher:
+        file = ''
+        vault = (config.load().get('obsidian') or {}).get('vault') or ''
+        if vault and os.path.isdir(vault):
+            folder = Path(vault, *KB_DIR)
+            folder.mkdir(parents=True, exist_ok=True)
+            path = folder / f'{re.sub(r"[\\/:*?<>|\"]", "", name)}课程术语表.md'
+            if not path.exists():  # 同名文件已经有了就直接关联，不覆盖
+                path.write_bytes(template(name).encode('utf-8'))
+                file_created = True
+            file = str(path)
+        t = config.save_teacher({'name': name, 'terms_file': file})
+    if bind:
+        from . import library
+        library.set_folder(bind, teacher=t['id'])
+    r = add(t['id'], terms, errors, lesson)
+    return dict(r, teacher=t['id'], name=t['name'], created=new_teacher, file_created=file_created, bound=bind)
 
 
 def _cn(n):

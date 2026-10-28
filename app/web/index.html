@@ -249,7 +249,7 @@
     <div class="ai-foot">
       <button class="btn primary small" id="btnSummary">生成课程重点</button>
       <button class="btn small" id="btnReview" disabled title="对照完整字幕，找出课程重点漏掉的内容，补进对应的小节">查漏补缺</button>
-      <button class="btn small" id="btnTerms" disabled title="找出这节课里术语表还没有的新术语和识别错误，你勾选确认后加进老师的术语表">新术语</button>
+      <button class="btn small" id="btnTerms" disabled title="找出这节课里术语表还没有的新术语和识别错误，你勾选确认后加进老师的术语表。还没选老师时：找出这节课的专用术语，勾选后填老师名字，建立这位老师的术语表">新术语</button>
       <button class="btn small" id="btnEditSummary" disabled>编辑</button>
       <button class="btn small" id="btnCopySummary" disabled>复制</button>
       <span class="muted small-text" id="summaryHint"></span>
@@ -334,7 +334,7 @@
       <label class="check"><input type="checkbox" id="plTranslate"> 翻译成中文（英文课程）</label>
       <label class="check"><input type="checkbox" id="plSummary"> 生成课程重点</label>
       <label class="check"><input type="checkbox" id="plClip"> 剪藏到 Obsidian</label>
-      <label class="check"><input type="checkbox" id="plTerms"> 找出新术语，最后弹出来让你勾选，确认的加进术语表</label>
+      <label class="check"><input type="checkbox" id="plTerms"> <span id="plTermsText">找出新术语，最后弹出来让你勾选，确认的加进术语表</span></label>
     </div>
     <div class="field"><div class="label">老师 / 术语表</div><select id="plTeacher"></select></div>
     <div class="field" id="plLangField"><div class="label">视频里说的是</div>
@@ -399,14 +399,18 @@
 
 <dialog id="dlgTerms" class="dialog terms-dlg">
   <form method="dialog">
-    <h2>这节课的新术语</h2>
+    <h2 id="tmTitle">这节课的新术语</h2>
     <p class="muted" id="tmInfo"></p>
+    <div class="tm-new" id="tmNew" hidden>
+      <label class="ds-row">老师名字 <input id="tmName" list="tmNames" placeholder="例如：人间落叶（已有的老师选他的名字，就加进他的术语表）"><datalist id="tmNames"></datalist></label>
+      <label class="ds-row">以后哪个文件夹里的课都用这位老师 <select id="tmBind"></select></label>
+    </div>
     <div id="tmList" class="tm-list"></div>
     <div class="dialog-btns">
       <button value="drop" class="btn" title="这些候选都不要了">都不要</button>
       <span class="grow"></span>
       <button value="later" class="btn" title="先留着，点「新术语」可以再看">以后再说</button>
-      <button value="add" class="btn primary">加入术语表</button>
+      <button value="add" class="btn primary" id="tmAdd">加入术语表</button>
     </div>
   </form>
 </dialog>
@@ -565,6 +569,7 @@
               <li><code>托破旋 =>! 拓扑学</code>：确定不会误伤的，识别完直接替换。单字或常用词不要加感叹号，否则「部分」会被改成「部峰」。</li>
             </ul></li>
           <li><b>逐课积累</b>：AI 区「课程重点」页的「新术语」按钮（一键整理的最后一步也会做）：AI 从这节课的校对改动（AI 改的、看画面改的、你手动改的）和完整字幕里，找出术语表还没有的新术语和识别错误，弹出来让你勾选、改字、点时间回听；确认的才加进去。关联了文件时写在文件末尾的「逐课补充（猛人学习）」一节（表格，软件下次就会用上），写之前自动备份到 <code>%APPDATA%\猛人学习\backups\术语表</code>；只记名称，不写定义。</li>
+          <li><b>新老师的第一节课</b>：还没有这位老师、也没有术语表时，同样点「新术语」（或一键整理勾上「新术语」，没选老师时默认勾上）。AI 找出这节课的专用术语，弹出来让你勾选，再<b>填老师名字</b>、选「以后哪个文件夹里的课都用这位老师」（默认是加进媒体库的那个文件夹），点「建立术语表」：软件建好老师档案，在 Obsidian「02、规则体系/02、课程专用规则」里建一份「老师名课程术语表」（结构和峰级那份一样：怎么用 / 术语 / 识别错误对照 / 逐课补充），关联上，把勾选的写进「逐课补充」，并把那个文件夹绑定这位老师。以后这个文件夹里的课自动用这位老师：识别时用这些术语当热词，每节课整理完接着找新术语让你勾选。填的名字和已有的老师一样时，就加进他原来的术语表。</li>
           <li><b>术语说明</b>：放整份术语说明文档，只给 AI 参考，不传给识别服务。关联了文件时一般留空。</li>
           <li>剪藏笔记里<b>不写老师</b>：一份术语表常常是几位老师共用的（例如「峰级分析」），它的名字只当笔记的标签。讲课老师请在 Obsidian 里给笔记加一个「老师」属性自己填，重新剪藏会保留。</li>
           <li><b>剪藏子文件夹</b>、<b>单独的课程重点模板</b>：可选。</li>

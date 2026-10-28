@@ -219,6 +219,27 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     const tTerms = (teacherById(S.doc.teacher) || {}).terms || '';
     ok('勾选的加进老师术语表，没勾的不加', tTerms.includes('测试新术语') && !tTerms.includes('不要的词') && tTerms.includes('风机 => 峰级') && !S.doc.terms_pending, tTerms);
 
+    // 新老师的第一节课：没选老师时也找专用术语，勾选后填老师名字、建术语表（这里没设 Obsidian 库，记在老师档案里）
+    const keepTeacher = S.doc.teacher;
+    setDocTeacher('');
+    S.doc.terms_pending = { terms: [{ term: '觉知', t: 1, quote: '保持觉知' }], errors: [] };
+    const freshShown = openTerms();
+    ok('没选老师：对话框变成「建立这位老师的术语表」，要填老师名字、选以后用这位老师的文件夹', await until(() => document.querySelector('#dlgTerms').open
+      && !document.querySelector('#tmNew').hidden && document.querySelector('#tmAdd').textContent === '建立术语表' && document.querySelectorAll('#tmBind option').length >= 2));
+    const bindPath = document.querySelector('#tmBind').value, bindWas = (libNode(bindPath) || {}).teacher || '';
+    document.querySelector('#tmAdd').click();
+    ok('没填老师名字不能建', document.querySelector('#dlgTerms').open);
+    document.querySelector('#tmName').value = '界面新老师';
+    document.querySelector('#tmAdd').click();
+    await freshShown;
+    const freshT = S.teachers.find(x => x.name === '界面新老师');
+    ok('建立术语表：有了新老师档案，这节课用上他，勾选的术语写进去，文件夹绑定了他', !!freshT && S.doc.teacher === freshT.id && (freshT.terms || '').includes('觉知')
+      && !S.doc.terms_pending && (libNode(bindPath) || {}).teacher === freshT.id, [freshT, bindPath]);
+    await api('library_set', { path: bindPath, teacher: bindWas });
+    S.teachers = (await api('teacher_delete', { id: freshT.id })).teachers;
+    setDocTeacher(keepTeacher);
+    await loadLibrary();
+
     // 媒体库读不出来时显示原因，不显示“还没有添加文件”
     const libSaved = S.lib; S.lib = []; S.libError = '读不出「library.json」'; renderLibrary();
     ok('媒体库读不出来：显示原因和重试，不显示“还没有添加文件”', $('#libBody').textContent.includes('读不出') && !$('#libBody').textContent.includes('还没有添加文件'));

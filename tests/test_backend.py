@@ -1225,6 +1225,32 @@ check('老师文件夹挪进「01、老师分身蒸馏资料」后，软件自�
       and mentor.overview(mv['id'])['files']['atoms'].endswith('01、观点库（逐节提取）.md'), mentor.get(mv['id'])['folder'])
 mentor.remove(mv['id'])
 
+# 新老师的第一节课：找专用术语 → 填老师名字 → 建老师档案和 Obsidian 术语表、绑定文件夹（core/glossary.py create）
+from core import glossary  # noqa: E402
+L1 = str(DS / '第一课.mp4')
+pl = glossary.plan(L1)
+check('建术语表之前：告诉界面建在知识库哪里、能绑定哪个文件夹（默认加进媒体库的那个）',
+      pl['folder'].endswith('02、规则体系\\02、课程专用规则') and pl['binds'][-1]['path'] == str(DS) and pl['binds'][-1]['top'], pl)
+d_ = docs.load(L1)
+check('没选老师时：命令行照旧不找新术语，界面上（建术语表）照样找',
+      workflow.why_skip('terms', d_, workflow.Facts(config.load(), teacher=None)) is not None
+      and workflow.why_skip('terms', d_, workflow.Facts(config.load(), opts={'new_glossary': True}, teacher=None), force=True) is None)
+gc = api.call('glossary_create', {'name': '喜悦老师', 'bind': str(DS), 'title': '第一课',
+                                  'terms': [{'term': '觉知', 't': 3, 'quote': '保持觉知'}], 'errors': [{'wrong': '绝知', 'right': '觉知', 't': 5, 'quote': '绝知'}]})
+GF = KB / '02、规则体系' / '02、课程专用规则' / '喜悦老师课程术语表.md'
+gtxt = GF.read_text(encoding='utf-8') if GF.is_file() else ''
+gt = config.get_teacher(gc.get('teacher'))
+check('建术语表：新老师档案关联知识库里新建的术语表（结构照峰级：怎么用 / 术语 / 识别错误对照 / 逐课补充），勾选的写进逐课补充',
+      gc['ok'] and gc['created'] and gc['file_created'] and gc['file'] == str(GF) and '# 一、怎么用' in gtxt and '# 三、识别错误对照' in gtxt
+      and '# 四、逐课补充（猛人学习）' in gtxt and '| 觉知 | 《第一课》' in gtxt and '| 绝知 | 觉知 |' in gtxt, (gc, gtxt[-600:]))
+check('建术语表：软件读得出新术语表（觉知当热词，绝知 → 觉知 作校对参考），这个文件夹里的课以后都用这位老师',
+      gt and '觉知' in gt['terms'] and '绝知 => 觉知' in gt['terms'] and library.folder_teacher(str(DS / '第二课.mp4')) == gc['teacher'], gt and gt['terms'])
+gc2 = api.call('glossary_create', {'name': '喜悦老师', 'title': '第二课', 'terms': [{'term': '臣服', 't': 1, 'quote': '臣服'}], 'errors': []})
+check('再填同一个老师名字：加进他原来的术语表，不另建', gc2['ok'] and not gc2['created'] and not gc2['file_created'] and gc2['teacher'] == gc['teacher']
+      and '| 臣服 | 《第二课》' in GF.read_text(encoding='utf-8') and '| 觉知 |' in GF.read_text(encoding='utf-8'))
+library.set_folder(str(DS), teacher='')
+config.delete_teacher(gc['teacher'])
+
 # 圆桌讨论和主题蒸馏（core/roundtable.py，假 AI）
 from core import roundtable  # noqa: E402
 MS = KB / '04、外部知识转化库' / '01、老师分身蒸馏资料'

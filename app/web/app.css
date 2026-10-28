@@ -542,3 +542,7 @@ a.cite.bad { background: color-mix(in srgb, var(--danger) 14%, transparent); bor
 .prompts-list details { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; margin: 6px 0; }
 .prompts-list summary { cursor: pointer; font-weight: 700; }
 .prompts-list pre { white-space: pre-wrap; font-size: 12.5px; line-height: 1.6; background: var(--panel2); padding: 8px 10px; border-radius: 6px; }
+
+/* 新老师的第一节课：建术语表（openTerms）*/
+.tm-new .ds-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+.tm-new .ds-row input, .tm-new .ds-row select { flex: 1; }

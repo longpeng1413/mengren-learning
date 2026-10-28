@@ -392,7 +392,7 @@ def why_skip(name, d, f, force=False):
         if old and not force:
             return '课程重点是以前在软件里生成的（当时已经自动查漏）'
     elif name == 'terms':
-        if not f.teacher():
+        if not f.teacher() and not f.opts.get('new_glossary'):  # 界面上：新老师的第一节课，找出术语后让用户填老师名字、建术语表
             return '这节课没有指定老师（术语表），和一键整理一样不找新术语'
         if not force and ('terms' in st or d.get('terms_pending') or old):
             return '已经找过新术语' + ('（等你在软件里勾选）' if d.get('terms_pending') else '')
@@ -967,7 +967,7 @@ def stages_for(path, steps=None, skip=None):
     return wanted
 
 
-GUI_OPTIONS = ('allow_no_teacher', 'any_lang', 'translate_all', 'chapters', 'allow_partial', 'doubao_model', 'doubao_account')
+GUI_OPTIONS = ('allow_no_teacher', 'any_lang', 'translate_all', 'chapters', 'allow_partial', 'doubao_model', 'doubao_account', 'new_glossary')
 
 
 def process(target, steps=None, skip=None, redo=(), lang=None, provider=None, model='cloud',
