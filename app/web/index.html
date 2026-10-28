@@ -387,6 +387,16 @@
   </form>
 </dialog>
 
+<!-- 查看术语表文件：软件读到的术语、识别错误，重复检查（app.js 的 viewTermsFile） -->
+<dialog id="dlgTermsView" class="dialog settings prompts-dlg">
+  <form method="dialog">
+    <h2 id="tvTitle">术语表</h2>
+    <p class="muted" id="tvInfo"></p>
+    <div id="tvBody" class="prompts-list"></div>
+    <div class="dialog-btns"><button type="button" class="btn" id="tvOpen">在 Obsidian 里打开</button><span class="grow"></span><button value="close" class="btn primary">关闭</button></div>
+  </form>
+</dialog>
+
 <!-- 查看提示词（round.js 的 showPrompts） -->
 <dialog id="dlgPrompts" class="dialog settings prompts-dlg">
   <form method="dialog">
@@ -561,7 +571,8 @@
         <h3>老师与术语表</h3>
         <p>在「设置 → 老师与术语表」里给每位老师建一份档案；在顶栏的老师下拉框里选这节课是哪位老师的。</p>
         <ul>
-          <li><b>关联 Obsidian 里的术语表文件（推荐）</b>：选中知识库里那份术语表 MD，软件每次都读最新内容——小节里「正确写法 / 标准写法」的词和 <code>--hotwords "…"</code> 里的词当术语，表头含「ASR / 误识 / 识别」的表格当识别错误参考，整份文件给 AI 当术语说明。以后只在 Obsidian 里改。</li>
+          <li><b>关联 Obsidian 里的术语表文件（推荐）</b>：选中知识库里那份术语表 MD，软件每次都读最新内容——小节里「正确写法 / 标准写法」的词和 <code>--hotwords "…"</code> 里的词当术语，表头含「ASR / 误识 / 识别」的表格当识别错误参考，整份文件给 AI 当术语说明。以后只在 Obsidian 里改。<b>软件不把文件里的术语抄进下面的「术语表（手写）」框</b>：那个框只用来额外手写几个，空着是正常的。关联后下面有两个按钮：<b>查看术语和重复检查</b>（看软件从文件里读到的每个术语、识别错误对照、直接替换；同一个术语或同一条「错写 → 正确」在文件里出现不止一次的，列出在第几行，想清理就去 Obsidian 删掉多余的那行，软件读的时候本来就只算一次）、<b>在 Obsidian 里打开</b>（直接打开这份术语表手动修改）。</li>
+          <li><b>不会重复加</b>：每节课找新术语时，术语表里已有的（整份文件任何一张表里有的）不会再列出来；几节课一起在后台整理、再一节节勾选时，前面的课已经加过的，打开对话框时会先去掉；写进文件前也会再查一遍整份文件。</li>
           <li><b>手写术语表</b>（可选，和关联的文件合在一起用），每行一条：
             <ul>
               <li><code>峰级, 峰级线, 破级</code>：专用术语，传给识别服务当热词；</li>
@@ -848,7 +859,8 @@
             </div>
             <div class="field"><div class="label">关联 Obsidian 里的术语表文件（推荐）</div>
               <div class="file-link"><code class="path" id="tFile">没有关联</code><button class="btn small" id="tFilePick">选择文件…</button><button class="btn small" id="tFileClear">取消关联</button></div>
-              <div class="hint" id="tFileHint">关联后，软件每次都读这个文件的最新内容：小节里的「正确写法 / 标准写法」和热词当术语，「ASR 常见错误」表当识别错误参考，整份文件给 AI 当术语说明。以后只在 Obsidian 里改术语表就行。</div></div>
+              <div class="hint" id="tFileHint">关联后，软件每次都读这个文件的最新内容：小节里的「正确写法 / 标准写法」和热词当术语，「ASR 常见错误」表当识别错误参考，整份文件给 AI 当术语说明。以后只在 Obsidian 里改术语表就行。</div>
+              <div class="file-link" id="tFileActions" hidden><button class="btn small" id="tFileView" title="看软件从文件里读到的每个术语、识别错误，以及重复的条目在第几行">查看术语和重复检查</button><button class="btn small" id="tFileOpen" title="打开这份术语表，在 Obsidian 里手动修改">在 Obsidian 里打开</button></div></div>
             <div class="field"><div class="label">老师和课程背景（可选）</div><input id="tAbout" placeholder="例如：期货交易，讲交易底层逻辑、波段和仓位管理"></div>
             <div class="field"><div class="label">术语表（手写，可选；关联了文件时，这里的会和文件里的合在一起用）</div>
               <textarea id="tTerms" rows="10" spellcheck="false" placeholder="每行一个或几个术语（逗号隔开）：&#10;峰级, 峰级线, 破级&#10;&#10;常见识别错误（交给 AI 结合上下文判断，不直接替换）：&#10;风级, 风机 => 峰级&#10;&#10;确定不会误伤的，加感叹号，识别完直接替换：&#10;托破旋 =>! 拓扑学"></textarea>

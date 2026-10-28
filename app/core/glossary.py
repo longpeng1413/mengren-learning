@@ -161,9 +161,25 @@ def _new_section(lines):
     lines += ['', '---', '', f'# {title}', '', INTRO, '', '### 新术语', '', *TERM_HEAD, '', '### 识别错误', '', *ERR_HEAD, '']
 
 
+def _norm(w):
+    """比较术语是否相同时：去掉空格、引号、加粗符号。"""
+    return re.sub(r'[\s　*“”"「」]', '', str(w or ''))
+
+
+def _file_known(text):
+    """整份术语表文件里已有的：(术语集合, (错写, 正确) 集合)，都是 _norm 过的。
+    以前只看「逐课补充」那两张表，作者自己整理在「二、术语」「识别错误对照」里的会被重复加进逐课补充。"""
+    from .llm import parse_terms, terms_from_markdown
+    words, hints, forced = parse_terms(terms_from_markdown(text))
+    pairs = {(_norm(a), _norm(re.split(r'[（(]', b)[0])) for a, b in hints + forced}
+    return {_norm(w) for w in words}, pairs
+
+
 def merge_markdown(text, terms, errors, lesson=''):
-    """把新术语和识别错误写进术语表文档（返回新文字, 加了几条术语, 加了几条识别错误）。"""
+    """把新术语和识别错误写进术语表文档（返回新文字, 加了几条术语, 加了几条识别错误）。
+    整份文件里已经有的（任何一张表）都不再加。"""
     nl = '\r\n' if '\r\n' in text else '\n'
+    known_all, pairs_all = _file_known(text)
     lines = text.replace('\r\n', '\n').split('\n')
     if not _section_range(lines):
         _new_section(lines)
@@ -195,8 +211,9 @@ def merge_markdown(text, terms, errors, lesson=''):
     rows = []
     for x in terms:
         w = _cell(x.get('term'))
-        if w and w not in have:
+        if w and w not in have and _norm(w) not in known_all:
             have.add(w)
+            known_all.add(_norm(w))
             rows.append(f'| {w} | {_where(lesson, x.get("t"))} | {_cell(x.get("quote"))} |')
     end = _table_end(lines, k)
     lines[end:end] = rows
@@ -208,8 +225,9 @@ def merge_markdown(text, terms, errors, lesson=''):
     k = ensure('ASR常见识别', '识别错误', ERR_HEAD)
     for x in errors:
         wrong, right = _cell(x.get('wrong')), _cell(x.get('right'))
-        if not wrong or not right or wrong == right:
+        if not wrong or not right or wrong == right or (_norm(wrong), _norm(right)) in pairs_all:
             continue
+        pairs_all.add((_norm(wrong), _norm(right)))
         end = _table_end(lines, k)
         hit = None
         for r in range(k + 2, end):
@@ -231,6 +249,89 @@ def merge_markdown(text, terms, errors, lesson=''):
             b += 1
         added_e += 1
     return nl.join(lines), added_t, added_e
+
+
+def filter_pending(teacher_id, terms, errors):
+    """打开「新术语」对话框前再筛一遍：候选是整理那节课时找的，之后（例如几节课一起在后台整理、一节节确认）
+    术语表里可能已经加了同样的，不再让用户勾第二遍。返回 {terms, errors, removed}。"""
+    from .llm import known_terms
+    known, wrongs = known_terms(config.get_teacher(teacher_id) or {})
+    known, wrongs = {_norm(w) for w in known}, {_norm(w) for w in wrongs}
+    out_t, out_e, seen = [], [], set()
+    for x in terms or []:
+        k = _norm(x.get('term'))
+        if k and k not in known and k not in seen:
+            seen.add(k)
+            out_t.append(x)
+    pairs = set()
+    for x in errors or []:
+        a, b = _norm(x.get('wrong')), _norm(x.get('right'))
+        if a and b and a not in wrongs and (a, b) not in pairs:
+            pairs.add((a, b))
+            out_e.append(x)
+    return {'terms': out_t, 'errors': out_e, 'removed': len(terms or []) + len(errors or []) - len(out_t) - len(out_e)}
+
+
+def _table_kind(first):
+    """表头第一格 → 'term' / 'error' / 'forced' / None（和 llm.terms_from_markdown 认表的规则一样）。"""
+    if first in ('术语', '新术语'):
+        return 'term'
+    if '直接替换' in first:
+        return 'forced'
+    if re.search(r'ASR|误识|识别|错误', first):
+        return 'error'
+    return None
+
+
+def check_file(path):
+    """「查看」术语表文件：软件读到的术语、识别错误，以及重复的条目在第几行（只报告，不改文件）。"""
+    from .llm import parse_terms, terms_from_markdown
+    text = config.read_text_file(path)
+    words, hints, forced = parse_terms(terms_from_markdown(text))
+    lines = text.replace('\r\n', '\n').split('\n')
+    sec = sub = ''
+    term_at, err_at = {}, {}
+    kind = None
+    for i, ln in enumerate(lines, 1):
+        s = ln.strip()
+        if ln.startswith('# '):
+            sec, sub, kind = ln[2:].strip(), '', None
+            continue
+        if ln.startswith('### '):
+            sub, kind = ln[4:].strip(), None
+            continue
+        if not s.startswith('|'):
+            kind = None
+            continue
+        if re.match(r'^\|[\s:|-]+\|$', s):
+            continue
+        cells = [c.strip() for c in s.strip('|').split('|')]
+        if i < len(lines) and re.match(r'^\s*\|[\s:|-]+\|\s*$', lines[i]):  # 下一行是分隔线：这是表头
+            kind = _table_kind(cells[0])
+            continue
+        where = f'第 {i} 行（{sec}{" / " + sub if sub else ""}）'
+        if kind == 'term' and cells[0]:
+            term_at.setdefault(_norm(cells[0]), [cells[0], []])[1].append(where)
+        elif kind in ('error', 'forced') and len(cells) >= 2 and cells[1]:
+            for w in re.split(r'[、,，/]', cells[0]):
+                if w.strip():
+                    key = (_norm(w), _norm(cells[1]))
+                    err_at.setdefault(key, [w.strip(), cells[1], []])[2].append(where + ('（直接替换）' if kind == 'forced' else ''))
+    return {'words': words, 'hints': [list(h) for h in hints], 'forced': [list(f) for f in forced], 'chars': len(text),
+            'dup_terms': [{'term': v[0], 'where': v[1]} for v in term_at.values() if len(v[1]) > 1],
+            'dup_errors': [{'wrong': v[0], 'right': v[1], 'where': v[2]} for v in err_at.values() if len(v[2]) > 1],
+            'uri': obsidian_uri(path)}
+
+
+def obsidian_uri(path):
+    """在 Obsidian 里打开这个文件的链接（不在设置的 Obsidian 库里就是空的，界面改成在资源管理器里显示）。"""
+    from urllib.parse import quote
+    vault = (config.load().get('obsidian') or {}).get('vault') or ''
+    p, v = os.path.normcase(os.path.abspath(str(path))), os.path.normcase(os.path.abspath(vault)) if vault else ''
+    if not v or not p.startswith(v.rstrip('\\/') + os.sep):
+        return ''
+    rel = os.path.relpath(path, vault).replace('\\', '/')
+    return f'obsidian://open?vault={quote(Path(vault).name)}&file={quote(rel)}'
 
 
 def _backup(path: Path):

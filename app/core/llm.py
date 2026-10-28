@@ -371,8 +371,12 @@ def parse_terms(text):
         if w not in seen and len(w) <= 30:
             seen.add(w)
             out.append(w)
-    # 手写的和关联文件里的可能有同一条（例如直接替换两边都写了），去掉重复，免得 AI 提示里出现两遍
-    return out, list(dict.fromkeys(hints)), list(dict.fromkeys(forced))
+    # 手写的和关联文件里的可能有同一条（例如直接替换两边都写了），去掉重复，免得 AI 提示里出现两遍；
+    # 同一个「错写 → 正确」在参考对照和直接替换里都有时只算直接替换（AI 提示里两样都会给）
+    forced = list(dict.fromkeys(forced))
+    fset = set(forced)
+    hints = [h for h in dict.fromkeys(hints) if (h[0], re.split(r'[（(]', h[1])[0].strip()) not in fset]
+    return out, hints, forced
 
 
 def terms_from_markdown(text):

@@ -1248,6 +1248,29 @@ check('建术语表：软件读得出新术语表（觉知当热词，绝知 →
 gc2 = api.call('glossary_create', {'name': '喜悦老师', 'title': '第二课', 'terms': [{'term': '臣服', 't': 1, 'quote': '臣服'}], 'errors': []})
 check('再填同一个老师名字：加进他原来的术语表，不另建', gc2['ok'] and not gc2['created'] and not gc2['file_created'] and gc2['teacher'] == gc['teacher']
       and '| 臣服 | 《第二课》' in GF.read_text(encoding='utf-8') and '| 觉知 |' in GF.read_text(encoding='utf-8'))
+
+# 术语表去重（2026-10-28）：写之前看整份文件；打开对话框前再筛；「查看」报告重复在第几行；读的时候重复的只算一次
+DT_TEXT = glossary.template('去重老师').replace('| 术语 | 含义 |\n| --- | --- |\n', '| 术语 | 含义 |\n| --- | --- |\n| 觉知 | 作者整理的 |\n') \
+    .replace('| ASR常见识别 | 正确术语 | 说明 |\n| --- | --- | --- |\n', '| ASR常见识别 | 正确术语 | 说明 |\n| --- | --- | --- |\n| 绝知 | 觉知 | |\n') \
+    .replace('| 直接替换的错写 | 正确术语 |\n| --- | --- |\n', '| 直接替换的错写 | 正确术语 |\n| --- | --- |\n| 绝知 | 觉知 |\n')
+new_, nt_, ne_ = glossary.merge_markdown(DT_TEXT, [{'term': '觉知', 't': 1}, {'term': ' 新词 ', 't': 2}], [{'wrong': '绝知', 'right': '觉知'}, {'wrong': '新错', 'right': '新词'}], '第三课')
+sec4_ = new_[new_.index('# 四、逐课补充（猛人学习）'):]
+check('去重：作者整理在「二、术语」「识别错误对照」里的，不再重复加进逐课补充', nt_ == 1 and ne_ == 1 and '| 觉知 |' not in sec4_ and '| 绝知 |' not in sec4_
+      and '| 新词 | 《第三课》' in sec4_ and '| 新错 | 新词 |' in sec4_, sec4_)
+w_, h_, f_ = _llm.parse_terms('绝知 => 觉知\n绝知 =>! 觉知\n觉知, 觉知')
+check('去重：同一条在参考对照和直接替换里都有，读的时候只算直接替换', h_ == [] and f_ == [('绝知', '觉知')] and w_ == ['觉知'], (w_, h_, f_))
+DUP = TMP / '去重术语表.md'
+DUP.write_text(new_.replace('| 新词 | 《第三课》', '| 觉知 | 又写了一遍 |  |\n| 新词 | 《第三课》'), encoding='utf-8')
+ck_ = glossary.check_file(str(DUP))
+check('查看术语表：报告重复的术语和识别错误在第几行（只报告，不改文件）', [d['term'] for d in ck_['dup_terms']] == ['觉知']
+      and len(ck_['dup_terms'][0]['where']) == 2 and any(d['wrong'] == '绝知' and len(d['where']) == 2 and '直接替换' in d['where'][1] for d in ck_['dup_errors'])
+      and '新词' in ck_['words'], ck_['dup_terms'] + ck_['dup_errors'])
+ft_ = config.save_teacher({'name': '筛选老师', 'terms': '觉知\n绝知 => 觉知'})
+fp_ = api.call('terms_pending_filter', {'teacher': ft_['id'], 'terms': [{'term': '觉知'}, {'term': '臣服'}, {'term': '臣服 '}],
+                                       'errors': [{'wrong': '绝知', 'right': '觉知'}, {'wrong': '陈服', 'right': '臣服'}]})
+check('去重：打开新术语对话框前，去掉术语表里已经有的和候选里重复的', [x['term'] for x in fp_['terms']] == ['臣服']
+      and [x['wrong'] for x in fp_['errors']] == ['陈服'] and fp_['removed'] == 3, fp_)
+config.delete_teacher(ft_['id'])
 library.set_folder(str(DS), teacher='')
 config.delete_teacher(gc['teacher'])
 

@@ -491,7 +491,17 @@ class Api:
         text = config.read_text_file(path)
         terms = llm.terms_from_markdown(text)
         words, hints, forced = llm.parse_terms(terms)
-        return {'path': path, 'terms': terms, 'words': len(words), 'hints': len(hints), 'chars': len(text)}
+        ck = glossary.check_file(path)
+        return {'path': path, 'terms': terms, 'words': len(words), 'hints': len(hints), 'forced': len(forced), 'chars': len(text),
+                'dups': len(ck['dup_terms']) + len(ck['dup_errors'])}
+
+    def do_terms_view(self, b):
+        """「查看」术语表文件：软件读到的术语、识别错误，重复的在第几行，在 Obsidian 里打开的链接。"""
+        return glossary.check_file(str(b.get('path') or ''))
+
+    def do_terms_pending_filter(self, b):
+        """打开「新术语」对话框前，去掉术语表里已经有的（几节课一起整理、一节节确认时会重复）。"""
+        return glossary.filter_pending(b.get('teacher'), b.get('terms'), b.get('errors'))
 
     def do_test(self, b):
         s = config.load()

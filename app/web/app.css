@@ -546,3 +546,8 @@ a.cite.bad { background: color-mix(in srgb, var(--danger) 14%, transparent); bor
 /* 新老师的第一节课：建术语表（openTerms）*/
 .tm-new .ds-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
 .tm-new .ds-row input, .tm-new .ds-row select { flex: 1; }
+
+/* 查看术语表文件（viewTermsFile）*/
+.tv-words { line-height: 2.1; }
+.tv-word { display: inline-block; padding: 0 8px; margin: 0 6px 4px 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); }
+#tFileActions { margin-top: 6px; gap: 8px; }

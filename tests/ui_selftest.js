@@ -208,11 +208,13 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
 
     // 新术语：勾选确认后加进术语表
     ok('「新术语」按钮可用', !document.querySelector('#btnTerms').disabled);
-    S.doc.terms_pending = { terms: [{ term: '测试新术语', t: 1, quote: '原话' }, { term: '不要的词', t: 2, quote: '' }], errors: [{ wrong: '风机', right: '峰级', t: 3, quote: '' }] };
+    S.doc.terms_pending = { terms: [{ term: '测试新术语', t: 1, quote: '原话' }, { term: '不要的词', t: 2, quote: '' }, { term: '底层逻辑', t: 4, quote: '' }], errors: [{ wrong: '风机', right: '峰级', t: 3, quote: '' }] };
     updateButtons();
-    ok('有待确认的新术语时按钮显示数量', document.querySelector('#btnTerms').textContent === '新术语 3');
+    ok('有待确认的新术语时按钮显示数量', document.querySelector('#btnTerms').textContent === '新术语 4');
     const termsShown = openTerms();
-    ok('新术语对话框：列出新术语和识别错误', document.querySelector('#dlgTerms').open && document.querySelectorAll('#tmList .tm-row').length === 3);
+    ok('新术语对话框：列出新术语和识别错误，术语表里已经有的（底层逻辑）先去掉', await until(() => document.querySelector('#dlgTerms').open)
+      && document.querySelectorAll('#tmList .tm-row').length === 3 && !document.querySelector('#tmList').textContent.includes('底层逻辑')
+      && !$$('#tmList .tm-in').some(x => x.value === '底层逻辑'));
     document.querySelectorAll('#tmList .tm-row')[1].querySelector('input[type=checkbox]').checked = false;
     document.querySelector('#dlgTerms').close('add');
     await termsShown;
@@ -564,6 +566,16 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
        && [...document.querySelectorAll('#teacherSelect option')].some(o => o.textContent.includes(tOld + '改名')) && !teacherFormDirty());
     document.querySelector('#tName').value = tOld; await saveTeacher();
     ok('设置：可以关联术语表文件；没有「笔记里的称呼」（笔记不写老师）', document.querySelector('#tFile').textContent === '没有关联' && !!document.querySelector('#tFilePick') && !document.querySelector('#tDisplay'));
+    ok('设置：没关联文件时不显示「查看术语」「在 Obsidian 里打开」', document.querySelector('#tFileActions').hidden);
+    const tvPath = base + 'kb\\04、外部知识转化库\\测试老师\\01、观点库（逐节提取）.md';
+    await setTermsFile(tvPath);
+    ok('设置：关联了文件就能「查看术语和重复检查」「在 Obsidian 里打开」，提示里说有没有重复', !document.querySelector('#tFileActions').hidden
+      && /重复/.test(document.querySelector('#tFileHint').textContent), document.querySelector('#tFileHint').textContent);
+    await viewTermsFile(tvPath);
+    ok('查看术语：列出重复检查、术语、识别错误参考、直接替换', document.querySelector('#dlgTermsView').open && document.querySelectorAll('#tvBody details').length === 4
+      && document.querySelector('#tvBody').textContent.includes('没有重复'));
+    document.querySelector('#dlgTermsView').close();
+    await setTermsFile('');
     showSection('doubao');
     ok('设置：豆包只列四种模型，可以选「自动」或只用一种；没有对象存储', document.querySelectorAll('#doubaoOrder li').length === 4
        && document.querySelector('#doubaoOrder li').textContent.includes('流式识别 2.0') && !document.querySelector('#doubaoModel')

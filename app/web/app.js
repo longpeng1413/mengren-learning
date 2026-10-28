@@ -1581,6 +1581,18 @@ async function openTerms() {
   const pend = S.doc.terms_pending; if (!pend) return;
   const t = teacherById(S.doc.teacher);
   const dlg = $('#dlgTerms');
+  if (t) {  // 候选是整理这节课时找的；之后前面的课可能已经把同样的加进术语表了（几节课一起整理、一节节确认时常见），再筛一遍
+    try {
+      const f = await api('terms_pending_filter', { teacher: t.id, terms: pend.terms, errors: pend.errors });
+      if (f.removed) { pend.terms = f.terms; pend.errors = f.errors; markDirty(); save(); }
+      if (!pend.terms.length && !pend.errors.length) {
+        S.doc.terms_pending = null; markDirty(); save(); updateButtons();
+        toast(`这节课找到的 ${f.removed} 条都已经在术语表里了（前面的课已经加过），不用再勾选`, { ms: 6000 });
+        return;
+      }
+      if (f.removed) toast(`去掉了 ${f.removed} 条术语表里已经有的（前面的课已经加过）`, { ms: 6000 });
+    } catch (_) { /* 筛不了就照原样显示 */ }
+  }
   $('#tmNew').hidden = !!t;
   if (t) {
     const file = t.terms_file ? t.terms_file.split(/[\\/]/).pop() : '';
@@ -2201,12 +2213,42 @@ async function setTermsFile(path, preview) {
   el.textContent = path || '没有关联';
   el.title = path || '';
   $('#tFileClear').hidden = !path;
+  $('#tFileActions').hidden = !path;
   if (!path) { $('#tFileHint').textContent = TERMS_FILE_HINT; return; }
   try {
     const r = preview || await api('terms_preview', { path });
     if (($('#tFile').dataset.path || '') !== path) return;
-    $('#tFileHint').textContent = `从文件里读到 ${r.words} 个术语、${r.hints} 条识别错误参考（文件 ${r.chars} 字，整份给 AI 当术语说明）。以后在 Obsidian 里改，软件会自动用最新的。`;
+    $('#tFileHint').textContent = `从文件里读到 ${r.words} 个术语、${r.hints} 条识别错误参考、${r.forced || 0} 条直接替换（文件 ${r.chars} 字，整份给 AI 当术语说明）。`
+      + (r.dups ? `有 ${r.dups} 处重复，点「查看术语和重复检查」看在第几行。` : '没有重复的条目。') + '以后在 Obsidian 里改，软件会自动用最新的。';
   } catch (e) { $('#tFileHint').textContent = '⚠ ' + e.message; }
+}
+/* 「查看术语和重复检查」：软件从文件里读到的每个术语、识别错误，重复的在第几行（只看，要改在 Obsidian 里改） */
+async function viewTermsFile(path) {
+  try {
+    const r = await api('terms_view', { path });
+    const name = path.split(/[\\/]/).pop();
+    const nd = r.dup_terms.length + r.dup_errors.length;
+    $('#tvTitle').textContent = name.replace(/\.md$/i, '');
+    $('#tvInfo').textContent = `软件从这份文件里读到 ${r.words.length} 个术语、${r.hints.length} 条识别错误参考、${r.forced.length} 条直接替换。`
+      + '这里只能看；要改请点「在 Obsidian 里打开」，改完保存，软件下次就用改过的。';
+    const pair = ([a, b]) => `<li>${esc(a)} → ${esc(b)}</li>`;
+    $('#tvBody').innerHTML =
+      `<details ${nd ? 'open' : ''}><summary>重复检查：${nd ? `${nd} 处重复` : '没有重复'}</summary>`
+      + (nd ? '<p class="muted">同一个术语、同一条「错写 → 正确」在文件里出现了不止一次。软件读的时候只算一次，不影响使用；想让文件干净，可以在 Obsidian 里删掉多余的那一行。'
+        + '「识别错误对照」和「直接替换」两张表都有的，留在「直接替换」里就够了（直接替换的也会作为参考给 AI）。</p><ul>'
+        + r.dup_terms.map(d => `<li>术语「${esc(d.term)}」：${d.where.map(esc).join('；')}</li>`).join('')
+        + r.dup_errors.map(d => `<li>「${esc(d.wrong)} → ${esc(d.right)}」：${d.where.map(esc).join('；')}</li>`).join('') + '</ul>' : '')
+      + '</details>'
+      + `<details><summary>术语（${r.words.length} 个，识别时当热词）</summary><p class="tv-words">${r.words.map(w => `<span class="tv-word">${esc(w)}</span>`).join('')}</p></details>`
+      + `<details><summary>识别错误参考（${r.hints.length} 条，AI 校对时结合上下文判断）</summary><ul>${r.hints.map(pair).join('')}</ul></details>`
+      + `<details><summary>直接替换（${r.forced.length} 条，识别完直接改）</summary><ul>${r.forced.map(pair).join('')}</ul></details>`;
+    $('#tvOpen').onclick = () => openTermsFile(path, r.uri);
+    $('#dlgTermsView').showModal();
+  } catch (e) { fail(e); }
+}
+function openTermsFile(path, uri) {
+  if (uri) api('reveal', { target: uri });
+  else { api('reveal', { target: path }); toast('这份文件不在设置的 Obsidian 库里，在资源管理器里显示它'); }
 }
 const TERMS_FILE_HINT = '关联后，软件每次都读这个文件的最新内容：小节里的「正确写法 / 标准写法」和热词当术语，「ASR 常见错误」表当识别错误参考，整份文件给 AI 当术语说明。以后只在 Obsidian 里改术语表就行。';
 async function pickTermsFile() {
@@ -2516,6 +2558,12 @@ function bind() {
   $('#tSave').onclick = saveTeacher;
   $('#tFilePick').onclick = pickTermsFile;
   $('#tFileClear').onclick = () => setTermsFile('');
+  $('#tFileView').onclick = () => { const p = $('#tFile').dataset.path; if (p) viewTermsFile(p); };
+  $('#tFileOpen').onclick = async () => {
+    const p = $('#tFile').dataset.path;
+    if (!p) return;
+    try { openTermsFile(p, (await api('terms_view', { path: p })).uri); } catch (e) { fail(e); }
+  };
   $('#btnDoubts').onclick = nextDoubt;
   $('#btnFrames').onclick = () => { if (!S.job) findFrames(false); };
   $('#btnCapture').onclick = () => { if (!S.job) captureFrame(); };
