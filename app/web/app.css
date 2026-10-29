@@ -294,6 +294,7 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .tr { font-size: calc(var(--cue-size) * .9); line-height: var(--cue-line); color: var(--muted); margin-top: 3px; }
 .cue.active .tr { color: color-mix(in srgb, var(--text) 78%, var(--accent)); }
 .hide-tr .tr { display: none; }
+.tr[data-ph=""]:empty:not(:focus) { display: none; }  /* 中文课这句没有译文：不留空行，否则开着「译文」时句子之间多出一行高 */
 .src:focus, .tr:focus { background: var(--panel2); box-shadow: 0 0 0 1px var(--accent-line); color: var(--text); }
 .tr:empty::before { content: attr(data-ph); color: var(--line); }
 /* 工具按钮排成 2×2，尽量不超出一行的高度；超出的部分也要盖在下一句上面，否则鼠标移过去会变成下一句的按钮 */
@@ -456,8 +457,9 @@ body.mode-book .video-only { display: none !important; }
 .terms-dlg #tmInfo { margin: 0 0 12px; line-height: 1.6; }
 .tm-list { max-height: 56vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; }
 .tm-head { font-weight: 600; margin: 10px 0 4px; color: var(--muted); font-size: 13px; }
-.tm-row { display: grid; grid-template-columns: 22px minmax(140px, auto) 64px 1fr; gap: 8px; align-items: center; padding: 4px 0; }
-.tm-row .tm-in { width: 100%; min-width: 0; padding: 4px 8px; }
+/* 只管「新术语」对话框；字幕栏「Aa」文字设置菜单也叫 .tm-row，不加 #tmList 会把它的标签挤成竖排、左边按钮撑大 */
+#tmList .tm-row { display: grid; grid-template-columns: 22px minmax(140px, auto) 64px 1fr; gap: 8px; align-items: center; padding: 4px 0; }
+#tmList .tm-row .tm-in { width: 100%; min-width: 0; padding: 4px 8px; }
 .tm-pair { display: grid; grid-template-columns: 1fr 16px 1fr; gap: 4px; align-items: center; min-width: 260px; }
 .tm-quote { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dialog-btns .grow { flex: 1; }

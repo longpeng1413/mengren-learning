@@ -242,6 +242,7 @@ function itemHTML(it, depth = 0, parent = '') {
   const tags = [];
   if (it.book) tags.push(`<span class="tag ${it.book.done ? 'ok' : ''}">整理 ${it.book.done}/${it.book.total}</span>`);
   if (it.subs) tags.push(`<span class="tag ok" title="这节课的字幕有 ${it.subs} 句">字幕 ${it.subs} 句</span>`);
+  if (it.doubts && !it.reviewed) tags.push(`<span class="tag warn" title="AI 校对标出 ${it.doubts} 句存疑、还没确认。打开这节课，点字幕栏上方的「存疑」逐句回听，改好或点「已确认」">存疑 ${it.doubts}</span>`);
   if (it.summary) tags.push((it.summary_changes || 0) >= SUMMARY_STALE_AT
     ? `<span class="tag warn" title="生成课程重点之后，字幕又改了 ${it.summary_changes} 句。打开这节课，在课程重点上方点「重新生成」">重点待更新</span>`
     : '<span class="tag acc">重点</span>');
@@ -331,7 +332,7 @@ function syncLibFromDoc() {
     patchLib(S.path, { book: { done: chs.filter(c => (c.md || '').trim()).length, total: chs.length }, clipped: !!S.doc.clip, pending: S.pending || [] });
     return;
   }
-  patchLib(S.path, { subs: S.doc.segments.length, summary: !!(S.doc.summary || '').trim(), clipped: !!S.doc.clip, stale: !!S.docStale, reviewed: !!S.doc.reviewed, duration: S.doc.duration,
+  patchLib(S.path, { subs: S.doc.segments.length, summary: !!(S.doc.summary || '').trim(), clipped: !!S.doc.clip, stale: !!S.docStale, reviewed: !!S.doc.reviewed, duration: S.doc.duration, doubts: (S.doc.doubts || []).length,
     summary_changes: S.summaryChanges || 0, pending: S.pending || [] });
 }
 function showCtx(x, y, html, bindings) {

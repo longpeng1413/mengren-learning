@@ -160,6 +160,10 @@ check('抽出 16k 单声道音频', wav.exists() and wav.stat().st_size > 1_000_
 
 # 老师与术语表
 from core import codex_auth, library, llm  # noqa: E402
+_seg = [{'start': 0, 'end': 1, 'text': '一句', 'tr': ''}]
+(TMP / '存疑课.mp4.猛人学习.json').write_text(json.dumps({'segments': _seg, 'doubts': [{'t': 0, 'reason': '听不清', 'text': '一句'}, {'t': 0.5, 'reason': '疑为别字', 'text': '一句'}]}), encoding='utf-8')
+(TMP / '无存疑.mp4.猛人学习.json').write_text(json.dumps({'segments': _seg}), encoding='utf-8')
+check('媒体库数出还没确认的存疑句（好标「存疑 N」）', library._status(str(TMP / '存疑课.mp4'), {}).get('doubts') == 2 and not library._status(str(TMP / '无存疑.mp4'), {}).get('doubts'))
 t = api.call('teacher_save', {'teacher': {'name': '大聪老师', 'terms': '底层逻辑\n峰级, 破级\n风级, 分 => 峰级\n托破旋 =>! 拓扑学',
                                           'about': '期货交易', 'notes': '峰：行情推进的方向', 'lang': 'zh'}})['teacher']
 check('保存老师（含术语说明）', t['id'] and t['notes'] and len(api.call('settings', {})['teachers']) == 1)

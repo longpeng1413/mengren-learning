@@ -89,6 +89,18 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     // 文字设置（Aa）
     document.querySelector('#btnText').click();
     ok('文字设置面板打开', document.querySelector('#menuText').classList.contains('open'));
+    // 「－」「＋」一样大、标签不竖排（「新术语」对话框的 .tm-row 样式以前会套到这里）
+    const txRow = document.querySelector('#menuText .tm-row');
+    const [txMinus, txPlus] = txRow.querySelectorAll('button');
+    const txLabel = txRow.querySelector('span').getBoundingClientRect();
+    ok('文字设置：左右按钮一样宽、标签一行', Math.abs(txMinus.getBoundingClientRect().width - txPlus.getBoundingClientRect().width) < 1 && txLabel.height < 24,
+       [txMinus.getBoundingClientRect().width, txPlus.getBoundingClientRect().width, txLabel.height]);
+    // 中文课开着「译文」、这句没有译文：不留空行（以前每句下面多一行高）
+    const trShown = S.settings.show_tr;
+    savePrefs({ show_tr: true });
+    const emptyTr = [...document.querySelectorAll('.cue .tr')].find(x => !x.textContent && x.dataset.ph === '');
+    ok('中文课没有译文的句子不留空行', S.doc.lang === 'en' || !emptyTr || emptyTr.getBoundingClientRect().height === 0);
+    savePrefs({ show_tr: trShown });
     const cs = () => getComputedStyle(document.documentElement);
     const fs0 = S.settings.font_size, lh0 = S.settings.line_height;
     document.querySelector('[data-tx="font_size:1"]').click();
@@ -312,6 +324,10 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       && !itemHTML({ path: 'x.mp4', name: 'x', subs: 5, pending: ['correct', 'summary'] }).includes('未整理完')
       && itemHTML({ path: 'x.pdf', name: 'x', book: { done: 2, total: 2 }, pending: ['overview'] }).includes('未整理完')
       && !itemHTML({ path: 'x.pdf', name: 'x', book: { done: 1, total: 2 }, pending: ['organize', 'overview'] }).includes('未整理完'));
+    ok('媒体库标「存疑 N」：还有没确认的存疑句；打开「已校对」后不再标',
+      itemHTML({ path: 'x.mp4', name: 'x', subs: 9, doubts: 3 }).includes('存疑 3')
+      && !itemHTML({ path: 'x.mp4', name: 'x', subs: 9, doubts: 0 }).includes('存疑')
+      && !itemHTML({ path: 'x.mp4', name: 'x', subs: 9, doubts: 3, reviewed: true }).includes('存疑'));
     ok('媒体库「未整理完」：不写课程重点的文件夹里，有字幕就算整理过', itemHTML({ path: 'x.mp4', name: 'x', subs: 5, no_summary: true, pending: ['terms'] }).includes('未整理完')
       && !itemHTML({ path: 'x.mp4', name: 'x', subs: 5, no_summary: true, pending: [] }).includes('未整理完'));
     ok('翻译：中文字幕自己选了翻译也照样翻', await startTranslate(false) && S.doc.segments.every(s => s.tr.startsWith('中文：')));
