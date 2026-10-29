@@ -546,14 +546,17 @@ TOC_PROMPT = (
     '一项都不要漏，也不要几项合并；只是不要列章下面的节。每一篇写明属于哪个部分（标题和「部分」里的一字不差；不属于任何部分写空字符串）。\n'
     '3. 标题照抄目录（去掉页码和多余的空格、省略号；扫描识别出的明显错字改成正确的字，例如「硏究」写「研究」）；'
     '「开篇」「引言」这类要带上原书写的名字，例如「开篇 成为一名研究人员」。\n'
-    '4. 书上页码就是目录里写的页码。正文之前单独编页码的内容（页码和正文重复，或者是罗马数字）、目录里没写页码的，写这一项开始的 PDF 页序并加上 "PDF": true；'
+    '4. 书上页码就是目录里写的页码；章（或部分里的篇）本身没写页码时，用它下面第一节的页码。'
+    '扫描识别出来的目录可能是两栏分开的（先列出「第一章、第一节……」，再列出名字和页码），按顺序对上即可。正文之前单独编页码的内容（页码和正文重复，或者是罗马数字）、目录里没写页码的，写这一项开始的 PDF 页序并加上 "PDF": true；'
     '看不出从哪页开始就不要列（程序会把正文前面的页自动作为「前言与目录」）。\n'
     '只输出 JSON：{"部分": [{"标题": "第一部分 ……", "书上页码": 1}], "篇": [{"标题": "第1章 ……", "书上页码": 9, "部分": "第一部分 ……"}]}。'
     '看不出章节就输出 {"部分": [], "篇": []}。'
 )
 
 
-TOC_HEAD_RE = re.compile(r'目\s*录|CONTENTS|Contents|Table of Contents')
+TOC_HEAD_RE = re.compile(r'目\s*录|CONTENTS|Contents|TableofContents')
+TOC_NUM_RE = re.compile(r'^[\s./／·…\-—_]*\d{1,4}$')
+TOC_LABEL_RE = re.compile(r'^(第\s*[一二三四五六七八九十百零〇两\d]+\s*[章节部篇讲编卷]|开篇|序|前言|后记|附录)\s*$')
 TOC_LINE_RE = re.compile(r'[一-鿿A-Za-z].*?[\s./／·…\-—_]*\d{1,4}\s*$')
 
 
@@ -563,10 +566,12 @@ def toc_pages(pages):
     往后连着的这种页都算（中间夹一页空白也接着找）。找不到返回 []。"""
     def tocish(p):
         lines = [x.strip() for x in (p.get('text') or '').split('\n') if x.strip()]
-        hits = sum(1 for x in lines if TOC_LINE_RE.match(x))
+        # 两栏排的目录（左栏「第一节」、右栏节名和页码）OCR 后节名和页码分在不同行（2026-10-29《K线动能理论》）：
+        # 单独的页码、「第X章 / 第X节」这种行也算目录行
+        hits = sum(1 for x in lines if TOC_LINE_RE.match(x) or TOC_NUM_RE.match(x) or TOC_LABEL_RE.match(x))
         return hits >= 4 and hits >= 0.4 * len(lines)
     scan = pages[:max(60, len(pages) // 4)]
-    start = next((p for p in scan if TOC_HEAD_RE.search((p.get('text') or '')[:200]) and tocish(p)), None) \
+    start = next((p for p in scan if TOC_HEAD_RE.search(re.sub(r'\s', '', p.get('text') or '')) and tocish(p)), None) \
         or next((p for p in scan if tocish(p)), None)
     if not start:
         return []

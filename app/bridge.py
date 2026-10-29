@@ -1,13 +1,14 @@
 """界面与后台之间的桥：界面通过 window.pywebview.api.call(名称, 参数) 调用这里的函数。
 不开本地网络端口（有的电脑上安全软件或代理会干扰 127.0.0.1 连接），视频直接用 file:// 播放。"""
 import os
+import shutil
 import subprocess
 import threading
 import time
 import uuid
 from pathlib import Path
 
-from core import asr, bgqueue, book, cache, codex_auth, config, distill, doc as docs, frames, glossary, jobs, library, llm, media, mentor, roundtable, tasks, tts, workflow
+from core import asr, bgqueue, book, cache, codex_auth, config, distill, doc as docs, frames, glossary, jobs, library, llm, media, mentor, ocr, roundtable, tasks, tts, workflow
 from core.log import LOG_DIR, log
 
 MEDIA_FILTER = ('音视频和文档 (*.mp4;*.m4v;*.mov;*.mkv;*.webm;*.avi;*.flv;*.ts;*.wmv;*.3gp;*.mpg;*.mpeg;'
@@ -649,6 +650,49 @@ class Api:
         shift = b.get('shift') if 'shift' in b else info.get('shift')
         pages = book.reading_pages(info, int(b.get('start') or 1), int(b.get('end') or 0) or None)
         return {'pdf': info['kind'] == 'pdf', 'pages': [dict(p, ref=book.page_ref(p['n'], shift), images=[file_url(x) for x in p['images']]) for p in pages]}
+
+    def do_book_ocr(self, b):
+        """扫描书识别文字（core/ocr.py，Windows 自带识别）：生成可搜索 PDF，用原来的文件名换上（整理结果接得上），
+        原文件挪进同一文件夹的「_OCR前的原件…」（「_」开头的文件夹媒体库不列）；还没整理过的书按新文字重新分章。"""
+        path = os.path.abspath(str(b.get('path') or ''))
+        info = book.read(path)
+        if info['kind'] != 'pdf' or not info.get('scan'):
+            raise ValueError('只有扫描版的 PDF（每页是整张图片）需要识别文字')
+        if tasks.busy(docs.media_key(path)):
+            raise ValueError('这本书正在被别的任务整理，整理完再识别文字')
+        ok, why = ocr.available()
+        if not ok:
+            raise ValueError(why)
+
+        def run(job):
+            p = Path(path)
+            tmp = ocr.OCR_DIR / f'{uuid.uuid4().hex[:12]}.pdf'
+            try:
+                r = ocr.make_searchable(path, tmp, job.report, job.cancel)
+                keep = p.parent / '_OCR前的原件（确认没问题可以删）'
+                keep.mkdir(exist_ok=True)
+                dest = keep / p.name
+                if dest.exists():
+                    dest = keep / f'{p.stem}-{time.strftime("%Y%m%d-%H%M%S")}{p.suffix}'
+                try:
+                    os.replace(p, dest)
+                except OSError as e:
+                    raise ValueError(f'原文件挪不动（可能被别的程序打开着，比如 WPS、PDF 阅读器）：{e}')
+                shutil.move(str(tmp), str(p))
+            finally:
+                tmp.unlink(missing_ok=True)
+            info2 = book.read(path)
+
+            def change(d):
+                if d.get('shift') is None and info2.get('shift') is not None:
+                    d['shift'] = info2['shift']
+                if not any((c.get('md') or '').strip() for c in d.get('chapters') or []):
+                    d['chapters'] = [dict(c, md='') for c in book.detect_chapters(info2)]
+                return len(d.get('chapters') or [])
+            n = workflow._apply(path, change)
+            log.info('识别文字：%s，%s 页、%s 字，原文件挪到 %s', path, r['pages'], r['chars'], dest)
+            return dict(r, chapters=n, original=str(dest))
+        return {'job': jobs.start('book_ocr', run).id}
 
     def do_book_page_img(self, b):
         """PDF 某一页的图（朗读原文时附在这一页文字后面看图表用；缓存 30 天没用自动删）。"""

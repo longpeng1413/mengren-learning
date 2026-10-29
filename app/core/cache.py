@@ -114,6 +114,14 @@ def cleanup(clear_all=False) -> int:
             freed += size
         except OSError:
             pass
+    # 扫描书识别文字（ocr.py）的临时文件：正常做完就删了；软件中途退出留下的（一小时前的），这里清掉
+    for x in (CACHE_DIR / 'ocr').glob('*'):
+        try:
+            if x.name != 'winocr.ps1' and (clear_all or now - x.stat().st_mtime > 3600):
+                freed += _size(x) if x.is_dir() else x.stat().st_size
+                shutil.rmtree(x, ignore_errors=True) if x.is_dir() else x.unlink()
+        except OSError:
+            pass
     # 关键帧截图、书籍页面图：30 天没用过的删掉，需要时会重新生成
     for d in list((CACHE_DIR / 'frames').glob('*')) + list((CACHE_DIR / 'pages').glob('*')):
         try:

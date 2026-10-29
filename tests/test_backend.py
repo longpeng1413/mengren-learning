@@ -722,6 +722,13 @@ _lp = [{'n': k, 'text': '序言正文' * 60} for k in range(1, 61)]
 _lp[31] = {'n': 32, 'text': '目 录\n' + '\n'.join(f'第{k}章 ' + '很长的章名' * 6 + f'……{k * 10}' for k in range(1, 60))}
 _lp[32] = {'n': 33, 'text': '\n'.join(f'第{k}章 后面一页的章名……{k * 10}' for k in range(60, 80)) + '\n附录 最后一项……900'}
 check('自动找到目录页：从带「目录」的那页起，连着的目录页都算', [p['n'] for p in book.toc_pages(_lp)] == [32, 33], [p['n'] for p in book.toc_pages(_lp)])
+# 两栏排的目录 OCR 后：「第一节」一栏、节名一栏、页码单独一行，「目」「录」两个字分在后面（2026-10-29《K线动能理论》）
+_tc = [{'n': k, 'text': '正文' * 100} for k in range(1, 21)]
+_tc[8] = {'n': 9, 'text': '\n'.join(['第一章', '第一节', '第二节', '第二章', '第一节', '目', '录', '基本概念', '客观规律', '3', '产生背景', '6',
+                                     '特性和应用', '作用', '19', '1'])}
+_tc[9] = {'n': 10, 'text': '\n'.join(['第三章', '第一节', '第二节', '形态概念', '分界线', '51', '引力效应', '60', '2'])}
+check('两栏排的目录（节名和页码分在不同行）也认得出是目录页', [p['n'] for p in book.toc_pages(_tc)] == [9, 10], [p['n'] for p in book.toc_pages(_tc)])
+check('AI 读目录：章没写页码时用下面第一节的页码', '用它下面第一节的页码' in book.TOC_PROMPT and '两栏' in book.TOC_PROMPT)
 _seen = {}
 llm.complete = lambda s_, n_, msgs, **k: _seen.setdefault('u', msgs[-1]['content']) and json.dumps({'部分': [], '篇': []})
 book.ai_chapters({}, 'x', {'pages': _lp, 'shift': None})
@@ -757,6 +764,48 @@ check('书的 AI 对话：问答由后台存进书的整理结果', _j['status']
       and _bc == [{'role': 'user', 'content': '讲了什么？'}, {'role': 'assistant', 'content': '趋势分三段（P1）。'}], (_j, _bc))
 api.call('book_chat_clear', {'path': str(pdfp), 'key': 'ch:3-5'})
 check('书的 AI 对话：可以清空', 'ch:3-5' not in (docs.load(str(pdfp)).get('book_chat') or {}))
+# 扫描书识别文字（2026-10-29，core/ocr.py）：只有图片的 PDF → 可搜索 PDF（页面不变，下面一层看不见的文字），原文件挪进「_OCR前的原件」
+from core import ocr  # noqa: E402
+import pypdfium2 as _pdfium  # noqa: E402
+_scan = BOOKS / '扫描书' / '《扫描测试》.pdf'
+_scan.parent.mkdir(exist_ok=True)
+_srcpdf, _new = _pdfium.PdfDocument(str(pdfp)), _pdfium.PdfDocument.new()
+for _i in range(len(_srcpdf)):  # 每页渲染成图片，做成一本只有图片的「扫描书」
+    import io as _io
+    _pg = _srcpdf[_i]; _w, _h = _pg.get_size()
+    _b = _io.BytesIO(); _pg.render(scale=1).to_pil().convert('RGB').save(_b, 'JPEG'); _b.seek(0); _pg.close()
+    _np = _new.new_page(_w, _h); _im = _pdfium.PdfImage.new(_new); _im.load_jpeg(_b, inline=False, autoclose=False)
+    _im.set_matrix(_pdfium.PdfMatrix().scale(_w, _h)); _np.insert_obj(_im); _np.gen_content(); _np.close()
+_new.save(str(_scan)); _new.close(); _srcpdf.close()
+check('扫描书：认得出是扫描版、没有文字', book.read(str(_scan))['scan'] and book.read(str(_scan))['chars'] == 0)
+r = api.call('book_ocr', {'path': str(pdfp)})
+check('普通 PDF（有文字的电子版）不让识别', not r['ok'] and '扫描版' in r['error'], r)
+_oa, _orc = ocr.available, ocr.recognize
+ocr.available = lambda: (True, '')
+
+
+def _fake_recognize(images, work):  # 每页两行：标题行和正文行（y 从上往下），像 Windows 识别返回的那样带每个字的位置
+    out = {}
+    for f in sorted(images.glob('p*.png')):
+        n = int(f.stem[1:])
+        out[n] = {'w': 1000, 'h': 1400, 'lines': [
+            {'text': {3: '第 一 章 趋 势 的 起 点', 6: '第 二 章 仓 位 的 分 配'}.get(n, f'第 {n} 页 的 标 题'), 'words': [{'x': 100, 'y': 100, 'w': 500, 'h': 40}]},
+            {'text': f'这 是 第 {n} 页 识 别 出 来 的 正 文 。', 'words': [{'x': 100, 'y': 300, 'w': 700, 'h': 30}]}]}
+    return out
+
+
+ocr.recognize = _fake_recognize
+_j = wait(api.call('book_ocr', {'path': str(_scan)})['job'])
+ocr.available, ocr.recognize = _oa, _orc
+_ri = book.read(str(_scan))
+_t3 = next(p['text'] for p in _ri['pages'] if p['n'] == 3)
+check('识别文字：生成可搜索 PDF，软件读得出每页的文字，行序对（标题在正文前）', _j['status'] == 'done' and _ri['chars'] > 0
+      and _t3.index('第一章趋势的起点') < _t3.index('这是第3页识别出来的正文'), (_j, _t3))
+_orig = _scan.parent / '_OCR前的原件（确认没问题可以删）' / _scan.name
+check('识别文字：原文件挪进同一文件夹的「_OCR前的原件」，新文件用原来的名字', _orig.exists() and _scan.exists() and book.read(str(_orig))['chars'] == 0, _j)
+check('识别文字：还没整理过的书按新文字重新分章', any(c['title'].startswith('第一章') for c in docs.load(str(_scan))['chapters']), docs.load(str(_scan))['chapters'])
+check('识别文字：临时文件做完就删了', not [x for x in ocr.OCR_DIR.glob('*') if x.name != 'winocr.ps1'], list(ocr.OCR_DIR.glob('*')))
+shutil.rmtree(_scan.parent, ignore_errors=True)
 # 几页的图同时生成（朗读原文时一屏有好几页带图）：pdfium 不能同时用，要排队，不然全都「Failed to load page」
 import concurrent.futures as _cf
 shutil.rmtree(book.pages_dir(pdfp), ignore_errors=True)

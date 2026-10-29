@@ -692,7 +692,7 @@ function openBook(d) {
   $('#bkFirst').closest('.field').hidden = d.book.kind !== 'pdf';
   $('#bkInfo').textContent = `${d.book.kind_name}，${d.book.pages} ${d.book.unit}，约 ${Math.round(d.book.chars / 1000)} 千字，${d.book.figures} 页有图表` +
     (d.book.kind === 'pdf' && d.book.detected_shift === null ? '。没认出书上的页码，请填上面的「书上第 1 页是 PDF 第几页」，否则锚点写成「PDF 第 X 页」' : '') +
-    (d.book.scan && d.book.chars < d.book.pages * 50 ? '。⚠ 这个 PDF 几乎没有文字层，请先用 WPS 做 OCR' : '') +
+    (d.book.scan && d.book.chars < d.book.pages * 50 ? '。⚠ 这个 PDF 几乎没有文字（每页都是图片），请先点下面的「识别文字（OCR）」' : '') +
     (d.book.companion ? `。同时参考同名 Word「${d.book.companion}」的正文` : '') +
     (!d.book.toc && (d.doc.chapters || []).every(c => /^第 \d+–\d+ 页$|^全文$/.test(c.title)) ? '。⚠ 没认出章节，现在是按页数分段；建议点「AI 读目录分章」' : '');
   updateShiftHint();
@@ -706,6 +706,10 @@ function openBook(d) {
   // 书籍信息平时收起（核对过就不用总看着）；刚打开还没整理、或者有要注意的（⚠）时展开
   $('#bkMetaBox').open = $('#bkInfo').textContent.includes('⚠') || !(d.doc.chapters || []).some(c => (c.md || '').trim());
   $('#bkSrcMode [data-m=orig]').textContent = d.viewer ? 'PDF' : '原样';
+  // 扫描版 PDF 才有「识别文字」：没有文字的叫「识别文字（OCR）」，已经有一层（比如 WPS 认得很差的）叫「重新识别文字」
+  $('#bkOcr').hidden = !(d.book.kind === 'pdf' && d.book.scan);
+  $('#bkOcr').textContent = d.book.chars < d.book.pages * 50 ? '识别文字（OCR）' : '重新识别文字';
+  $('#bkOcr').classList.toggle('primary', d.book.chars < d.book.pages * 50);
   $('#bkSrcText').innerHTML = ''; delete $('#bkSrcText').dataset.key;
   applyBookLayout(); setSrcMode(false);
   renderTeacherSelect(); renderBook(); updateButtons(); updateSaveLabel(); renderLibrary(); busyNotice(d);
@@ -973,6 +977,27 @@ async function bookOverview() {
     if (out) toast(out.skipped !== undefined ? out.skipped : '全书总览写好了');
   } catch (e) { fail(e); }
 }
+/* 扫描书识别文字（2026-10-29，bridge.do_book_ocr / core/ocr.py）：做完用原来的文件名换上新的可搜索 PDF，重新打开 */
+async function bookOcr() {
+  if (S.job || !S.doc) return;
+  const again = (S.book.chars || 0) >= (S.book.pages || 1) * 50, done = (S.doc.chapters || []).some(c => (c.md || '').trim());
+  if (!confirm('用 Windows 自带的文字识别，把这本扫描书的每一页认成文字（在这台电脑上识别，不联网、不花钱，300 页大约 2 分钟）。\n\n'
+    + '做完会生成带文字的新 PDF，用原来的文件名；原文件挪进同一个文件夹里的「_OCR前的原件」，不删。'
+    + (again ? '\n\n这本书已经有一层文字（可能是以前别的软件识别的），会换成新识别的。' : '')
+    + (done ? '\n\n已经整理好的章节不受影响。' : '\n\n做完会按新文字重新分章。') + '\n\n开始吗？')) return;
+  await flushSave();
+  const path = S.path;
+  if (S.viewer) $('#bookPdf').src = 'about:blank';  // 放开原文件，才能挪走
+  let out = null;
+  try {
+    const r = await api('book_ocr', { path });
+    await runJob(r.job, '正在识别文字…', { onDone: job => { out = job.result; } });
+  } catch (e) { fail(e); }
+  await window.openPath(path);  // 换成了新的文件：重新打开
+  if (out) toast(`识别好了：${out.pages} 页认出约 ${Math.round(out.chars / 1000)} 千字`
+    + (out.empty.length ? `，${out.empty.length} 页几乎没字（多半是空白页或整页的图）` : '')
+    + '。原文件在同一文件夹的「_OCR前的原件」里，确认没问题可以删。' + (done ? '' : '章节没分对的话，点「AI 读目录分章」。'), { ms: 14000 });
+}
 /* 重新分章：起止页一样的章，保留整理好的内容（2026-10-29 用户确认的方案：只重新整理变了的） */
 function keepNotes(old, chs) {
   let kept = 0;
@@ -1049,6 +1074,7 @@ function bindBook() {
   $('#bkRunAll').onclick = () => { if (!S.job) bookOrganize(S.doc.chapters.map((c, i) => (c.md || '').trim() ? -1 : i).filter(i => i >= 0)); };
   $('#bkOverview').onclick = () => { if (!S.job) bookOverview(); };
   $('#bkAiToc').onclick = () => { if (!S.job) bookAiToc(); };
+  $('#bkOcr').onclick = () => { if (!S.job) bookOcr(); };
   $('#bkAddCh').onclick = () => {
     const last = S.doc.chapters[S.doc.chapters.length - 1];
     const start = last ? Math.min(last.end + 1, S.book.pages) : 1;

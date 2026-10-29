@@ -164,6 +164,7 @@
             <button class="btn small" id="bkOverview" title="根据整理好的章节写「00、全书总览」">全书总览</button>
             <button class="btn small" id="bkAiToc" title="章节分得不对时，让 AI 读目录页重新分">AI 读目录分章</button>
             <button class="btn small" id="bkAddCh" title="手动加一章">＋ 加一章</button>
+            <button class="btn small" id="bkOcr" hidden title="扫描书：用 Windows 自带的文字识别把每页认成文字（本机识别，不联网、不花钱），生成可搜索 PDF；原文件挪进同一文件夹的「_OCR前的原件」">识别文字（OCR）</button>
           </div>
           <div class="chapter-list" id="bkChapters"></div>
         </div>
@@ -811,7 +812,7 @@
       <section data-h="book" hidden>
         <h3>书籍和文档整理</h3>
         <ol>
-          <li>在媒体库里点要整理的书或文档：PDF、Word（.docx / 老版 .doc）、电子书（EPUB、MOBI、AZW3）、演示文稿（PPTX / 老版 .ppt，一张幻灯片算一「页」）。TXT / Markdown 用「打开」。扫描或拍照的 PDF 请先用 WPS 做 OCR。有 DRM 加密的电子书（书店买的加密书）读不了，软件会提示。老版 .doc / .ppt 读不出标题层级，章节分得不对就点「AI 读目录分章」或手动改。</li>
+          <li>在媒体库里点要整理的书或文档：PDF、Word（.docx / 老版 .doc）、电子书（EPUB、MOBI、AZW3）、演示文稿（PPTX / 老版 .ppt，一张幻灯片算一「页」）。TXT / Markdown 用「打开」。扫描或拍照的 PDF（每页是整张图片）点目录列的「识别文字（OCR）」：用 Windows 自带的文字识别在这台电脑上把每页认成文字，不联网、不花钱，300 页大约 1.5 分钟；原文件挪进同一文件夹的「_OCR前的原件」，确认没问题可以删。别的软件识别得很差的，可以点「重新识别文字」。有 DRM 加密的电子书（书店买的加密书）读不了，软件会提示。老版 .doc / .ppt 读不出标题层级，章节分得不对就点「AI 读目录分章」或手动改。</li>
           <li>书分三列：左边「原书」（PDF 或文字版，「朗读原文」会读这一章的文字），中间「目录」，右边「整理笔记」；每一列都能点「隐藏」收成一条竖条、拖分隔线调宽度，「放大」让笔记占满。先在目录里核对：
             <ul>
               <li>书名、作者（在「书籍信息」里）；</li>

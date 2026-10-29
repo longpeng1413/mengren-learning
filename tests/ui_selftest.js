@@ -684,6 +684,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     await window.openPath(base + '测试书籍.pdf');
     ok('打开 PDF 进入书籍界面', await until(() => S.mode === 'book' && !document.querySelector('#bookMain').hidden && document.querySelector('#stageMain').hidden && document.body.classList.contains('mode-book')));
     ok('左边显示 PDF 原文', document.querySelector('#bookPdf').src.startsWith('file:') && !document.querySelector('#bookPdf').hidden);
+    ok('普通的电子版 PDF 不显示「识别文字（OCR）」（只有扫描书才有）', document.querySelector('#bkOcr').hidden);
     ok('视频相关按钮在书籍界面隐藏', getComputedStyle(document.querySelector('#btnTranscribe')).display === 'none');
     ok('列出章节和全书总览', document.querySelectorAll('#bkChapters .ch-row').length === 3 && document.querySelector('#bkChapters').textContent.includes('00、全书总览'));
     ok('认出「书上第 1 页是 PDF 第 3 页」', document.querySelector('#bkFirst').value === '3' && document.querySelector('#bkTitle').value === '测试书籍');
