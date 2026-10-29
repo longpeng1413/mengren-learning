@@ -469,11 +469,11 @@ class Api:
     def do_tts(self, b):
         """朗读一句话（Edge 在线 / 百度）：返回 mp3 的 base64，只在内存里，界面播完就丢。"""
         import base64
-        data = tts.speak(b.get('engine') or 'edge', b.get('text') or '', b.get('voice') or '', config.load())
+        data = tts.speak(b.get('engine') or 'edge', b.get('text') or '', b.get('voice') or '', config.load(), b.get('voice_en') or '')
         return {'audio': base64.b64encode(data).decode('ascii'), 'mime': 'audio/mpeg'}
 
     def do_tts_voices(self, b):
-        return {'edge': [{'id': v, 'name': n} for v, n in tts.EDGE_VOICES]}
+        return {'edge': [{'id': v, 'name': n} for v, n in tts.EDGE_VOICES], 'edge_en': [{'id': v, 'name': n} for v, n in tts.EDGE_EN_VOICES]}
 
     def do_dropped(self, b):
         """从资源管理器拖进来的文件：界面先把文件交给浏览器内核（FilesDropped，pywebview 记下完整路径），再按文件名来取。"""
@@ -642,6 +642,50 @@ class Api:
         shift = b.get('shift') if 'shift' in b else info.get('shift')
         return {'pages': [{'n': p['n'], 'ref': book.page_ref(p['n'], shift), 'text': p['text'],
                            'images': [file_url(x) for x in p.get('images') or []]} for p in info['pages']]}
+
+    def do_book_read(self, b):
+        """朗读原文：这几页去掉页眉页码、接成段落的文字；有图表的页标出来（PDF 的图由 book_page_img 按需渲染）。"""
+        info = book.read(b.get('path'))
+        shift = b.get('shift') if 'shift' in b else info.get('shift')
+        pages = book.reading_pages(info, int(b.get('start') or 1), int(b.get('end') or 0) or None)
+        return {'pdf': info['kind'] == 'pdf', 'pages': [dict(p, ref=book.page_ref(p['n'], shift), images=[file_url(x) for x in p['images']]) for p in pages]}
+
+    def do_book_page_img(self, b):
+        """PDF 某一页的图（朗读原文时附在这一页文字后面看图表用；缓存 30 天没用自动删）。"""
+        return {'src': file_url(book.render_page(b.get('path'), int(b.get('n')), 900))}
+
+    def do_book_chat(self, b):
+        """书的 AI 对话（边写边显示）：scope=chapter 读第 i 篇的原文全文 + 笔记，scope=book 读全部笔记 + 本机挑的相关原文页。
+        问答写进书的整理结果 book_chat[key]（由后台写，不走界面保存：后台可能正在整理这本书，界面整份保存会撞）。"""
+        s = config.load()
+        name = s['chat']
+        llm.check(s, name)
+        path = str(b.get('path') or '')
+        info = book.read(path)
+        d = workflow.load_doc(path)
+        scope = 'chapter' if b.get('scope') == 'chapter' else 'book'
+        key = str(b.get('key') or 'book')
+        history = [m for m in (b.get('messages') or []) if m.get('role') in ('user', 'assistant') and m.get('content')]
+        messages = book.chat_messages(info, d, scope, int(b.get('i') if b.get('i') is not None else -1), history)
+        question = next((m['content'] for m in reversed(history) if m['role'] == 'user'), '')
+
+        def run(job):
+            text = ''
+            for piece in llm.stream(s, name, messages, job.cancel):
+                text += piece
+                job.push([piece])
+            if text.strip():
+                answer = text.strip() + ('（已停止）' if job.cancel.is_set() else '')
+                workflow._apply(path, lambda doc: doc.setdefault('book_chat', {}).setdefault(key, []).extend(
+                    [{'role': 'user', 'content': question}, {'role': 'assistant', 'content': answer}]))
+            return {'saved': bool(text.strip())}
+        return {'job': jobs.start('book_chat', run).id}
+
+    def do_book_chat_clear(self, b):
+        """清空书的某一段 AI 对话（这一章的或整本书的）。"""
+        key = str(b.get('key') or '')
+        workflow._apply(str(b.get('path') or ''), lambda doc: (doc.get('book_chat') or {}).pop(key, None))
+        return {}
 
     def do_book_chapters(self, b):
         """重新识别章节。ai=True 时让 AI 读目录页（后台任务）。"""

@@ -20,7 +20,14 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     // 媒体库
     const lib = await api('library_add_folder', { path: base });
     await loadLibrary(lib.groups);
-    ok('添加文件夹到媒体库（视频、音频和书籍）', document.querySelectorAll('.lib-item').length === 3, document.querySelectorAll('.lib-item').length);
+    // 左上角「书籍 / 课程 / 老师」（2026-10-29）：书和音视频分开列
+    ok('左上角有「书籍」「课程」「老师」三个按钮', [...document.querySelectorAll('#libTabs .lib-tab')].map(b => b.textContent).join('|') === '书籍|课程|老师');
+    ok('添加文件夹到媒体库：「课程」里只列视频、音频', document.querySelectorAll('.lib-item').length === 2
+      && ![...document.querySelectorAll('.lib-item')].some(el => el.textContent.includes('测试书籍')), document.querySelectorAll('.lib-item').length);
+    document.querySelector('#libTabs [data-view="book"]').click();
+    ok('「书籍」里只列书和文档，文件夹后面的数字只数书', document.querySelectorAll('.lib-item').length === 1 && document.querySelector('.lib-item').textContent.includes('测试书籍')
+      && document.querySelector('#libBody .lib-gcount').textContent === '1' && document.querySelector('#libSearch').placeholder === '筛选书名');
+    document.querySelector('#libTabs [data-view="course"]').click();
     const item = [...document.querySelectorAll('.lib-item')].find(el => el.textContent.includes('演示视频'));
     ok('媒体库显示字幕数', item && item.textContent.includes('字幕 8'), item && item.textContent);
     item.click();
@@ -534,16 +541,20 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('媒体库按实际层级显示：带序号的在前，子文件夹里也按序号', top && top.children.map(c => c.name).join('|') === '1、第一讲|资料|预告'
       && top.children[0].children.map(c => c.name).join('|') === '1、甲|2、乙', top && top.children.map(c => c.name));
     const headOf = name => [...document.querySelectorAll('#libBody [data-folder]')].find(h => h.querySelector('.lib-gname').textContent === name);
-    ok('子文件夹显示成可以展开的一层，往里缩进', !!headOf('资料') && getComputedStyle(headOf('资料')).getPropertyValue('--depth').trim() === '1');
+    ok('「课程」里不显示只有书的文件夹', !headOf('资料') && !!headOf('1、第一讲'));
+    switchView('book');
+    ok('子文件夹显示成可以展开的一层，往里缩进（「书籍」里只显示有书的文件夹）', !!headOf('资料') && getComputedStyle(headOf('资料')).getPropertyValue('--depth').trim() === '1'
+      && !headOf('1、第一讲') && !document.querySelector('#libBody [data-fname="预告.avi"]'));
     headOf('资料').click();
     ok('点文件夹收起，记住', headOf('资料').parentElement.classList.contains('collapsed') && libNode(top.path + '\\资料').collapsed);
     headOf('资料').click();
+    switchView('course');
     const sib = () => siblings0(top.path).map(el => el.dataset.fname || el.dataset.drag.split('\\').pop());
     const elOf = name => siblings0(top.path).find(el => (el.dataset.fname || '') === name);
-    let list = siblings0(top.path).filter(el => el !== elOf('预告.avi'));
-    list.splice(list.indexOf(elOf('资料')), 0, elOf('预告.avi'));
+    let list = [elOf('预告.avi'), elOf('1、第一讲')];
     await libReorder({ el: elOf('预告.avi'), path: elOf('预告.avi').dataset.drag, parent: top.path }, list);
-    ok('拖动没序号的：放到哪里就排在哪里', await until(() => sib().join('|') === '1、第一讲|预告.avi|资料'), sib());
+    ok('拖动没序号的：放到哪里就排在哪里；这一层看不见的书（「资料」）不丢', await until(() => sib().join('|') === '预告.avi|1、第一讲')
+      && libNode(top.path).children.some(c => c.name === '资料'), [sib(), libNode(top.path).children.map(c => c.name)]);
     const origPrompt = window.prompt;
     window.prompt = () => null;  // 提示改名时不改
     const inner = top.path + '\\1、第一讲';
@@ -557,9 +568,12 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     window.prompt = origPrompt;
     const isShut = name => headOf(name).parentElement.classList.contains('collapsed');
     const topName = top.name;
+    switchView('book');
     headOf('资料').click();  // 先收起，再打开里面的书
+    switchView('course');
     await window.openPath(top.path + '\\资料\\补充.epub');
-    ok('打开电子书（EPUB）：分出章节，显示类型', await until(() => S.mode === 'book' && (S.doc.chapters || []).length === 2) && $('#bkInfo').textContent.includes('电子书（EPUB）'), $('#bkInfo').textContent);
+    ok('打开电子书（EPUB）：分出章节，显示类型；左上角自动切到「书籍」', await until(() => S.mode === 'book' && (S.doc.chapters || []).length === 2) && $('#bkInfo').textContent.includes('电子书（EPUB）')
+      && S.view === 'book' && document.querySelector('#libTabs .lib-tab.active').dataset.view === 'book', $('#bkInfo').textContent);
     ok('打开的课所在的文件夹自动展开', !isShut('资料') && !libNode(top.path + '\\资料').collapsed);
     headOf('资料').click();
     ok('正在看的课所在的文件夹也能收起', isShut('资料'));
@@ -568,6 +582,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     headOf(topName).click(); headOf('资料').click();
     ok('再点又展开', !isShut(topName) && !isShut('资料'));
     await window.openPath(keepPath);
+    ok('打开视频：左上角自动切回「课程」', S.view === 'course');
     await loadLibrary((await api('library_remove', { kind: 'folder', path: top.path })).groups);
 
     // 设置窗口
@@ -679,6 +694,95 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('整理稿里的页码可以点', document.querySelectorAll('#bkView .pglink').length === 2);
     document.querySelector('#bkView .pglink[data-p]').click();
     ok('点 P2 跳到 PDF 第 4 页', document.querySelector('#bookPdf').src.endsWith('#page=4'));
+    // 书籍朗读（2026-10-29）：和课程重点一样，页码不读；换一章朗读停下
+    const bkSegs = TTS.segments(document.querySelector('#bkView')).map(x => x.text);
+    // 书的文字设置（Aa）：整理笔记和原文文字版共用、和字幕分开；两列的「Aa」打开同一个菜单
+    const bkFs0 = parseFloat(getComputedStyle(document.querySelector('#bkView')).fontSize), cueFs0 = S.settings.font_size;
+    document.querySelector('#bookNote [data-bktx]').click();
+    ok('书的文字设置：整理笔记的「Aa」打开菜单', document.querySelector('#menuBookText').classList.contains('open') && document.querySelector('#bookNote').contains(document.querySelector('#menuBookText')));
+    document.querySelector('[data-btx="book_font_size:1"]').click();
+    document.querySelector('[data-btx="book_line_height:0.1"]').click();
+    ok('书的文字设置：字号、行距变大，字幕的字号不变', parseFloat(getComputedStyle(document.querySelector('#bkView')).fontSize) === bkFs0 + 1
+      && S.settings.book_line_height === 1.9 && S.settings.font_size === cueFs0 && document.querySelector('#bkTxSize').textContent === String(bkFs0 + 1));
+    document.querySelector('#bookLeft [data-bktx]').click();
+    ok('书的文字设置：原书的「Aa」打开同一个菜单', document.querySelector('#menuBookText').classList.contains('open') && document.querySelector('#bookLeft').contains(document.querySelector('#menuBookText')));
+    document.querySelector('#bkTxFont').value = 'kai'; document.querySelector('#bkTxFont').dispatchEvent(new Event('change'));
+    ok('书的文字设置：换字体，原文文字版也跟着变', getComputedStyle(document.querySelector('#bkSrcText')).fontFamily.includes('Kai'), getComputedStyle(document.querySelector('#bkSrcText')).fontFamily);
+    savePrefs({ book_font_size: 15, book_line_height: 1.8, book_font_family: 'yahei' }); closeMenus();
+    ok('朗读：英文句子自动换英文声音，中文句子夹英文词还是中文声音', TTS.isEnglish('Research is a craft.') && !TTS.isEnglish('研究是一门 craft。'));
+    ok('书籍朗读：按句子切，页码（P2、PDF 第 5 页）不读', bkSegs.join('|').includes('讲趋势') && !/P2|PDF|第 5 页/.test(bkSegs.join('')), bkSegs);
+    savePrefs({ tts_engine: 'system', tts_rate: 2 });
+    ok('书籍朗读：有内容时朗读按钮可以点', !document.querySelector('#bkTts').disabled);
+    document.querySelector('#bkTts').click();
+    ok('书籍朗读：点「朗读」读这一章，播放条出现在这一章上面', await until(() => TTS.active() && TTS.active().root === document.querySelector('#bkView')
+      && document.querySelector('.chapter-view .tts-bar')), TTS._state());
+    document.querySelector('#bkChapters .ch-row[data-ch="1"] span').click();
+    ok('书籍朗读：换一章，朗读停下；没整理的章朗读按钮是灰的', !TTS.active() && !document.querySelector('.tts-bar') && document.querySelector('#bkTts').disabled);
+    savePrefs({ tts_engine: 'edge', tts_rate: 1 });
+    // 整理时每做好一章，界面马上显示（bookLive）；分章这期间改过的不动
+    const c1 = S.doc.chapters[1];
+    bookLive([{ kind: 'chapter', i: 1, title: c1.title, start: c1.start, end: c1.end, md: '## 一、本章主题\n\n边整理边显示。', note: '提炼：12 字' },
+              { kind: 'chapter', i: 0, title: '别的章名', start: 1, end: 2, md: '不该写进来' }]);
+    ok('整理时每做好一章，列表马上标「已整理」、正在看的这一章马上显示', S.doc.chapters[1].md.includes('边整理边显示')
+      && document.querySelector('#bkChapters .ch-row[data-ch="1"] .ch-state.ok') && document.querySelector('#bkView').textContent.includes('边整理边显示')
+      && !document.querySelector('#bkTts').disabled && S.doc.chapters[0].md.includes('讲趋势'));
+    // 这本书正被后台 / 命令行整理时点「整理全部」：整个任务没开始就停了，要说清楚原因（2026-10-29 以前显示「整理好了 undefined 章」）
+    const busyOut = stepResult({ status: 'done', task: { status: 'failed', message: '失败', error: { error_code: 'busy', message: '这节课正在被另一个任务整理（测试，15:08 开始）' },
+      stages: [{ name: 'organize', status: 'pending' }] } }, 'organize');
+    ok('正被别的任务整理时：说清楚原因，不显示「undefined 章」', busyOut === null && toasts().some(t => t.includes('正在被另一个任务整理') && t.includes('等那边整理完'))
+      && !toasts().some(t => t.includes('undefined')), toasts());
+    S.doc.chapters[1].md = ''; renderBook();
+    document.querySelector('#bkChapters .ch-row[data-ch="0"] span').click();
+    // 三列（2026-10-29 用户要求）：原书、目录、整理笔记，各有标题和边框，能单独隐藏；放大；拖宽度；记在本机
+    const colName = k => document.querySelector(`#bookMain [data-col="${k}"] .bk-col-name`).textContent;
+    const box = sel => document.querySelector(sel).getBoundingClientRect();
+    ok('书：三列，标题是「原书」「目录」「整理笔记」，目录栏写着共几章、整理了几章', colName('src') === '原书' && colName('toc') === '目录' && colName('note') === '整理笔记'
+      && document.querySelector('#bkTocCount').textContent.includes('共 2 章 · 已整理 1'), document.querySelector('#bkTocCount').textContent);
+    const nb0 = box('#bookNote');
+    ok('书：三列从左到右排开，章节竖着排在目录这一列里', box('#bookLeft').right <= box('#bookToc').left + 1 && box('#bookToc').right <= nb0.left + 1
+      && [...document.querySelectorAll('#bkChapters .ch-row')].every(r => r.getBoundingClientRect().right <= box('#bookToc').right + 1), [box('#bookLeft'), box('#bookToc'), nb0]);
+    document.querySelector('#bookLeft [data-hide="src"]').click();
+    ok('书：隐藏原书，缩成一条竖条，笔记变宽，记在本机', document.querySelector('#bookLeft').classList.contains('collapsed') && box('#bookLeft').width < 40
+      && box('#bookNote').width > nb0.width + 100 && JSON.parse(localStorage.getItem('book-layout')).hide.src === true);
+    document.querySelector('#bookLeft .bk-rail').click();
+    ok('书：点竖条，原书恢复', !document.querySelector('#bookLeft').classList.contains('collapsed') && box('#bookLeft').width > 200);
+    document.querySelector('#bkZoom').click();
+    ok('书：放大，原书和目录收起，笔记占满', document.querySelector('#bookLeft').classList.contains('collapsed') && document.querySelector('#bookToc').classList.contains('collapsed')
+      && document.querySelector('#bkZoom').textContent === '还原' && box('#bookNote').width > nb0.width + 300);
+    document.querySelector('#bkZoom').click();
+    ok('书：还原', !document.querySelector('#bookLeft').classList.contains('collapsed') && !document.querySelector('#bookToc').classList.contains('collapsed') && document.querySelector('#bkZoom').textContent === '放大');
+    const sp2 = document.querySelector('#bookSplit2'), tl = box('#bookToc').left;
+    sp2.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: tl + 300, pointerId: 1 }));
+    sp2.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: tl + 230, pointerId: 1 }));
+    sp2.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: tl + 230, pointerId: 1 }));
+    ok('书：拖分隔线调目录宽度，记住', box('#bookToc').width < 290 && Math.abs(JSON.parse(localStorage.getItem('book-layout')).toc - box('#bookToc').width) < 3, box('#bookToc'));
+    bookLayout.toc = 300; bookLayout.src = 0; applyBookLayout(); saveBookLayout();
+    // 和原书目录一致（2026-10-29）：按部分分组显示；重新分章时起止页没变的保留整理好的内容
+    const kn = keepNotes([{ title: 'a', start: 1, end: 2, md: '甲' }, { title: 'b', start: 3, end: 9, md: '乙' }],
+      [{ title: 'a', start: 1, end: 2, part: 'P1' }, { title: 'b2', start: 3, end: 5, part: 'P1' }, { title: 'c', start: 6, end: 9 }]);
+    ok('重新分章：起止页没变的保留整理好的内容，变了的、新的要重新整理', kn.kept === 1 && kn.chapters[0].md === '甲' && kn.chapters[0].part === 'P1'
+      && !kn.chapters[1].md && !kn.chapters[2].md, kn);
+    const saveChs = S.doc.chapters.map(c => ({ ...c }));
+    S.doc.chapters.forEach(c => { c.part = '第一部分 测试'; }); renderBook();
+    ok('目录按原书的部分分组：部分标题下面缩进列出各篇', document.querySelectorAll('#bkChapters .ch-part').length === 1
+      && document.querySelector('#bkChapters .ch-part').textContent === '第一部分 测试' && document.querySelectorAll('#bkChapters .ch-row.in-part').length === S.doc.chapters.length);
+    S.doc.chapters = saveChs; renderBook();
+    // 原书：朗读原文（换成这一章的文字版，正在读的句子高亮，页码不读；关掉朗读换回 PDF）；也可以手动切文字版
+    savePrefs({ tts_engine: 'system', tts_rate: 2 });
+    document.querySelector('#bkSrcTts').click();
+    ok('原书：点「朗读原文」，换成这一章的文字版开始读，播放条在原书这一列', await until(() => TTS.active() && TTS.active().root === document.querySelector('#bkSrcText')
+      && document.querySelector('#bookPdf').hidden && !document.querySelector('#bkSrcText').hidden && document.querySelector('#bkSrcText .bpage') && document.querySelector('#bookLeft .tts-bar')), TTS._state());
+    const ref1 = document.querySelector('#bkSrcText .bref').textContent;
+    ok('原书：页码不读', ref1 && !TTS.segments(document.querySelector('#bkSrcText')).some(x => x.text.includes(ref1)), ref1);
+    ok('原书：朗读原文时，整理笔记的朗读按钮不亮', !document.querySelector('#bkTts').classList.contains('primary'));
+    document.querySelector('#bookLeft .tts-bar [data-t=close]').click();
+    ok('原书：关掉朗读，换回 PDF', !TTS.active() && !document.querySelector('#bookPdf').hidden && document.querySelector('#bkSrcText').hidden);
+    document.querySelector('#bkSrcMode [data-m=read]').click();
+    ok('原书：可以手动切到文字版', await until(() => !document.querySelector('#bkSrcText').hidden && document.querySelector('#bkSrcText .bpage'))
+      && document.querySelector('#bkSrcMode [data-m=read]').classList.contains('on') && document.querySelector('#bookPdf').hidden);
+    document.querySelector('#bkSrcMode [data-m=orig]').click();
+    ok('原书：切回 PDF', !document.querySelector('#bookPdf').hidden && document.querySelector('#bkSrcText').hidden);
+    savePrefs({ tts_engine: 'edge', tts_rate: 1 });
     const ti = document.querySelector('#bkChapters .ch-row[data-ch="0"] input[data-f="title"]');
     ti.value = '第一章 改过的名字'; ti.dispatchEvent(new Event('change', { bubbles: true }));
     ok('可以改章名', S.doc.chapters[0].title === '第一章 改过的名字');
@@ -688,6 +792,27 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     await flushSave();
     const reb = await api('open', { path: base + '测试书籍.pdf' });
     ok('书籍整理结果保存到磁盘', reb.doc.chapters[0].title === '第一章 改过的名字' && reb.doc.shift === 3 && reb.doc.chapters[0].md.includes('讲趋势'));
+    // 书的 AI 对话（2026-10-29）：「笔记 / AI 对话」二选一；问这一章、问整本书各是一段对话；问答由后台存；回答里的页码能点
+    document.querySelector('#bkChapters .ch-row[data-ch="0"] span').click();
+    document.querySelector('#bkNoteMode [data-m="chat"]').click();
+    ok('书的 AI 对话：切到「AI 对话」，默认问这一章', !document.querySelector('#bkChat').hidden && document.querySelector('#bkView').hidden
+      && document.querySelector('#bkChatScope [data-s="chapter"]').classList.contains('on') && document.querySelector('#bkChatHint').textContent.includes('原文全文')
+      && getComputedStyle(document.querySelector('#bkEdit')).display === 'none');
+    const chKey = `ch:${S.doc.chapters[0].start}-${S.doc.chapters[0].end}`;
+    document.querySelector('#bkChips [data-q]').click();
+    ok('书的 AI 对话：点常用问题，回答显示出来', await until(() => !S.chatAbort && ((S.doc.book_chat || {})[chKey] || []).length === 2, 15000)
+      && document.querySelector('#bkChatBox .msg.assistant').textContent.includes('假 AI'), S.doc.book_chat);
+    ok('书的 AI 对话：问答由后台存进书的整理结果', (((await api('doc', { path: S.path })).doc.book_chat || {})[chKey] || []).length === 2);
+    document.querySelector('#bookPdf').src = S.viewer;
+    document.querySelector('#bkChatBox .msg.assistant .pglink').click();
+    ok('书的 AI 对话：点回答里的页码，原书跳到那一页', document.querySelector('#bookPdf').src.endsWith('#page=5'), document.querySelector('#bookPdf').src);
+    document.querySelector('#bkChatScope [data-s="book"]').click();
+    ok('书的 AI 对话：切到问整本书，是另一段对话', document.querySelector('#bkChatHint').textContent.includes('全部章节') && !!document.querySelector('#bkChatBox .ai-empty'));
+    document.querySelector('#bkNoteMode [data-m="note"]').click();
+    ok('书的 AI 对话：切回笔记', document.querySelector('#bkChat').hidden && !document.querySelector('#bkView').hidden);
+    bkChatScope = 'chapter';
+    await api('book_chat_clear', { path: S.path, key: chKey });
+    await syncBookFromDisk();
     await window.openPath(base + '演示视频.mp4');
     ok('再打开视频回到视频界面', await until(() => S.mode === 'media' && !document.querySelector('#stageMain').hidden && document.querySelector('#bookMain').hidden && v.readyState >= 1 && !S.resumePending));
 

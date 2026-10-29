@@ -70,6 +70,8 @@ def _distill_reply(system):
 
 def stream(settings, name, messages, cancel=None, json_mode=False):
     reply = _distill_reply(str(messages[0].get('content')) if messages else '')
+    if reply is None and messages and str(messages[0].get('content')).startswith('你是用户读书的助手'):
+        reply = '书里说（假 AI）：趋势从三段开始（P2）。'  # 书的 AI 对话
     if reply is not None:
         time.sleep(0.2)
         yield reply
@@ -106,4 +108,4 @@ def install():
     book.organize_chapter = lambda s, n, path, info, c, meta, *a, **k: f'## 一、本章主题\n\n{c["title"]}（假 AI 整理）'
     book.review_chapter = lambda s, n, info, c, md, meta, teacher=None: (md, 0, 0)
     book.verify_doubts = lambda s, n, path, info, c, md, meta, teacher=None, vision=True: (md, 0)
-    book.overview = lambda s, n, meta, chs, files: '## 全书总览\n\n假 AI 写的总览。'
+    book.overview = lambda s, n, meta, chs, files, info=None: '## 全书总览\n\n假 AI 写的总览。'

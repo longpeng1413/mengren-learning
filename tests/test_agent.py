@@ -426,7 +426,7 @@ book_calls = Counter()
 book.organize_chapter = lambda s, n, path, info, c, meta, *a, **k: (book_calls.update(['org']), f'## 一、本章主题\n\n{c["title"]}（P1）')[1]
 book.review_chapter = lambda s, n, info, c, md, meta, teacher=None: (md, 0, 0)
 book.verify_doubts = lambda s, n, path, info, c, md, meta, teacher=None, vision=True: (md, 0)
-book.overview = lambda s, n, meta, chs, files: (book_calls.update(['overview']), '## 全书总览\n\n两章。')[1]
+book.overview = lambda s, n, meta, chs, files, info=None: (book_calls.update(['overview']), '## 全书总览\n\n两章。')[1]
 tb = wf.process(BK)
 db = docs.load(BK)
 check('书：逐章整理 + 全书总览，不剪藏', tb['status'] == 'completed' and all(c['md'] for c in db['chapters']) and db['overview']
@@ -480,9 +480,13 @@ check('界面：课程重点边写边显示', ''.join(x['text'] for x in live if
       or ''.join(x['text'] for x in live if x['kind'] == 'text').strip() == docs.load(str(OUTSIDE))['summary'])
 BK2 = str(BOOKS / '《第二本》.pdf')
 shutil.copy(ROOT / 'test-media' / '测试书籍.pdf', BK2)
-tg = wf.process(BK2, steps=['organize'], chapters=[1])
+live = []
+tg = wf.process(BK2, steps=['organize'], chapters=[1], on_items=live.extend)
 d2b = docs.load(BK2)
 check('界面：只整理勾选的章节', tg['status'] == 'completed' and not d2b['chapters'][0]['md'] and d2b['chapters'][1]['md'])
+chi = [x for x in live if x['kind'] == 'chapter']
+check('界面：每整理好一章就推给界面（不用等全部做完）', len(chi) == 1 and chi[0]['i'] == 1 and chi[0]['md'] == d2b['chapters'][1]['md']
+      and (chi[0]['title'], chi[0]['start'], chi[0]['end']) == (d2b['chapters'][1]['title'], d2b['chapters'][1]['start'], d2b['chapters'][1]['end']), chi)
 tg = wf.process(BK2, steps=['overview'])
 check('Agent：章节没整理完不写总览（可以接着做）', tg['status'] == 'failed' and tg['error']['retryable'])
 tg = wf.process(BK2, steps=['overview'], allow_partial=True)

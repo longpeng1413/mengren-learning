@@ -11,13 +11,16 @@ const M = { list: [], cur: null, chat: null, job: null, searchHits: null, quotes
 const roundOn = () => typeof R !== 'undefined' && !!R.mode;  // 正在看圆桌讨论或主题蒸馏（round.js）
 S.view = 'course';
 
-/* ---------- 课程 / 老师 切换 ---------- */
+/* ---------- 书籍 / 课程 / 老师 切换（2026-10-29 加「书籍」：媒体库里的书和视频分开列，功能不变） ---------- */
 function switchView(v) {
   if (S.view === v) return;
+  const was = S.view;
   S.view = v;
   $$('#libTabs .lib-tab').forEach(b => b.classList.toggle('active', b.dataset.view === v));
-  $$('.course-only').forEach(el => { el.hidden = v !== 'course'; });
+  $$('.course-only').forEach(el => { el.hidden = v === 'mentor'; });  // 书籍、课程共用媒体库那一套（文件夹按钮、筛选、列表）
   $$('.mentor-only').forEach(el => { el.hidden = v !== 'mentor'; });
+  if (v !== 'mentor') { $('#libSearch').placeholder = v === 'book' ? '筛选书名' : '筛选文件名'; renderLibrary(); }
+  if (was !== 'mentor' && v !== 'mentor') return;  // 书籍 ↔ 课程：只换左边的列表，右边正在看的不动
   if (typeof TTS !== 'undefined') TTS.stop();
   const mentor = v === 'mentor';
   $('#mentorMain').hidden = !mentor;

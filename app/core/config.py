@@ -126,6 +126,12 @@ DEFAULTS = {
     'cue_gap': 9,
     'cue_width': 0,
     'font_family': 'yahei',
+    # 书的整理笔记、原文文字版的文字设置（2026-10-29 用户要求「像字幕一样能设」；和字幕分开记）
+    'book_font_size': 15,
+    'book_line_height': 1.8,
+    'book_gap': 8,
+    'book_width': 0,
+    'book_font_family': 'yahei',
     'split': 0.5,
     'sidebar': True,
     'lib_w': 270,
@@ -137,6 +143,7 @@ DEFAULTS = {
     'show_tr': True,
     'tts_engine': 'edge',  # 朗读：edge 在线 / baidu 百度 / system 系统声音（2026-10-21）
     'tts_voice': 'zh-CN-XiaoxiaoNeural',
+    'tts_voice_en': 'en-US-AriaNeural',  # 英文句子用的 Edge 声音（2026-10-29，外文书朗读原文）
     'tts_sys_voice': '',
     'tts_rate': 1.0,
     'tts_hl': 'yellow',

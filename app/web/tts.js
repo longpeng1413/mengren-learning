@@ -16,7 +16,7 @@ const TTS = (() => {
   const CACHE_LIMIT = 8, PREFETCH = 4, RESUME_FOLLOW = 6000, RETRY = [600, 1500], BOTTOM_GAP = 60;
   const PROGRESS_KEY = 'tts-progress', PROGRESS_LIMIT = 200, PROGRESS_DAYS = 180;
   const BLOCK = /^(P|LI|H[1-6]|TD|TH|BLOCKQUOTE|DIV|DT|DD|TR|UL|OL|TABLE|SECTION|BR|HR)$/;
-  const SKIP = 'a.tslink, a.cite, pre, img, svg, button, script, style, .msg.user, .doubt-tag, .msg-actions';
+  const SKIP = 'a.tslink, a.cite, a.pglink, pre, img, svg, button, script, style, .msg.user, .doubt-tag, .msg-actions, .tts-skip';
   const ICON = {
     prev: '<path d="M19 20L9 12l10-8z"/><path d="M5 19V5"/>', next: '<path d="M5 4l10 8-10 8z"/><path d="M19 5v14"/>',
     play: '<path d="M7 4l13 8-13 8z"/>', pause: '<path d="M7 4h4v16H7zM14 4h4v16h-4z"/>', again: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
@@ -34,7 +34,7 @@ const TTS = (() => {
   const hasHighlight = () => !!(window.CSS && CSS.highlights && window.Highlight);
 
   /* ---------- 切句（照 speech-text.mjs：按句末标点切，超过 80 字在逗号等处切开；每个字记住它在页面上的位置） ---------- */
-  const isTs = n => !!n && n.nodeType === 1 && n.matches('a.tslink, a.cite');
+  const isTs = n => !!n && n.nodeType === 1 && n.matches('a.tslink, a.cite, a.pglink');  // 书的页码（P12、PDF 第 3 页）也不读
   function segments(root) {
     const out = [];
     let chars = [];
@@ -105,6 +105,10 @@ const TTS = (() => {
       const cid = typeof M !== 'undefined' && M.chat ? M.chat.id : 'new';
       return { root: $('#mentorMsgs'), pane: 'mentor:' + cid, name: '老师的回答', anchor: $('.mentor-head') };
     }
+    if (S.mode === 'book') {  // 书：读右边正在看的那一章 / 全书总览（2026-10-29 用户要求，和课程重点一样）
+      const i = S.bookSel ? S.bookSel.i : -1;
+      return { root: $('#bkView'), pane: 'book:' + i, name: i === -2 ? '全书总览' : '这一章', anchor: $('#bkView').previousElementSibling };
+    }
     const tab = ($('.ai-tabs .tab.active') || {}).dataset || {};
     if (tab.tab === 'chat') return { root: $('#chatBox'), pane: 'chat', name: 'AI 对话' };
     return { root: $('#summaryBox'), pane: 'summary', name: '课程重点' };
@@ -135,8 +139,13 @@ const TTS = (() => {
   }
 
   /* ---------- 开始、暂停、停止 ---------- */
-  function start(mode) {
+  // 某一块是谁在读：原书的文字版由 app.js 的 bookSrcSource 给（读原文），其他按当前所在的区域
+  function sourceFor(root) {
+    if (root === $('#bkSrcText') && typeof bookSrcSource === 'function') return bookSrcSource();
     const src = source();
+    return src.root === root ? src : null;
+  }
+  function start(mode, src = source()) {
     if (!src.root || (!S.path && S.view !== 'mentor')) return toast('先打开一节课');
     const segs = segments(src.root);
     if (!segs.length) return toast(`${src.name}里还没有可以朗读的文字`);
@@ -146,7 +155,7 @@ const TTS = (() => {
     if (typeof mode === 'number') i = Math.max(0, Math.min(segs.length - 1, mode));  // 双击的那一句
     else if (mode === 'here') i = firstVisible(segs);
     else if (mode !== 'start') i = resumeIndex(key, segs);
-    s = { root: src.root, anchor: src.anchor, key, name: src.name, segs, i, state: 'playing', follow: true, handScroll: 0, programmatic: 0, cleanup: [] };
+    s = { root: src.root, anchor: src.anchor, key, name: src.name, segs, i, state: 'playing', follow: true, handScroll: 0, programmatic: 0, cleanup: [], onClose: src.onClose, src };
     const v = $('#video'); if (v && !v.paused) v.pause();  // 边听边看：先停下视频
     mount();
     listen();
@@ -221,8 +230,8 @@ const TTS = (() => {
     a.play().catch(() => {});
   }
   function fetchAudio(text) {
-    const voice = engine() === 'edge' ? pref('tts_voice', '') : '';
-    const key = engine() + '|' + voice + '|' + text;
+    const voice = engine() === 'edge' ? pref('tts_voice', '') : '', voiceEn = engine() === 'edge' ? pref('tts_voice_en', '') : '';
+    const key = engine() + '|' + voice + '|' + voiceEn + '|' + text;
     if (cache.has(key)) return cache.get(key);
     const eng = engine();
     const job = (async () => {
@@ -230,7 +239,7 @@ const TTS = (() => {
       for (let k = 0; k <= RETRY.length; k++) {
         if (k) await sleep(RETRY[k - 1]);
         try {
-          const r = await api('tts', { engine: eng, text, voice });
+          const r = await api('tts', { engine: eng, text, voice, voice_en: voiceEn });  // 英文句子后台自动换英文声音
           const bin = atob(r.audio), u8 = new Uint8Array(bin.length);
           for (let j = 0; j < bin.length; j++) u8[j] = bin.charCodeAt(j);
           return URL.createObjectURL(new Blob([u8], { type: r.mime || 'audio/mpeg' }));
@@ -248,17 +257,21 @@ const TTS = (() => {
   }
   // 提前准备后面几句：Edge 一句一般要 2 秒左右，偶尔更久（后台还会超时重发）
   function prefetch() { for (let k = 1; k <= PREFETCH; k++) { const x = s.segs[s.i + k]; if (x) fetchAudio(x.text).catch(() => {}); } }
-  function sysVoice() {
+  function sysVoice(english) {
     const all = speechSynthesis.getVoices(), want = pref('tts_sys_voice', '');
+    if (english) return all.find(v => /^en-US/i.test(v.lang)) || all.find(v => /^en/i.test(v.lang)) || null;  // 英文句子：系统里的英文声音
     return all.find(v => v.name === want) || all.find(v => /^zh/i.test(v.lang)) || null;
   }
+  // 英文句子（没有汉字、有英文单词）换英文声音（2026-10-29：外文书朗读原文，中文声音读英文很难听）；中文句子里夹英文词还是中文声音
+  const isEnglish = t => !/[㐀-鿿]/.test(t) && /[A-Za-z]{2,}/.test(t);
   function speakSystem(seg, my) {
     if (!window.speechSynthesis) { s.state = 'paused'; render(); return toast('这台电脑没有系统朗读，请在「声音」里改用 Edge 在线朗读', { error: true }); }
     const go = () => {
       if (my !== token || !s) return;
       const u = new SpeechSynthesisUtterance(seg.text);
-      u.lang = 'zh-CN'; u.rate = rate();
-      const v = sysVoice(); if (v) u.voice = v;
+      const en = isEnglish(seg.text);
+      u.lang = en ? 'en-US' : 'zh-CN'; u.rate = rate();
+      const v = sysVoice(en); if (v) u.voice = v;
       u.onend = () => { if (my === token && s && s.state === 'playing') next(); };
       speechSynthesis.speak(u);
     };
@@ -323,7 +336,7 @@ const TTS = (() => {
       if (t === 'prev') step(-1);
       else if (t === 'next') step(1);
       else if (t === 'play') toggle();
-      else if (t === 'close') stop();
+      else if (t === 'close') { const f = s.onClose; stop(); if (f) f(); }
       else if (t === 'locate') { s.follow = true; s.handScroll = 0; highlight(); render(); }
       else if (t === 'rate') rateMenu(r);
       else if (t === 'voice') voiceMenu(r);
@@ -346,6 +359,10 @@ const TTS = (() => {
     const b = $('#btnTts'); if (!b) return;
     b.classList.toggle('primary', !!s && s.state === 'playing');
     b.title = s && s.state === 'playing' ? '暂停朗读' : '朗读（边听边看）：课程重点页读课程重点，AI 对话页读 AI 的回答';
+    const bk = $('#bkTts');
+    if (bk) { bk.classList.toggle('primary', !!s && s.state === 'playing' && s.root === $('#bkView')); bk.title = s && s.state === 'playing' ? '暂停朗读' : '朗读（边听边看）：读这一章整理好的内容；双击任意一句从那里读'; }
+    const bs = $('#bkSrcTts');
+    if (bs) bs.classList.toggle('primary', !!s && s.state === 'playing' && s.root === $('#bkSrcText'));
   }
   const menuItem = (label, on, attr) => `<button class="menu-item" ${attr}>${on ? '✓ ' : '<span class="tts-pad"></span>'}${esc(label)}</button>`;
   function rateMenu(r) {
@@ -354,21 +371,23 @@ const TTS = (() => {
     });
   }
   async function voiceMenu(r) {
-    let edge = [];
-    try { edge = (await api('tts_voices')).edge; } catch (_) { /* 后台没有 */ }
+    let edge = [], edgeEn = [];
+    try { ({ edge, edge_en: edgeEn = [] } = await api('tts_voices')); } catch (_) { /* 后台没有 */ }
     const eng = engine();
     let html = '<div class="menu-label">朗读来源</div>' + Object.entries(ENGINES).map(([k, v]) => menuItem(v, k === eng, `data-eng="${k}"`)).join('');
     if (eng === 'edge') {
-      const cur = pref('tts_voice', (edge[0] || {}).id);
-      html += '<div class="menu-label">声音</div>' + edge.map(v => menuItem(v.name, v.id === cur, `data-voice="${esc(v.id)}"`)).join('');
+      const cur = pref('tts_voice', (edge[0] || {}).id), curEn = pref('tts_voice_en', (edgeEn[0] || {}).id);
+      html += '<div class="menu-label">声音</div>' + edge.map(v => menuItem(v.name, v.id === cur, `data-voice="${esc(v.id)}"`)).join('')
+        + (edgeEn.length ? '<div class="menu-label">英文句子用的声音（自动切换）</div>' + edgeEn.map(v => menuItem(v.name, v.id === curEn, `data-voice-en="${esc(v.id)}"`)).join('') : '');
     } else if (eng === 'system' && window.speechSynthesis) {
       const all = speechSynthesis.getVoices(), zh = all.filter(v => /^zh/i.test(v.lang)), cur = pref('tts_sys_voice', '');
-      html += '<div class="menu-label">声音</div>' + menuItem('自动选中文声音', !cur, 'data-sys=""')
+      html += '<div class="menu-label">声音（英文句子自动用系统里的英文声音）</div>' + menuItem('自动选中文声音', !cur, 'data-sys=""')
         + (zh.length ? zh : all).map(v => menuItem(v.name.replace(/^Microsoft /, '').replace(/ - .*$/, ''), v.name === cur, `data-sys="${esc(v.name)}"`)).join('');
-    } else if (eng === 'baidu') html += '<div class="menu-label">百度朗读只有一种声音；正在读的句子会发给百度翻译</div>';
+    } else if (eng === 'baidu') html += '<div class="menu-label">百度朗读只有一种声音（英文句子自动用英文读）；正在读的句子会发给百度翻译</div>';
     showCtx(r.left, r.bottom + 4, html, m => {
       $$('[data-eng]', m).forEach(el => el.onclick = () => { m.hidden = true; change({ tts_engine: el.dataset.eng }); });
       $$('[data-voice]', m).forEach(el => el.onclick = () => { m.hidden = true; change({ tts_voice: el.dataset.voice }); });
+      $$('[data-voice-en]', m).forEach(el => el.onclick = () => { m.hidden = true; change({ tts_voice_en: el.dataset.voiceEn }); });
       $$('[data-sys]', m).forEach(el => el.onclick = () => { m.hidden = true; change({ tts_sys_voice: el.dataset.sys }); });
     });
   }
@@ -376,7 +395,7 @@ const TTS = (() => {
     const cur = pref('tts_hl', 'yellow');
     showCtx(r.left, r.bottom + 4, menuItem('从头朗读', false, 'data-from="start"') + menuItem('从当前屏幕开始朗读', false, 'data-from="here"')
       + '<div class="menu-label">高亮颜色</div>' + Object.entries(HL).map(([k, v]) => menuItem(v[0], k === cur, `data-hl="${k}"`)).join(''), m => {
-      $$('[data-from]', m).forEach(el => el.onclick = () => { m.hidden = true; start(el.dataset.from); });
+      $$('[data-from]', m).forEach(el => el.onclick = () => { m.hidden = true; start(el.dataset.from, (s && s.src) || source()); });
       $$('[data-hl]', m).forEach(el => el.onclick = () => { m.hidden = true; savePrefs({ tts_hl: el.dataset.hl }); highlight(); });
     });
   }
@@ -395,7 +414,10 @@ const TTS = (() => {
     if (s.state === 'playing') speak(); else render();
   }
 
-  $('#btnTts').onclick = () => { if (s && s.root === source().root) toggle(); else start(); };
+  // 朗读按钮：正在读的就是这一块 → 暂停 / 继续；否则从这一块开始读
+  function button(src = source()) { if (s && s.root === src.root && s.key.endsWith('|' + src.pane)) toggle(); else start(undefined, src); }
+  $('#btnTts').onclick = () => button();
+  $('#bkTts').onclick = () => button();
   /* 双击某一句：从这一句开始读（没在朗读也直接开始）；双击正在读的那一句：暂停 / 继续（和插件「听书」一样）。
      单击留给选字、复制、点时间跳视频，所以用双击（2026-10-21 用户要求，阅读状态下没有光标，没法指定从哪读）。 */
   function sentenceAt(segs, x, y) {
@@ -406,19 +428,19 @@ const TTS = (() => {
     }
     return segs.findIndex(seg => { const r = rangeOf(seg); return !!r && [...r.getClientRects()].some(b => x >= b.left - 2 && x <= b.right + 2 && y >= b.top - 2 && y <= b.bottom + 2); });
   }
-  for (const id of ['#summaryBox', '#chatBox']) $(id).addEventListener('dblclick', e => {
-    if (e.target.closest('a.tslink, button, img, svg, pre, .msg.user')) return;
-    const root = $(id);
-    if (source().root !== root) return;
+  for (const id of ['#summaryBox', '#chatBox', '#bkView', '#bkSrcText']) $(id).addEventListener('dblclick', e => {
+    if (e.target.closest('a.tslink, a.pglink, button, img, svg, pre, .msg.user, .tts-skip')) return;
+    const root = $(id), src = sourceFor(root);
+    if (!src) return;
     const live = s && s.root === root, segs = live ? s.segs : segments(root);
     const k = sentenceAt(segs, e.clientX, e.clientY);
     if (k < 0) return;
     setTimeout(() => { try { getSelection().removeAllRanges(); } catch (_) { /* 没选中 */ } }, 30);  // 双击会顺手选中一个词
-    if (!live) return start(k);
+    if (!live) return start(k, src);
     if (k === s.i && s.state !== 'ended') return toggle();
     s.i = k; s.follow = true; s.handScroll = 0;
     speak();
   });
   if (window.speechSynthesis) speechSynthesis.getVoices();  // 系统声音列表是异步加载的，先触发一次
-  return { start, toggle, stop, segments, active: () => s, _state: () => s && { i: s.i, state: s.state, follow: s.follow, n: s.segs.length } };
+  return { start, toggle, stop, button, segments, isEnglish, active: () => s, _state: () => s && { i: s.i, state: s.state, follow: s.follow, n: s.segs.length } };
 })();

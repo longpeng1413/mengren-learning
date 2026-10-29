@@ -923,24 +923,26 @@ def st_organize(ctx):
         def prog(f, m=None):
             ctx.progress(lo + (hi - lo) * float(f or 0), (m or '') + (f'（第 {k + 1}/{len(todo)} 章）' if len(todo) > 1 else ''))
         md = book.organize_chapter(s, name, ctx.path, info, c, d, teacher, vision, prog, ctx.cancel, d['chapters'])
-        prog(0.92, f'正在查漏「{c["title"]}」…')
-        md, added, missing = book.review_chapter(s, name, info, c, md, d, teacher)
+        # 2026-10-29 停用「查漏」（把没引用到的页补进去）：现在的笔记是提炼（约原文 1/5），按页查漏只会越补越长
+        added = 0
         prog(0.96, f'正在回页面核对「{c["title"]}」里需要确认的地方…')
         md, verified = book.verify_doubts(s, name, ctx.path, info, c, md, d, teacher, vision)
         ctx.check_cancel()
         key = (c.get('title'), c.get('start'), c.get('end'))
+        new = {'md': md, 'updated': time.strftime('%Y/%m/%d %H:%M:%S'),
+               'note': f'提炼：{len(md)} 字' + (f'；回页面核对确认了 {verified} 处' if verified else '')}
 
         def apply(doc):
             cc = (doc.get('chapters') or [])[i] if i < len(doc.get('chapters') or []) else None
             if not cc or (cc.get('title'), cc.get('start'), cc.get('end')) != key:
                 return False  # 这期间分章被改了，这一章不写
-            cc['md'] = md
-            cc['updated'] = time.strftime('%Y/%m/%d %H:%M:%S')
-            cc['note'] = (f'查漏：{missing} 页没被引用，补了 {added} 条' if missing else '每一页都有引用') + (f'；回页面核对确认了 {verified} 处' if verified else '')
+            cc.update(new)
             return True
         if _apply(ctx.path, apply):  # 每章整理完就保存：中途失败，下次从没整理的那章接着做
             done += 1
             adds += added
+            # 界面边整理边显示这一章（2026-10-29 用户：整理了 20 章，界面要等全部做完才看得到）
+            ctx.emit([dict(new, kind='chapter', i=i, title=key[0], start=key[1], end=key[2])])
     return {'chapters': done, 'added': adds}
 
 
@@ -962,7 +964,7 @@ def st_overview(ctx):
     shift = d.get('shift', info.get('shift'))
     for c in chs:
         c['range'] = book.range_ref(c['start'], c['end'], shift)
-    text = book.overview(s, name, d, chs, files)
+    text = book.overview(s, name, d, chs, files, info)
 
     def apply(doc):
         doc['overview'] = text

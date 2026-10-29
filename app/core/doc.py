@@ -470,7 +470,7 @@ def _put_callouts(lines, found):
 
 
 # 书籍笔记：软件写的属性；小节是「一、本章主题」这类编号小节，以及上次剪藏时记下的小节名（全书总览的小节不编号）
-BOOK_KEYS = {'标题', '类型', '书名', '作者', '章节', '页码范围', '来源类型', '来源文件', '整理时间', '已整理范围',
+BOOK_KEYS = {'标题', '类型', '书名', '作者', '部分', '章节', '页码范围', '来源类型', '来源文件', '整理时间', '已整理范围',
              # 1.7.4 以前的英文属性名
              'title', 'type', 'book', 'author', 'chapter', 'page_range', 'source_type', 'source', 'organized', 'completed_scope', 'status'}
 _CN_SECTION = re.compile(r'^[一二三四五六七八九十百]+、')

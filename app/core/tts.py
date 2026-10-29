@@ -19,6 +19,14 @@ ENGINES = ('edge', 'baidu', 'system')
 EDGE_VOICES = [('zh-CN-XiaoxiaoNeural', '晓晓（女，温和）'), ('zh-CN-XiaoyiNeural', '晓伊（女，活泼）'),
                ('zh-CN-YunxiNeural', '云希（男，年轻）'), ('zh-CN-YunjianNeural', '云健（男，沉稳）'),
                ('zh-CN-YunyangNeural', '云扬（男，播音）')]
+# 英文句子（没有汉字）自动换英文声音（2026-10-29 用户要求：外文书朗读原文时，中文声音读英文很难听）
+EDGE_EN_VOICES = [('en-US-AriaNeural', 'Aria（女，美式）'), ('en-US-GuyNeural', 'Guy（男，美式）'),
+                  ('en-US-JennyNeural', 'Jenny（女，美式）'), ('en-GB-SoniaNeural', 'Sonia（女，英式）'), ('en-GB-RyanNeural', 'Ryan（男，英式）')]
+
+
+def is_english(text):
+    """没有汉字、有英文单词的句子算英文（中文句子里夹几个英文词还是用中文声音读）。"""
+    return not re.search(r'[㐀-鿿]', text or '') and bool(re.search(r'[A-Za-z]{2,}', text or ''))
 # Edge 偶尔一句要十几秒（2026-10-21 实测 12 句里 11 句 1.4～3 秒、1 句 11 秒，用户听到「停了几秒」）：
 # 超过这么久还没回来就再发一次同样的请求，谁先回来用谁
 HEDGE_AFTER = 4
@@ -42,13 +50,15 @@ def _proxies(settings):
     return {'http': p, 'https': p} if p else None
 
 
-def speak(engine, text, voice='', settings=None):
-    """一句话 → mp3 字节。先直连，连不上而且设置里填了代理，再用代理试一次。"""
+def speak(engine, text, voice='', settings=None, voice_en=''):
+    """一句话 → mp3 字节。先直连，连不上而且设置里填了代理，再用代理试一次。英文句子用英文声音（百度自己按文字选）。"""
     t = clean(text)
     if not t:
         raise TtsError('没有要读的文字')
     if engine not in ('edge', 'baidu'):
         raise TtsError('系统声音由界面直接朗读')
+    if engine == 'edge' and is_english(t):
+        voice = voice_en if voice_en in dict(EDGE_EN_VOICES) else EDGE_EN_VOICES[0][0]
     routes = [None] + ([_proxies(settings)['https']] if _proxies(settings) else [])
     last = None
     for proxy in routes:
@@ -89,7 +99,7 @@ def _hedged(fn, *args):
 
 def _edge(text, voice, proxy):
     import edge_tts
-    voice = voice if voice in dict(EDGE_VOICES) else EDGE_VOICES[0][0]
+    voice = voice if voice in dict(EDGE_VOICES + EDGE_EN_VOICES) else EDGE_VOICES[0][0]
 
     async def run():
         out = bytearray()

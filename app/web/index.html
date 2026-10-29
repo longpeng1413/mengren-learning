@@ -65,7 +65,7 @@
   <!-- 媒体库 -->
   <aside class="library" id="library">
     <div class="lib-head">
-      <div class="lib-tabs" id="libTabs"><button class="lib-tab active" data-view="course" title="媒体库：视频、音频、书籍">课程</button><button class="lib-tab" data-view="mentor" title="老师工作台：和蒸馏好的老师对话">老师</button></div>
+      <div class="lib-tabs" id="libTabs"><button class="lib-tab" data-view="book" title="媒体库里的书和文档（PDF、Word、EPUB、MOBI、PPT）">书籍</button><button class="lib-tab active" data-view="course" title="媒体库里的视频、音频">课程</button><button class="lib-tab" data-view="mentor" title="老师工作台：和蒸馏好的老师对话">老师</button></div>
       <span class="grow"></span>
       <button class="btn icon-only small mentor-only" id="mentorAdd" hidden title="加一位老师：从媒体库的课蒸馏一位新老师，或导入「04、外部知识转化库/01、老师分身蒸馏资料」里已经蒸馏好的老师文件夹"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M19 8v6m-3-3h6"/></svg></button>
       <button class="btn icon-only small course-only" id="libAddFolder" title="添加文件夹（包括子文件夹里的音视频）"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v6m-3-3h6"/></svg></button>
@@ -128,35 +128,90 @@
     </div>
 
     <!-- 书籍和文档 -->
+    <!-- 三列（2026-10-29 用户要求）：原书正文、目录、整理笔记；每一列都能单独隐藏（缩成一条竖条，点一下恢复），列之间可以拖宽度 -->
     <div class="stage-book" id="bookMain" hidden>
-      <section class="book-left" id="bookLeft">
-        <iframe id="bookPdf" title="原文" hidden></iframe>
-        <div class="book-text" id="bookText" hidden></div>
+      <section class="bk-col bk-src" id="bookLeft" data-col="src">
+        <button class="bk-rail" data-show="src" title="显示原书">原书</button>
+        <div class="bk-col-head"><b class="bk-col-name">原书</b>
+          <span class="seg" id="bkSrcMode" title="看原来的 PDF，还是看提取出来的文字（朗读原文时自动切到文字版）"><button data-m="orig" class="on">PDF</button><button data-m="read">文字版</button></span>
+          <span class="grow"></span>
+          <div class="menu-wrap"><button class="btn icon-only small" data-bktx title="文字设置：字号、行距、段间距、宽度、字体（整理笔记和原文文字版共用）"><b class="aa">Aa</b></button></div>
+          <button class="btn small tts-btn" id="bkSrcTts" title="朗读原文：读这一章的原书文字（页眉、页码不读），正在读的句子高亮；双击任意一句从那里读"><svg viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M3 14h3v6H4a1 1 0 0 1-1-1zM21 14h-3v6h2a1 1 0 0 0 1-1z"/></svg>朗读原文</button>
+          <button class="btn small" data-hide="src" title="隐藏原书这一列（左边会留一条竖条，点它就恢复）">隐藏</button>
+        </div>
+        <div class="bk-col-body">
+          <iframe id="bookPdf" title="原文" hidden></iframe>
+          <div class="book-text" id="bookText" hidden></div>
+          <div class="book-text book-read md bk-text" id="bkSrcText" hidden></div>
+        </div>
       </section>
       <div class="splitter" id="bookSplit" title="拖动调整宽度"></div>
-      <section class="book-right" id="bookRight">
-        <div class="book-meta">
-          <div class="field"><div class="label">书名</div><input id="bkTitle"></div>
-          <div class="field"><div class="label">作者</div><input id="bkAuthor" placeholder="没有可以不填"></div>
-          <div class="field bk-shift"><div class="label">书上第 1 页是 PDF 第几页</div><input id="bkFirst" type="number" min="1"><div class="hint" id="bkShiftHint"></div></div>
-        </div>
-        <div class="book-bar">
-          <button class="btn primary small" id="bkRun" title="整理勾选的章节（没勾选时整理当前这一章）">整理选中的章节</button>
-          <button class="btn small" id="bkRunAll" title="整理所有还没整理的章节">整理全部未整理的</button>
-          <button class="btn small" id="bkOverview" title="根据整理好的章节写「00、全书总览」">全书总览</button>
-          <span class="grow"></span>
-          <button class="btn small" id="bkAiToc" title="章节分得不对时，让 AI 读目录页重新分">AI 读目录分章</button>
-          <button class="btn small" id="bkAddCh" title="手动加一章">＋ 加一章</button>
-        </div>
-        <div class="book-info muted small-text" id="bkInfo"></div>
-        <div class="book-body">
+      <section class="bk-col bk-toc" id="bookToc" data-col="toc">
+        <button class="bk-rail" data-show="toc" title="显示目录">目录</button>
+        <div class="bk-col-head"><b class="bk-col-name">目录</b><span class="muted small-text" id="bkTocCount"></span><span class="grow"></span>
+          <button class="btn small" data-hide="toc" title="隐藏目录这一列">隐藏</button></div>
+        <div class="bk-col-body bk-toc-body">
+          <details class="bk-meta" id="bkMetaBox">
+            <summary><b>书籍信息</b><span class="muted small-text" id="bkMetaSum"></span></summary>
+            <div class="field"><div class="label">书名</div><input id="bkTitle"></div>
+            <div class="field"><div class="label">作者</div><input id="bkAuthor" placeholder="没有可以不填"></div>
+            <div class="field bk-shift"><div class="label">书上第 1 页是 PDF 第几页</div><input id="bkFirst" type="number" min="1"><div class="hint" id="bkShiftHint"></div></div>
+            <div class="book-info muted small-text" id="bkInfo"></div>
+          </details>
+          <div class="book-bar">
+            <button class="btn primary small" id="bkRun" title="整理勾选的章节（没勾选时整理当前这一章）">整理选中的章节</button>
+            <button class="btn small" id="bkRunAll" title="整理所有还没整理的章节">整理全部未整理的</button>
+            <button class="btn small" id="bkOverview" title="根据整理好的章节写「00、全书总览」">全书总览</button>
+            <button class="btn small" id="bkAiToc" title="章节分得不对时，让 AI 读目录页重新分">AI 读目录分章</button>
+            <button class="btn small" id="bkAddCh" title="手动加一章">＋ 加一章</button>
+          </div>
           <div class="chapter-list" id="bkChapters"></div>
-          <div class="chapter-view">
-            <div class="chapter-head"><b id="bkViewTitle"></b><span class="grow"></span>
-              <span class="muted small-text" id="bkViewHint"></span>
-              <button class="btn small" id="bkEdit" disabled>编辑</button><button class="btn small" id="bkCopy" disabled>复制</button></div>
-            <div class="ai-scroll md" id="bkView"></div>
-            <textarea class="summary-edit" id="bkEditor" hidden spellcheck="false"></textarea>
+        </div>
+      </section>
+      <div class="splitter" id="bookSplit2" title="拖动调整宽度"></div>
+      <section class="bk-col bk-note chapter-view" id="bookNote" data-col="note">
+        <button class="bk-rail" data-show="note" title="显示整理笔记">整理笔记</button>
+        <div class="bk-col-head"><b class="bk-col-name">整理笔记</b>
+          <span class="seg" id="bkNoteMode" title="看提炼笔记，或者问 AI（AI 读原文回答）"><button data-m="note" class="on">笔记</button><button data-m="chat">AI 对话</button></span>
+          <span class="grow"></span>
+          <div class="menu-wrap"><button class="btn icon-only small" data-bktx title="文字设置：字号、行距、段间距、宽度、字体（整理笔记和原文文字版共用）"><b class="aa">Aa</b></button>
+            <div class="menu text-menu" id="menuBookText">
+              <div class="tm-row"><span>字号</span><button data-btx="book_font_size:-1">－</button><output id="bkTxSize"></output><button data-btx="book_font_size:1">＋</button></div>
+              <div class="tm-row"><span>行距</span><button data-btx="book_line_height:-0.1">－</button><output id="bkTxLine"></output><button data-btx="book_line_height:0.1">＋</button></div>
+              <div class="tm-row"><span>段间距</span><button data-btx="book_gap:-2">－</button><output id="bkTxGap"></output><button data-btx="book_gap:2">＋</button></div>
+              <div class="tm-row"><span>宽度</span><button data-btx="book_width:-60">→←</button><output id="bkTxWidth"></output><button data-btx="book_width:60">←→</button></div>
+              <div class="tm-row"><span>字体</span>
+                <select id="bkTxFont">
+                  <option value="yahei">微软雅黑</option><option value="hei">黑体</option><option value="deng">等线</option>
+                  <option value="song">宋体</option><option value="kai">楷体</option><option value="fang">仿宋</option>
+                </select></div>
+              <div class="tm-row"><span>主题</span><select id="bkTxTheme"></select></div>
+              <div class="hint">整理笔记和原文文字版共用这套设置；字幕栏的「Aa」单独设。</div>
+            </div></div>
+          <button class="btn small tts-btn" id="bkTts" title="朗读（边听边看）：读这一章整理好的内容；双击任意一句从那里读"><svg viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M3 14h3v6H4a1 1 0 0 1-1-1zM21 14h-3v6h2a1 1 0 0 0 1-1z"/></svg>朗读</button>
+          <button class="btn small" id="bkEdit" disabled>编辑</button><button class="btn small" id="bkCopy" disabled>复制</button>
+          <button class="btn small" id="bkZoom" title="放大：隐藏原书和目录，笔记占满；再点还原">放大</button>
+          <button class="btn small" data-hide="note" title="隐藏整理笔记这一列">隐藏</button></div>
+        <div class="chapter-head"><b id="bkViewTitle"></b><span class="grow"></span><span class="muted small-text" id="bkViewHint"></span></div>
+        <div class="ai-scroll md bk-text" id="bkView"></div>
+        <textarea class="summary-edit" id="bkEditor" hidden spellcheck="false"></textarea>
+        <!-- 书的 AI 对话（2026-10-29）：问这一章读这一章原文全文 + 笔记；问整本书读全部笔记 + 本机挑的相关原文页 -->
+        <div class="bk-chat" id="bkChat" hidden>
+          <div class="bk-chat-bar"><span class="seg" id="bkChatScope"><button data-s="chapter" class="on">问这一章</button><button data-s="book">问整本书</button></span>
+            <span class="muted small-text" id="bkChatHint"></span></div>
+          <div class="ai-scroll md bk-text" id="bkChatBox"></div>
+          <div class="chips" id="bkChips">
+            <button data-q="用 5 条要点概括，每条标页码。">概括要点</button>
+            <button data-q="这部分有哪些容易误解或难懂的地方？逐一解释，标页码。">解释难点</button>
+            <button data-q="作者给了哪些可以照着做的方法？按步骤列出来，标页码。">能照着做的</button>
+            <button data-q="根据这部分内容出 5 道复习题，先只给题目，我答完你再批改。">出复习题</button>
+          </div>
+          <div class="chat-input">
+            <textarea id="bkChatInput" rows="2" placeholder="问这一章…（Enter 发送，Shift+Enter 换行）"></textarea>
+            <div class="chat-btns">
+              <button class="btn primary small" id="bkChatSend">发送</button>
+              <button class="btn small" id="bkChatClear" title="清空这一段对话">清空</button>
+            </div>
           </div>
         </div>
       </section>
@@ -757,22 +812,23 @@
         <h3>书籍和文档整理</h3>
         <ol>
           <li>在媒体库里点要整理的书或文档：PDF、Word（.docx / 老版 .doc）、电子书（EPUB、MOBI、AZW3）、演示文稿（PPTX / 老版 .ppt，一张幻灯片算一「页」）。TXT / Markdown 用「打开」。扫描或拍照的 PDF 请先用 WPS 做 OCR。有 DRM 加密的电子书（书店买的加密书）读不了，软件会提示。老版 .doc / .ppt 读不出标题层级，章节分得不对就点「AI 读目录分章」或手动改。</li>
-          <li>左边看原文，右边先核对：
+          <li>书分三列：左边「原书」（PDF 或文字版，「朗读原文」会读这一章的文字），中间「目录」，右边「整理笔记」；每一列都能点「隐藏」收成一条竖条、拖分隔线调宽度，「放大」让笔记占满。先在目录里核对：
             <ul>
-              <li>书名、作者；</li>
+              <li>书名、作者（在「书籍信息」里）；</li>
               <li>「书上第 1 页是 PDF 第几页」：软件会自动认书上的页码，认不出时手动填，否则锚点写成「PDF 第 X 页」；</li>
-              <li>章节分得对不对：可以直接改章名和起止页、加一章、删一章；扫描书的章名常被 OCR 拆坏，点「AI 读目录分章」。前言、目录不编号。</li>
+              <li>章节分得对不对：和原书目录一致，前言、各部分的开篇、每一章、附录都单独一篇，按部分分组；可以直接改章名和起止页、加一章、删一章，或点「AI 读目录分章」。前言、目录不编号。</li>
             </ul></li>
-          <li>勾选章节点「整理选中的章节」，或「整理全部未整理的」。每章：
+          <li>勾选章节点「整理选中的章节」，或「整理全部未整理的」。每章写一份<b>提炼笔记</b>：
             <ul>
-              <li>按固定栏目整理（本章主题、核心内容、概念、观点、方法、案例 / 图表、知识框架、关键结论、原书图示、页码索引、需要人工确认、OCR 修正、一句话概括）；</li>
-              <li>每条标书上的页码（P42），点页码左边就跳到那一页；</li>
-              <li>有图表的页截成图片给 AI 看；PDF 旁边有同名 Word（WPS OCR 导出的）时自动拿它当正文参考；</li>
-              <li>整理完自动查漏（没被引用的页再看一遍），再「回页面核对」（需要人工确认的地方截图给 AI 看，能确认的改正并记进「已确认的 OCR 修正」）；</li>
-              <li>原书图示非必要不用，每章最多 2 张，按位置裁剪、压缩。</li>
+              <li>篇幅约原文的 1/5，开头一句话说这一章回答什么问题；</li>
+              <li>按这一章自己的逻辑分几个小标题，不设固定栏目；留核心观点和结论、作者的原话定义、代表性的例子，能照着做的方法集中写在最后「照着做」；</li>
+              <li>每个小标题标一次书上的页码（P42），点页码左边就跳到那一页；拿不准的句子标「（存疑）」；</li>
+              <li>有图表的页截成图片给 AI 看；PDF 旁边有同名 Word（WPS OCR 导出的）时自动拿它当正文参考；外文书的笔记也用中文写；</li>
+              <li>原书图示非必要不用，每章最多 1 张。</li>
             </ul></li>
+          <li>「整理笔记」切到「AI 对话」：可以「问这一章」（AI 读这一章的原文全文和笔记）或「问整本书」（AI 读全部章节笔记，再从原文里挑相关的页）。回答标页码，点了原书跳过去。</li>
           <li>点「全书总览」生成「00、全书总览」，再点顶栏「剪藏」：写进 Obsidian 的 <code>《书名》作者/</code> 文件夹。重新剪藏和视频笔记一样：你在 Obsidian 里自己加的小节（例如 <code>## 我的笔记</code>）、写在要点下面的标注（<code>&gt; [!note] 我的理解</code>）、属性和标签都会保留；直接改了软件写的小节，剪藏前会先问你，确认后先备份再更新。</li>
-          <li>可以在「设置 → Obsidian」里关联知识库里的《外部书籍与文档整理规范》，整理时以它为准。</li>
+          <li>可以在「设置 → Obsidian」里关联知识库里的《外部书籍与文档整理规范》，整理时作为补充参考（和软件的提炼要求冲突时以软件为准）。</li>
         </ol>
       </section>
 
@@ -937,7 +993,7 @@
         <div class="field"><div class="label">书的文件夹名</div><input data-k="obsidian.book_dir_pattern" placeholder="《{title}》{author}"></div>
         <div class="field"><div class="label">书籍整理规范文件（可选，推荐关联知识库里的正式规范）</div>
           <div class="key-row"><input data-k="book_rules_file" placeholder="例如：D:\知识库\规则\书籍整理规范.md"><button class="btn small" id="pickBookRules">选择…</button></div>
-          <div class="hint">关联后，整理书籍时把整份规范交给 AI，以它为准；规范升级后不用改软件。没关联时用软件内置的要求（按 V1.1 的固定栏目、页码锚点、疑点三分法）。</div></div>
+          <div class="hint">关联后，整理书籍时把这份规范一起交给 AI，作为补充参考；软件内置的提炼要求在前，冲突时以软件为准（篇幅约原文 1/5、不设固定栏目、每个小标题标一次页码）。</div></div>
         <p class="hint">文件夹不存在会自动创建。同一个视频再次剪藏，会更新原来那篇笔记；你在 Obsidian 里移动或改名了也能找到（按笔记属性里的视频路径找），你自己加的属性也会保留。笔记结构：属性（老师、系列、时长、是否校对、状态）→ 课程重点 → 来源情况 → 完整带时间戳的字幕（存疑句会标出来）。</p>
       </section>
 

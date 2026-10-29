@@ -421,31 +421,81 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .lightbox { position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,.85); display: grid; place-items: center; cursor: zoom-out; }
 .lightbox img { max-width: 96vw; max-height: 94vh; border-radius: 6px; }
 /* 书籍和文档 */
+/* 书：三列（原书、目录、整理笔记），每列有标题栏和边框；隐藏的列缩成一条竖条（.collapsed），点竖条恢复 */
 .stage-book { flex: 1; display: flex; min-width: 0; min-height: 0; padding: 0 12px 12px 0; }
-.book-left { width: 46%; min-width: 260px; display: flex; flex-direction: column; background: var(--panel2); border-radius: 10px; overflow: hidden; }
-.book-left iframe { flex: 1; border: 0; width: 100%; background: #fff; }
+.bk-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+.bk-src { flex: 0 0 auto; width: 40%; min-width: 240px; }
+.bk-toc { flex: 0 0 auto; width: 300px; min-width: 210px; }
+.bk-note { flex: 1 1 0; min-width: 300px; }
+.stage-book.note-hidden .bk-src:not(.collapsed) { flex: 1 1 0; width: auto !important; }
+.stage-book.note-hidden.src-hidden .bk-toc:not(.collapsed) { flex: 1 1 0; width: auto !important; }
+.bk-col-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 10px; background: var(--panel2); border-bottom: 1px solid var(--line); flex: none; }
+.bk-col-name { font-size: 14px; padding-left: 8px; border-left: 3px solid var(--accent); margin-right: 4px; }
+.bk-col-body { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.bk-col-body iframe { flex: 1; border: 0; width: 100%; background: #fff; }
+.bk-rail { display: none; }
+.bk-col.collapsed { flex: 0 0 34px !important; width: 34px !important; min-width: 34px; }
+.bk-col.collapsed > :not(.bk-rail) { display: none !important; }
+.bk-col.collapsed .bk-rail { display: block; flex: 1; width: 100%; border: 0; background: var(--panel2); color: var(--muted); cursor: pointer; writing-mode: vertical-rl; letter-spacing: 4px; font-size: 13px; padding: 12px 0; }
+.bk-col.collapsed .bk-rail:hover { color: var(--accent); background: var(--accent-weak); }
+.bk-col.collapsed .bk-rail::before { content: "▸ "; }
+.stage-book .splitter[hidden] { display: none; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.seg button { border: 0; background: transparent; color: var(--muted); padding: 3px 9px; font-size: 12px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--accent-weak); color: var(--accent); }
 .book-text { flex: 1; overflow-y: auto; padding: 16px 20px; font: 14px/1.8 var(--cue-font); }
 .book-text .bpage { border-bottom: 1px dashed var(--line); padding: 10px 0 14px; white-space: pre-wrap; }
 .book-text .bpage .bref { display: block; color: var(--accent); font-size: 12px; margin-bottom: 4px; }
 .book-text .bpage img { max-width: 100%; margin: 8px 0; border-radius: 6px; }
-.book-right { flex: 1; min-width: 360px; display: flex; flex-direction: column; min-height: 0; padding-left: 4px; }
-.book-meta { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 10px; }
-.book-meta .field { margin: 0; }
-.book-bar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 10px 0 4px; }
-.book-info { margin: 2px 0 8px; }
-.book-body { flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(110px, 34%) 1fr; gap: 8px; }
-.chapter-list { overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; }
-.ch-row { display: grid; grid-template-columns: 22px 1fr 64px 64px auto; gap: 6px; align-items: center; padding: 5px 8px; border-bottom: 1px solid var(--line); cursor: pointer; }
-.ch-row.active { background: var(--accent-weak); }
-.ch-row input[type=text], .ch-row input[type=number] { padding: 3px 6px; font-size: 13px; min-width: 0; }
-.ch-row .ch-state { font-size: 12px; white-space: nowrap; color: var(--muted); }
+/* 书的文字设置（Aa）：整理笔记和原文文字版共用，和字幕分开 */
+.bk-text { font-size: var(--bk-size, 15px); line-height: var(--bk-line, 1.8); font-family: var(--bk-font); }
+.bk-text > *, .bk-text .bpage > * { max-width: var(--bk-width, none); margin-left: auto !important; margin-right: auto !important; }  /* 列表、表格自己的左右边距也让位给居中 */
+.bk-text p, .bk-text .bpage p { margin-top: 0; margin-bottom: var(--bk-gap, 8px); }
+.bk-text li { margin-bottom: calc(var(--bk-gap, 8px) / 2); }
+.bk-col-head .menu-wrap .menu { top: 34px; }
+.text-menu .hint { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.book-read .bpage { white-space: normal; }
+.book-read .bpage p { margin: 0 0 .6em; }
+.book-read h3 { margin: 0 0 8px; font-size: 15px; }
+.book-read .bpage .bref { display: inline-block; text-decoration: none; }
+.book-read .bfig { margin: 6px 0 4px; padding: 8px; border: 1px dashed var(--line); border-radius: 8px; }
+.book-read .bfig-img { display: block; max-width: 100%; margin-top: 6px; border-radius: 6px; cursor: zoom-in; background: #fff; }
+.bk-toc-body { overflow-y: auto; }
+.bk-meta { border-bottom: 1px solid var(--line); padding: 6px 10px; flex: none; }
+.bk-meta summary { cursor: pointer; font-size: 13px; display: flex; gap: 6px; align-items: baseline; list-style: none; }
+.bk-meta summary::-webkit-details-marker { display: none; }
+.bk-meta summary b { flex: none; font-weight: 600; }
+.bk-meta summary b::before { content: "▸ "; color: var(--muted); }
+.bk-meta[open] summary b::before { content: "▾ "; }
+.bk-meta summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.bk-meta .field { margin: 8px 0 0; }
+.book-bar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--line); flex: none; }
+.book-info { margin: 6px 0 2px; }
+.chapter-list { flex: 1 0 auto; }
+.ch-row { display: grid; grid-template-columns: 20px 1fr auto; grid-template-areas: "chk title state" ". pages pages"; gap: 2px 6px; align-items: center; padding: 6px 10px 6px 8px; border-bottom: 1px solid var(--line); border-left: 3px solid transparent; cursor: pointer; }
+.ch-row:hover { background: var(--hover); }
+.ch-row.active { background: var(--accent-weak); border-left-color: var(--accent); }
+.ch-row [data-chk] { grid-area: chk; }
+.ch-row input[data-f=title] { grid-area: title; padding: 2px 4px; font-size: 13px; min-width: 0; border-color: transparent; background: transparent; cursor: pointer; }
+.ch-row input[data-f=title]:hover, .ch-row input[data-f=title]:focus { border-color: var(--line); background: var(--panel2); cursor: text; }
+.ch-row .ch-state { grid-area: state; font-size: 12px; white-space: nowrap; color: var(--muted); }
 .ch-row .ch-state.ok { color: var(--ok); }
+.ch-row .ch-pages { grid-area: pages; display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); padding-left: 4px; }
+.ch-row .ch-pages input { width: 52px; padding: 1px 4px; font-size: 12px; height: 22px; }
+.ch-row .ch-pages .grow { flex: 1; }
 .ch-row button { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 12px; padding: 0 3px; }
 .ch-row button:hover { color: var(--danger); }
-.ch-row.overview { grid-template-columns: 22px 1fr auto; font-weight: 600; }
-.chapter-view { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-.chapter-head { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--line); }
+.ch-row.overview { grid-template-areas: "chk title state"; font-weight: 600; }
+.ch-part { padding: 9px 10px 5px; font-size: 13px; font-weight: 600; color: var(--accent); border-bottom: 1px solid var(--line); background: var(--panel2); }
+.ch-row.in-part { padding-left: 22px; }
 .chapter-view .ai-scroll { flex: 1; }
+/* 书的 AI 对话：「整理笔记」这一列里和笔记二选一 */
+.bk-chat { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.bk-chat[hidden] { display: none; }
+.bk-chat-bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--line); flex: none; flex-wrap: wrap; }
+#bookNote.chat-mode #bkTts, #bookNote.chat-mode #bkEdit, #bookNote.chat-mode #bkCopy { display: none; }
+.chapter-head { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--line); flex: none; }
 .pglink { color: var(--accent); cursor: pointer; text-decoration: underline dotted; }
 body.mode-book .video-only { display: none !important; }
 .btn.doubt-btn { color: #e09a2a; border-color: color-mix(in srgb, #f0a030 40%, transparent); }

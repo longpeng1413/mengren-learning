@@ -29,10 +29,12 @@ PART_CHARS = 36000                    # 一次交给 AI 的最多字数
 PART_IMAGES = 10                      # 一次交给 AI 的最多页面图
 PSEUDO_PAGE = 1800                    # Word / 文本按多少字分「页」
 FIG_WORDS = re.compile(r'图\s*[\d一二三四五六七八九十]|表\s*[\d一二三四五六七八九十]|如图|如表|见图|见表|Figure|Fig\.|Table|公式|示意')
+HEADER_GAP = 8  # 同一个「第X部分 / 第X章」隔这么几页之内又出现，算页眉（2026-10-29《研究是一门艺术》每两页印一次部名，被分成 121 章）
 CHAPTER_RE = re.compile(r'^\s*(第[一二三四五六七八九十百零〇两\d]+[章篇部讲]|Chapter\s+\d+|CHAPTER\s+\d+)[\s:：、.．]*\S*')
 
 _cache = {}
 _lock = threading.Lock()
+_pdf_lock = threading.RLock()  # pdfium 不能几个线程同时用（2026-10-29 朗读原文时同时取几页的图，全都「Failed to load page」）
 
 
 class BookError(Exception):
@@ -268,7 +270,8 @@ def read(path):
     ext = Path(path).suffix.lower()
     try:
         if ext == '.pdf':
-            info = _read_pdf(path)
+            with _pdf_lock:
+                info = _read_pdf(path)
         elif ext == '.docx':
             info = _read_docx(path)
         elif ext in ('.txt', '.md'):
@@ -393,71 +396,246 @@ def detect_chapters(info):
     total = len(pages)
     if not total:
         return []
-    starts = []
     toc = info.get('toc') or []
-    if toc:
-        top = min(x['level'] for x in toc)
-        starts = [(x['title'], x['n']) for x in toc if x['level'] == top]
-        if len(starts) < 2:  # 只有一个顶层（书名）时用下一级
-            lv = sorted({x['level'] for x in toc})
-            if len(lv) > 1:
-                starts = [(x['title'], x['n']) for x in toc if x['level'] == lv[1]]
+    starts = toc_entries(toc) if toc else []
     if len(starts) < 2:
         starts = []
+        last = {}  # 「第二部」「第3章」上次在第几页出现
         for p in pages:
-            for line in [x.strip() for x in p['text'].split('\n') if x.strip()][:3]:
-                if CHAPTER_RE.match(line) and len(line) < 40 and '…' not in line and '...' not in line and not re.search(r'\d+\s*$', line):
-                    starts.append((line, p['n']))
-                    break
-    seen, uniq = set(), []
-    for title, n in sorted(starts, key=lambda x: x[1]):
-        if n not in seen:
-            seen.add(n)
-            uniq.append((title, n))
-    if len(uniq) < 2:  # 只认出一个「章」多半是认错了（比如 OCR 把章名拆成两行），按页数分段，让用户用「AI 读目录分章」
+            lines = [x.strip() for x in p['text'].split('\n') if x.strip()][:3]
+            for k, line in enumerate(lines):
+                m = CHAPTER_RE.match(line)
+                if not (m and len(line) < 40 and '…' not in line and '...' not in line and not re.search(r'\d+\s*$', line)):
+                    continue
+                key = re.sub(r'\s+', '', m.group(1)).lower()
+                seen_at, last[key] = last.get(key), p['n']
+                if seen_at is not None and p['n'] - seen_at <= HEADER_GAP:
+                    continue  # 几页之内又出现：是每页顶上的页眉（书名、部名），不是新的一章；接着看这页下一行
+                if len(line) <= len(m.group(1).strip()) + 1 and k + 1 < len(lines) and len(lines[k + 1]) < 30 and not CHAPTER_RE.match(lines[k + 1]):
+                    line += ' ' + lines[k + 1]  # 「第一部分」单独一行、名字在下一行
+                starts.append((line, p['n'], ''))
+                break
+    out = chapters_from(starts, pages)
+    if len(out) - (out[0]['title'] == '前言与目录' if out else 0) < 2:  # 只认出一个「章」多半是认错了（比如 OCR 把章名拆成两行），按页数分段，让用户用「AI 读目录分章」
         size = 30 if total > 40 else total
         return [{'title': (f'第 {a}–{min(total, a + size - 1)} 页' if total > size else '全文'), 'start': a, 'end': min(total, a + size - 1)}
                 for a in range(1, total + 1, size)]
-    out = []
-    if uniq[0][1] > 1:
-        front = range(1, uniq[0][1])
-        if sum(len(pages[i - 1]['text']) for i in front) > 400:
-            out.append({'title': '前言与目录', 'start': 1, 'end': uniq[0][1] - 1})
-    for k, (title, n) in enumerate(uniq):
-        end = uniq[k + 1][1] - 1 if k + 1 < len(uniq) else total
-        out.append({'title': title, 'start': n, 'end': max(n, end)})
     return out
 
 
+PART_RE = re.compile(r'^\s*(第\s*[一二三四五六七八九十百零〇两\d]+\s*(部分|部|篇|编|卷)|卷\s*[一二三四五六七八九十\d]+|[上中下]\s*[编篇卷部]|part\s+([ivxlc]+|\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b)', re.I)
+CHAP_ONLY_RE = re.compile(r'^\s*(第\s*[一二三四五六七八九十百零〇两\d]+\s*章|chapter\s+\w+)', re.I)
+
+
+def toc_entries(toc):
+    """书自带的目录（PDF 书签、EPUB 目录、Word 标题）→ [(标题, 起始页, 所属部分)]，和 AI 读目录分章同一套规则（2026-10-29）：
+    最上一层是「部分」（第一部分、第一篇、上编、Part 1……，或者下一层是「第X章」而它自己不是）时，按部分分组、下一层每一项单独成篇；
+    否则最上一层就是章（下一层是节，不拆开）。以前只取最上一层，最上一层是部分的书会只分出几个部分。"""
+    lv = sorted({x['level'] for x in toc})
+    if sum(1 for x in toc if x['level'] == lv[0]) < 2 and len(lv) > 1:  # 只有一个顶层（书名）时从下一级算起
+        toc, lv = [x for x in toc if x['level'] != lv[0]], lv[1:]
+    top, nxt = lv[0], (lv[1] if len(lv) > 1 else None)
+    groups = []  # [顶层, [下一层…]]
+    for x in toc:
+        if x['level'] == top:
+            groups.append((x, []))
+        elif x['level'] == nxt and groups:
+            groups[-1][1].append(x)
+    clean = lambda s: re.sub(r'\s+', ' ', str(s or '').strip())
+    is_part = lambda g: bool(g[1]) and not CHAP_ONLY_RE.match(g[0]['title']) and (
+        PART_RE.match(g[0]['title']) or sum(1 for k in g[1] if CHAP_ONLY_RE.match(k['title'])) >= 1)
+    if not any(is_part(g) for g in groups):
+        return [(clean(g[0]['title']), g[0]['n'], '') for g in groups]
+    out = []
+    for g in groups:
+        if not is_part(g):
+            out.append((clean(g[0]['title']), g[0]['n'], ''))
+            continue
+        part = clean(g[0]['title'])
+        for j, k in enumerate(g[1]):  # 部分的标题页并进这一部分的第一篇
+            out.append((clean(k['title']), min(k['n'], g[0]['n']) if j == 0 else k['n'], part))
+    return out
+
+
+def chapters_from(starts, pages):
+    """[(标题, 起始 PDF 页, 所属部分)] → [{title, start, end, part?}]：同一页只留一个（有所属部分的优先，部分的标题页并进了它的第一篇），
+    第一篇前面的页（正文前的封面、版权、目录）够多时作为「前言与目录」。"""
+    total = len(pages)
+    seen, uniq = {}, []
+    for title, n, part in sorted(starts, key=lambda x: (x[1], not x[2])):
+        if n not in seen:
+            seen[n] = len(uniq)
+            uniq.append((title, n, part))
+    out = []
+    if uniq and uniq[0][1] > 1:
+        if FRONT.match(uniq[0][0]):  # 第一篇就是前言、序：封面、版权页并进去，不单独成篇
+            uniq[0] = (uniq[0][0], 1, uniq[0][2])
+        elif sum(len(pages[i - 1]['text']) for i in range(1, uniq[0][1])) > 400:
+            out.append({'title': '前言与目录', 'start': 1, 'end': uniq[0][1] - 1})
+    for k, (title, n, part) in enumerate(uniq):
+        end = uniq[k + 1][1] - 1 if k + 1 < len(uniq) else total
+        out.append(dict({'title': title, 'start': n, 'end': max(n, end)}, **({'part': part} if part else {})))
+    return out
+
+
+CJK_RE = re.compile(r'[一-鿿]')
+
+
+def is_chinese(info):
+    """这本书是不是中文书：前 60 页每页取前 400 字，汉字超过三成算中文。外文书整理稿也用中文写（LANG_RULE）。"""
+    sample = re.sub(r'\s', '', ''.join((p.get('text') or '')[:400] for p in info['pages'][:60]))
+    return len(CJK_RE.findall(sample)) > 0.3 * max(1, len(sample)) if sample else True
+
+
+# 2026-10-29 用户：外文书的整理稿统一用中文写，术语附原文，方便对照原书
+LANG_RULE = ('语言：这本书的原文不是中文。整理稿一律用简体中文写（标题、说明、表格、页码索引都是）；专业术语、概念、人名、书名、理论和方法的名字，'
+             '第一次出现写成「中文译名（原文）」，之后用中文；作者的关键定义、核心论断、原话式的结论，中文后面附上原句（原文：“……”）。'
+             '不要整段照抄原文，也不要只写原文不翻译；译名前后统一。')
+PAGE_NO_RE = re.compile(r'^[\s\-—–·•]*([\dIVXLCivxlc]{1,6}|第\s*\d+\s*页)[\s\-—–·•]*$')
+PARA_START_RE = re.compile(r'^([•●·▪■◆◇○□\-–]|\d+(\.\d+)*[\.、．\s]|[（(]\d+[）)]|[一二三四五六七八九十]+、|第[一二三四五六七八九十百\d]+[章节部篇讲])')
+
+
+def reading_pages(info, start=1, end=None):
+    """朗读原文用的文字（2026-10-29 用户要求）：去掉页眉、页脚和单独的页码，把排版折断的行接成段落。
+    页眉页脚 = 在 3 页以上的开头 / 结尾两行出现的同一行字（比较时去掉空格和末尾的 i、I、1 这类识别噪声）。
+    返回 [{n, paras, figure}]（figure：这一页有图表，界面附上这一页的图，朗读时跳过）。"""
+    pages = info['pages']
+    end = min(end or len(pages), len(pages))
+
+    def key(line):
+        return re.sub(r'[\s\dIil|，,、.。:：;；!！]+$', '', re.sub(r'\s+', '', line))[:24]
+
+    def lines_of(p):
+        return [x.strip() for x in (p.get('text') or '').split('\n') if x.strip()]
+    edge = Counter()
+    for p in pages:
+        ls = lines_of(p)
+        for k in {key(x) for x in ls[:2] + ls[-2:]}:
+            if len(k) >= 2:
+                edge[k] += 1
+    common = {k for k, v in edge.items() if v >= 3}
+    chinese = is_chinese(info)
+    out = []
+    for p in pages[max(0, start - 1):end]:
+        ls = lines_of(p)
+        ls = [x for k, x in enumerate(ls) if not (PAGE_NO_RE.match(x) or ((k < 2 or k >= len(ls) - 2) and key(x) in common))]
+        figure = bool(p.get('figure') or FIG_WORDS.search(p.get('text') or ''))
+        if figure and chinese:
+            ls = [x for x in ls if CJK_RE.search(x)]  # 中文书有图表的页：图里识别出的坐标数字、零碎字母（「a」「4,000,000」）不读
+        paras, cur, prev = [], '', ''
+        full = sorted(len(x) for x in ls)[len(ls) * 3 // 4] if ls else 0  # 一整行大概多长
+        for x in ls:
+            if cur and (len(prev) < full * 0.8 or PARA_START_RE.match(x)):
+                paras.append(cur)
+                cur = ''
+            cur += (' ' if cur and re.search(r'[A-Za-z0-9,.;:]$', cur) and re.match(r'[A-Za-z0-9(]', x) else '') + x
+            prev = x
+        if cur:
+            paras.append(cur)
+        out.append({'n': p['n'], 'paras': paras, 'figure': figure, 'images': list(p.get('images') or [])})
+    return out
+
+
+# 2026-10-29 用户：分出来的要和原书目录一致。以前只要「最上一级的章」，《研究是一门艺术》五个部分的开篇、
+# 「研究的伦理」「给教师的附言」都被并进了前后的章，部分这一层也没了
 TOC_PROMPT = (
-    '下面是一本书 / 一份文档前面几页的文字（每页前面标了 PDF 页序和书上页码）。请根据目录页或正文标题，列出全书的章（只要最上一级的章，不要节）。\n'
-    '只输出 JSON：{"章": [{"标题": "第一章 ……", "书上页码": 1}]}。书上页码就是目录里写的页码；目录里没有页码时，写这一章开始的 PDF 页序，并加上 "PDF": true。看不出章节就输出 {"章": []}。'
+    '下面是一本书 / 一份文档的目录页（标着「目录页」的是完整的目录）和前面几页的文字（每页前面标了 PDF 页序和书上页码）。'
+    '请根据目录页（没有目录页时看正文标题）列出全书结构，要和原书目录一致：\n'
+    '1. 「部分」：目录里把几章归在一起的上一级（第一部分、第一篇、上编、卷一……）。没有就是空列表。\n'
+    '2. 「篇」：目录里和章同一级列出的每一项都单独列出，按原书顺序：前言、序、导论、各部分的开篇 / 引言 / 概述、每一章、部分末尾单独的篇目、结语、后记、附录……'
+    '一项都不要漏，也不要几项合并；只是不要列章下面的节。每一篇写明属于哪个部分（标题和「部分」里的一字不差；不属于任何部分写空字符串）。\n'
+    '3. 标题照抄目录（去掉页码和多余的空格、省略号；扫描识别出的明显错字改成正确的字，例如「硏究」写「研究」）；'
+    '「开篇」「引言」这类要带上原书写的名字，例如「开篇 成为一名研究人员」。\n'
+    '4. 书上页码就是目录里写的页码。正文之前单独编页码的内容（页码和正文重复，或者是罗马数字）、目录里没写页码的，写这一项开始的 PDF 页序并加上 "PDF": true；'
+    '看不出从哪页开始就不要列（程序会把正文前面的页自动作为「前言与目录」）。\n'
+    '只输出 JSON：{"部分": [{"标题": "第一部分 ……", "书上页码": 1}], "篇": [{"标题": "第1章 ……", "书上页码": 9, "部分": "第一部分 ……"}]}。'
+    '看不出章节就输出 {"部分": [], "篇": []}。'
 )
 
 
+TOC_HEAD_RE = re.compile(r'目\s*录|CONTENTS|Contents|Table of Contents')
+TOC_LINE_RE = re.compile(r'[一-鿿A-Za-z].*?[\s./／·…\-—_]*\d{1,4}\s*$')
+
+
+def toc_pages(pages):
+    """目录页从哪页到哪页（2026-10-29：以前只看前 25 页、每页前 1500 字，目录排得靠后或很密的书会漏掉后面的章）。
+    目录页 = 至少 4 行、四成以上的行以页码结尾；从前 60 页（或全书前四分之一）里第一个带「目录」字样的这种页开始，
+    往后连着的这种页都算（中间夹一页空白也接着找）。找不到返回 []。"""
+    def tocish(p):
+        lines = [x.strip() for x in (p.get('text') or '').split('\n') if x.strip()]
+        hits = sum(1 for x in lines if TOC_LINE_RE.match(x))
+        return hits >= 4 and hits >= 0.4 * len(lines)
+    scan = pages[:max(60, len(pages) // 4)]
+    start = next((p for p in scan if TOC_HEAD_RE.search((p.get('text') or '')[:200]) and tocish(p)), None) \
+        or next((p for p in scan if tocish(p)), None)
+    if not start:
+        return []
+    out, k = [start], start['n']  # pages[k] 是第 k+1 页
+    while k < len(pages):
+        if tocish(pages[k]):
+            out.append(pages[k])
+            k += 1
+        elif len((pages[k].get('text') or '').strip()) < 30 and k + 1 < len(pages) and tocish(pages[k + 1]):
+            k += 1  # 中间一页空白
+        else:
+            break
+    return out
+
+
 def ai_chapters(settings, name, info):
-    """让 AI 读目录页找章节。"""
+    """让 AI 读目录页分章：和原书目录一致，每一篇记下属于哪个部分（part）；部分的标题页并进这一部分的第一篇。"""
     from . import llm
     shift = info.get('shift')
+    toc = toc_pages(info['pages'])
     head = []
-    for p in info['pages'][:25]:
-        head.append(f'【PDF 第 {p["n"]} 页｜{page_ref(p["n"], shift)}】\n{p["text"][:1500]}')
+    if toc:  # 找到了目录页：整份目录完整给，目录前后的页只给开头（让 AI 看出前言这类从哪页开始）
+        tn, budget = {p['n'] for p in toc}, 60000
+        for p in info['pages'][:min(len(info['pages']), max(tn) + 3)]:
+            if p['n'] in tn:
+                text = p['text'][:max(0, budget)]
+                budget -= len(text)
+                head.append(f'【目录页｜PDF 第 {p["n"]} 页｜{page_ref(p["n"], shift)}】\n{text}')
+            elif p['n'] > max(tn) or p['n'] > min(tn) - 30:
+                head.append(f'【PDF 第 {p["n"]} 页｜{page_ref(p["n"], shift)}（只有开头）】\n{p["text"][:300]}')
+    else:  # 没认出目录页：和以前一样看前面几页
+        for p in info['pages'][:25]:
+            head.append(f'【PDF 第 {p["n"]} 页｜{page_ref(p["n"], shift)}】\n{p["text"][:1500]}')
     data = llm._json_from(llm.complete(settings, name, [{'role': 'user', 'content': TOC_PROMPT + '\n\n' + '\n\n'.join(head)}], json_mode=True))
-    items = data.get('章', []) if isinstance(data, dict) else []
+    data = data if isinstance(data, dict) else {}
     total = len(info['pages'])
-    starts = []
-    for x in items:
+
+    def page_of(x):
         try:
-            title, num = str(x['标题']).strip(), int(x['书上页码'])
+            num = int(x['书上页码'])
         except (KeyError, TypeError, ValueError):
-            continue
+            return None
         n = num if (x.get('PDF') or shift is None) else num + shift
-        if title and 1 <= n <= total:
-            starts.append((title, n))
-    if not starts:
+        return n if 1 <= n <= total else None
+    norm = lambda s: re.sub(r'\s+', '', str(s or ''))
+    parts = []  # [(标题, PDF 页)]
+    for x in data.get('部分') or []:
+        n = page_of(x) if isinstance(x, dict) else None
+        if n and str(x.get('标题') or '').strip():
+            parts.append((re.sub(r'\s+', ' ', str(x['标题']).strip()), n))
+    by_name = {norm(t): t for t, _ in parts}
+    items = []  # [标题, PDF 页, 部分]
+    for x in data.get('篇') or data.get('章') or []:  # 「章」：旧的写法
+        n = page_of(x) if isinstance(x, dict) else None
+        title = re.sub(r'\s+', ' ', str(x.get('标题') or '').strip()) if isinstance(x, dict) else ''
+        if not (n and title):
+            continue
+        if '部分' in x:
+            part = by_name.get(norm(x['部分']), '')
+        else:  # 没写属于哪个部分：按页码归到前面最近的部分
+            part = next((t for t, pn in sorted(parts, key=lambda y: -y[1]) if pn <= n), '')
+        items.append([title, n, part])
+    if not items:
         return []
-    info = dict(info, toc=[{'level': 1, 'title': t, 'n': n} for t, n in starts])
-    return detect_chapters(info)
+    for t, pn in parts:  # 部分的标题页（和部分的导言）并进这一部分的第一篇
+        first = next((it for it in items if it[2] == t), None)
+        if first and pn < first[1]:
+            first[1] = pn
+    return chapters_from([tuple(it) for it in items], info['pages'])
 
 
 # ------------------------------------------------------------------ 页面图 ----
@@ -471,18 +649,21 @@ def render_page(path, n, width=1100):
     if out.is_file() and out.stat().st_size > 0:
         return out
     import pypdfium2 as pdfium
-    out.parent.mkdir(parents=True, exist_ok=True)
-    pdf = pdfium.PdfDocument(path)
-    try:
-        page = pdf[n - 1]
-        w, _ = page.get_size()
-        img = page.render(scale=max(0.5, width / max(1.0, w))).to_pil().convert('RGB')
-        page.close()
-    finally:
-        pdf.close()
-    tmp = out.with_name(out.stem + '.part.jpg')
-    img.save(tmp, 'JPEG', quality=82)
-    os.replace(tmp, out)
+    with _pdf_lock:
+        if out.is_file() and out.stat().st_size > 0:  # 排队时别的线程已经生成了
+            return out
+        out.parent.mkdir(parents=True, exist_ok=True)
+        pdf = pdfium.PdfDocument(path)
+        try:
+            page = pdf[n - 1]
+            w, _ = page.get_size()
+            img = page.render(scale=max(0.5, width / max(1.0, w))).to_pil().convert('RGB')
+            page.close()
+        finally:
+            pdf.close()
+        tmp = out.with_name(out.stem + '.part.jpg')
+        img.save(tmp, 'JPEG', quality=82)
+        os.replace(tmp, out)
     return out
 
 
@@ -518,29 +699,26 @@ def crop_figure(path, info, n, region, dest: Path, image_index=0):
 
 
 # ------------------------------------------------------------------ 整理 ----
-DEFAULT_RULES = """整理要求（来源级整理，只回答「这一章作者实际讲了什么」）：
-- 准确、完整、忠实、可回溯。允许压缩表达，不允许压缩知识；作者的定义、观点、论证、方法、规则、条件、案例、数字、公式、口诀都要保留。
-- 不加入原书没有的知识，不补全作者没给出的规则，不评价作者观点，不用外部常识纠正作者，不把作者观点写成已验证的事实，不主动和别的理论统一术语。
-- 文字层负责读正文，原页面图负责校正：书名、章节名、术语、数字、公式、图号表号以页面图为准；图表、流程图、结构图要读出节点、箭头、层级和对应关系，不能只抄图里的字；案例图和作者的说明放在一起写。
-- 每段关键内容后面标回溯锚点：书上有页码的写（P42）或（P42-P45），没有页码的写（PDF 第 X 页）；锚点用下面每页开头标注的写法。
-- 疑点三分法：来源有歧义且会改变知识含义的，列入「需要人工确认的位置」；本章本来没讲的，写「本章未提供 / 未明确」；作者明确给出但没有验证材料的观点、数字、因果判断，保留为作者观点，注明本阶段不验证。三者不能混。
-- 文字层明显错（OCR 错字）而页面图能确认的，直接按页面图改，并记进「已确认的 OCR 修正」。
-- 原书图示非必要不用，知识库要尽量小：只有文字确实说不清的结构图、流程图、关键表格、交易案例图才插，每章最多 2 张；能用文字写清的一律不插。
-- 结构固定：先用 1–2 句话之后，按下面的二级标题依次写（没有实际内容的可选栏目整节省略，不要写「无」）：
-  ## 一、本章主题
-  ## 二、核心内容（按原书小节顺序，用 ### 1. 小节名（P1-P4） 分类，必要时 ####）
-  ## 三、重要概念 / 定义
-  ## 四、作者观点 / 论证
-  ## 五、方法 / 规则 / 逻辑
-  ## 六、案例 / 图表说明
-  ## 七、完整知识框架
-  ## 八、关键结论
-  ## 九、原书图示（可选）
-  ## 十、关键页码索引（表格：| 页码 | 内容 |）
-  ## 十一、需要人工确认的位置（可选）
-  ## 十二、已确认的 OCR 修正（可选）
-  ## 十三、一句话概括
-- 不要写一级标题（#），不要开场白和结束语。"""
+# 2026-10-29 用户：以前的「来源级整理」（13 个固定栏目、不允许压缩知识、每段标页码、查漏补页）写出来比原文还长（105%～438%），
+# 「不如自己去看书」。用户要的是提炼：用来快速复习、拿来做事、以后蒸馏和问答（原文一直在软件里，AI 要细节可以读原文）；
+# 篇幅约原文的 1/5；不设固定栏目，按这一章的内容组织；一定要留：核心观点和结论、方法步骤清单、关键概念的原话定义、代表性的例子。
+DEFAULT_RULES = """这是一章书的「提炼笔记」，不是转写：读者 5 分钟复习完这一章，知道作者的核心判断，拿到能照着做的方法。细节以后可以回原书查（原文一直在），所以不求面面俱到。
+
+篇幅：按下面「篇幅」一行给的字数写，宁短勿长。同一个意思只写一次。
+
+写法：
+- 第一行：> 一句话：这一章回答了什么问题、作者的核心结论是什么（不超过 60 字）。
+- 正文按这一章自己的逻辑组织（问题→答案、几个核心观点、一条流程……由你判断），用 2～5 个 ## 小标题。小标题直接写内容（例如「## 先把话题缩小成问题」），不要用「一、本章主题」「核心内容」「关键结论」这类栏目名。每个小标题末尾标一次页码范围（P83-P86），正文不逐句标页码。
+- 每个小标题下写作者的观点和结论，用短句或要点；作者给的理由只留一句「因为……」，不复述推理过程。
+- 关键概念用作者原话定义：**概念**：原话（不超过 40 字），一章最多 5 个，只挑理解这一章离不开的。
+- 例子：一个观点最多配一个代表性的例子，一两句话说清，次要的例子不写。
+- 这一章有能照着做的方法、步骤、清单时，最后单独一节「## 照着做」，用编号写 3～8 条（只写作者给的做法，每条一句）；正文里就不再重复这些步骤。没有可操作内容就不写这一节。
+
+不要写：作者的铺垫、过渡、重复强调、「本章我们将……」、对其他章节的预告和回顾、背景故事、次要例子、引述的名人名言（除非它就是核心观点）；也不要写页码索引、知识框架、本章范围说明、「需要人工确认」「OCR 修正」这类栏目，不要开场白和结束语，不要一级标题（#）。
+
+忠实：只写原书讲的，不补充外部知识，不评价作者，不替作者下结论；定义、数字、术语照录。扫描文字有明显错字、页面图能看清的，直接按页面图改，不用说明；看不清又影响意思的，在那句后面标（存疑）。
+
+图：一般不插图；只有文字确实说不清的关键图表才插，每章最多 1 张。"""
 
 FIGURE_RULE = (
     '插原书图示的写法：在需要的位置另起一行写 `![[原书图示 第N页 图号 图名 @左,上,右,下]]`，'
@@ -548,7 +726,7 @@ FIGURE_RULE = (
     '下一行写说明：*原书图示｜图 1-1 五行结构（P2）*。'
     '原图本身看不清（分辨率低、标注混乱）、但作者的结构或流程已经讲明白时，可以不插原图，改用 AI辅助理解图：'
     '另起一行写 **AI辅助理解图｜根据原书内容整理，非原书原图**（第N页 图号），下面用 ```mermaid 代码块画出作者已有的结构或流程；'
-    '只能重画作者给出的内容，不得补写规则、条件或因果，拿不准就不画；计入每章最多 2 张的上限。'
+    '只能重画作者给出的内容，不得补写规则、条件或因果，拿不准就不画；计入每章最多 1 张的上限。'
 )
 
 
@@ -557,8 +735,9 @@ def _rules(settings):
     if p and os.path.isfile(p):
         from .config import read_text_file
         try:
-            return ('以下是用户知识库里正式生效的《外部书籍与文档整理规范》，以它为准（其中关于独立审计、放行、归档、Obsidian 目录的部分由用户另行处理，你只做整理）：\n\n'
-                    + read_text_file(p)[:40000] + '\n\n' + DEFAULT_RULES)
+            # 2026-10-29 起软件的提炼规则优先：知识库那份是 codex 写的初版（固定 13 个栏目、不允许压缩），用户说「不要被它限制」
+            return (DEFAULT_RULES + '\n\n下面是用户知识库里的《外部书籍与文档整理规范》，只作补充参考（术语、格式习惯）；'
+                    '和上面的提炼要求冲突时（篇幅、栏目、页码写法、要不要面面俱到），一律以上面为准：\n\n' + read_text_file(p)[:40000])
         except (OSError, ValueError):
             pass
     return DEFAULT_RULES
@@ -573,9 +752,12 @@ def source_type(info):
 def _book_head(meta, chapter, info, teacher):  # noqa: C901
     from . import llm
     lines = [f'书名：{meta.get("title") or ""}', f'作者：{meta.get("author") or "（未填写）"}',
-             f'本次整理：{chapter["title"]}，{range_ref(chapter["start"], chapter["end"], info.get("shift"))}'
+             f'本次整理：{chapter["title"]}' + (f'（属于「{chapter["part"]}」）' if chapter.get('part') else '')
+             + f'，{range_ref(chapter["start"], chapter["end"], info.get("shift"))}'
              + (f'（PDF 第 {chapter["start"]}-{chapter["end"]} 页）' if info['kind'] == 'pdf' else ''),
              '来源类型：' + source_type(info)]
+    if not is_chinese(info):
+        lines.append(LANG_RULE)
     tb = llm.teacher_block(teacher) if teacher else ''
     if tb:
         lines.append('作者 / 来源的术语说明（只用来识别术语、校正 OCR，不能当成本章讲过的内容）：\n' + tb)
@@ -621,6 +803,13 @@ WORD_NOTE = ('\n\n===== 同名 Word 里对应这一章的正文（WPS 做 OCR �
              '用法：正文用词、术语、数字优先参考 Word，再用页面图核对；页码锚点一律按 PDF 每页开头的标注写；Word 里没有、PDF 里有的内容也要整理。\n')
 
 
+def length_rule(info, chapter):
+    """篇幅写成具体字数（只说「简洁」AI 不会真的写短）：约原文的 1/5，最多 1/4；短的一章至少给 300 字。"""
+    n = sum(len(re.sub(r'\s', '', p.get('text') or '')) for p in info['pages'][chapter['start'] - 1:chapter['end']])
+    target, most = max(300, round(n / 5 / 50) * 50), max(400, round(n / 4 / 50) * 50)
+    return f'篇幅：这一章原文约 {n} 字，提炼笔记写 {target} 字左右，最多不超过 {most} 字（不算页码和标点）。'
+
+
 def organize_chapter(settings, name, path, info, chapter, meta, teacher=None, vision=True, progress=lambda f, m=None: None, cancel=None,
                      chapters=None):
     """整理一章，返回章节 Markdown（不含属性和标题，由剪藏时加上）。"""
@@ -635,9 +824,10 @@ def organize_chapter(settings, name, path, info, chapter, meta, teacher=None, vi
             word = ''
     parts = _parts(info, chapter)
     system = rules + '\n\n' + _figure_note(vision)
+    head += '\n' + length_rule(info, chapter)
     if len(parts) == 1:
         progress(0.1, f'正在整理「{chapter["title"]}」…')
-        content = [{'type': 'text', 'text': head + '\n\n请整理这一章。以下是这一章的全部页面：'}] + _content(path, info, parts[0], vision)
+        content = [{'type': 'text', 'text': head + '\n\n请提炼这一章。以下是这一章的全部页面：'}] + _content(path, info, parts[0], vision)
         if word:
             content.append({'type': 'text', 'text': WORD_NOTE + word})
         md = llm.complete(settings, name, [{'role': 'system', 'content': system}, {'role': 'user', 'content': content}])
@@ -648,14 +838,14 @@ def organize_chapter(settings, name, path, info, chapter, meta, teacher=None, vi
                 raise BookError('已取消')
             progress(0.8 * (k - 1) / len(parts), f'正在整理「{chapter["title"]}」第 {k}/{len(parts)} 段…')
             content = [{'type': 'text', 'text': head + f'\n\n这一章比较长，分 {len(parts)} 段读。这是第 {k} 段（{range_ref(pages[0]["n"], pages[-1]["n"], info.get("shift"))}）。'
-                        '请按原书顺序写出这一段的详细整理笔记：保留全部知识点、数字、图表关系和锚点，不要写栏目框架，后面会把各段合成一章。'
-                        '需要插原书图示的地方照样写插图标记。'}] + _content(path, info, pages, vision)
+                        '请按原书顺序列出这一段的要点（观点和结论、方法步骤、关键概念的原话定义、代表性的例子），每条一两句、标页码，'
+                        '篇幅约这一段原文的四分之一；不要写小标题框架和一句话，后面会把各段合成一章的提炼笔记。需要插原书图示的地方照样写插图标记。'}] + _content(path, info, pages, vision)
             notes.append(llm.complete(settings, name, [{'role': 'system', 'content': system}, {'role': 'user', 'content': content}]))
         progress(0.85, f'正在合成「{chapter["title"]}」…')
-        joined = '\n\n'.join(f'===== 第 {k} 段笔记 =====\n{n}' for k, n in enumerate(notes, 1))
+        joined = '\n\n'.join(f'===== 第 {k} 段要点 =====\n{n}' for k, n in enumerate(notes, 1))
         md = llm.complete(settings, name, [{'role': 'system', 'content': system}, {'role': 'user', 'content':
-                          head + '\n\n下面是这一章分段读完后的整理笔记（已经带锚点和插图标记）。请把它们合成这一章的最终整理稿：按固定栏目写，'
-                          '不能丢掉笔记里的任何知识点、数字和锚点，插图标记原样保留（每章最多 2 张）。\n\n' + joined
+                          head + '\n\n下面是这一章分段读完后的要点。请把它们合成这一章的提炼笔记：按上面的写法和篇幅写，'
+                          '同一个意思只留一次，挑最重要的，次要的删掉；插图标记最多留 1 张。\n\n' + joined
                           + (WORD_NOTE + word if word else '')}])
     return _strip_h1(md)
 
@@ -797,31 +987,89 @@ def verify_doubts(settings, name, path, info, chapter, md, meta, teacher=None, v
     return md, max(fixed, len(rows))
 
 
-OVERVIEW_PROMPT = """请根据下面各章的整理稿，写这本书的「00、全书总览」。要求：
-- 只依据这些整理稿，不加入外部知识，不评价作者观点；
-- 只完成了部分章节时，必须写明已完成范围，不能把局部内容扩写成整本书的结论；
-- 结构用二级标题依次写（没有内容的省略）：
-  ## 一、书籍基本信息（书名、作者、来源类型、整理进度；没有的信息写「未提供」）
-  ## 二、全书主旨
-  ## 三、章节结构与整理进度（表格：| 章 | 页码 | 主题 | 状态 |）
-  ## 四、作者整体框架
-  ## 五、主要概念地图
-  ## 六、关键结论索引（每条带页码锚点）
-  ## 七、各章导航（用 [[文件名]] 链接，文件名见下面每章开头）
-  ## 八、当前整理进度与来源边界
-- 不要写一级标题（#），不要开场白和结束语。"""
+# 2026-10-29 和章节笔记一起改成提炼（以前 8 个固定栏目：基本信息、概念地图、来源边界……）
+OVERVIEW_PROMPT = """请根据下面各章的提炼笔记，写这本书的「00、全书总览」：读者 10 分钟看完，知道这本书解决什么问题、主线怎么走、每一章讲什么、最值得记住和照着做的是什么。
+写法：
+- 第一行：> 一句话：这本书解决什么问题、作者的核心主张（不超过 80 字）。
+- ## 全书主线：3～6 句话说清作者的整体思路，各部分之间怎么衔接。
+- ## 各章导航：按全书结构写（有部分的按部分分组，部分名写成 ### 小标题），每章一行：[[文件名]]：这一章讲什么（一句话）。文件名见下面每章开头。
+- ## 最值得记住的：全书最重要的 5～10 条结论，每条一句，后面标出自哪一章（[[文件名]]）。
+- ## 照着做：全书最有用的方法和清单，5～10 条，每条一句，标出处；书里没有可操作的内容就不写这一节。
+- 只依据这些笔记，不加外部知识，不评价作者；只完成了部分章节时，开头说明已完成哪些，不能把局部扩写成整本书的结论。
+- 篇幅：3000 字以内。不要开场白和结束语，不要一级标题（#）。"""
 
 
-def overview(settings, name, meta, chapters, files):
+# ------------------------------------------------------------------ AI 对话 ----
+# 2026-10-29 用户：书也要像视频一样能问 AI。笔记是提炼（约原文 1/5），所以问答读原文：问这一章读这一章的原文全文 + 笔记；
+# 问整本书读全部章节笔记（当地图）+ 本机从原文里挑出的相关页（mentor.rank，按字词重合打分，不联网）
+CHAT_CHAPTER_CHARS = 80000   # 一章原文最多给这么多（最长的第 17 章约 2 万字）
+CHAT_NOTES_CHARS = 60000     # 整本书：全部章节笔记最多给这么多
+CHAT_PAGES = 14              # 整本书：再挑这么多页原文
+CHAT_HISTORY = 12            # 带上最近这么多条对话
+BOOK_CHAT_RULES = (
+    '你是用户读书的助手，帮用户读懂、用好这本书。用中文回答。\n'
+    '- 只根据下面给的原书内容回答；原书没讲的，明确说「书里没讲」；需要你自己补充时单独标【AI 补充】，不能混进作者的观点。\n'
+    '- 引用原书时在句子后面标页码，写成（P42）或（P42-P45），没有书上页码时写（PDF 第 X 页），用户可以点回原书。\n'
+    '- 作者的定义、数字、术语照原书；原书是外文时，引用关键原话附上原句。\n'
+    '- 先给结论再展开，简洁直接；用户要清单、步骤时用编号列出。'
+)
+
+
+def chat_messages(info, doc, scope, idx, history):
+    """书的 AI 对话：拼出给 AI 的消息。scope：chapter（第 idx 篇）/ book（整本书）。"""
+    shift = doc.get('shift') if doc.get('shift') is not None else info.get('shift')
+    chs = doc.get('chapters') or []
+    rng = lambda c: range_ref(c['start'], c['end'], shift)
+    head = (f'书名：《{doc.get("title") or ""}》' + (f'，作者：{doc["author"]}' if doc.get('author') else '')
+            + f'\n全书结构：{structure(chs)}\n')
+    pages_text = lambda ps: '\n\n'.join(f'【{page_ref(p["n"], shift)}】\n{p["text"]}' for p in ps)
+    if scope == 'chapter' and 0 <= idx < len(chs):
+        c = chs[idx]
+        ps = info['pages'][c['start'] - 1:c['end']]
+        body = (f'用户正在读：{c["title"]}' + (f'（属于「{c["part"]}」）' if c.get('part') else '') + f'，{rng(c)}\n\n'
+                f'===== 这一章的原文（每页前面标了页码）=====\n{pages_text(ps)[:CHAT_CHAPTER_CHARS]}\n\n'
+                f'===== 这一章的提炼笔记（只作导读，以原文为准）=====\n{(c.get("md") or "（还没整理）").strip()}')
+    else:
+        from .mentor import rank
+        query = next((m['content'] for m in reversed(history) if m.get('role') == 'user'), '')
+        notes = '\n\n'.join(f'===== {c["title"]}' + (f'（{c["part"]}）' if c.get('part') else '') + f'，{rng(c)} =====\n'
+                            + ((c.get('md') or '').strip() or '（还没整理）') for c in chs)[:CHAT_NOTES_CHARS]
+        hits = sorted(rank(query, [p for p in info['pages'] if len((p.get('text') or '').strip()) >= 80], lambda p: p['text'], CHAT_PAGES),
+                      key=lambda p: p['n'])
+        body = ((f'===== 全书总览 =====\n{doc["overview"].strip()}\n\n' if (doc.get('overview') or '').strip() else '')
+                + f'===== 各章提炼笔记（当作全书地图）=====\n{notes}\n\n'
+                + (f'===== 和问题最相关的原文页（软件按字词挑的，可能不全；细节以这些原文为准）=====\n{pages_text(hits)}' if hits
+                   else '（没有找到和问题直接相关的原文页，只能根据笔记回答，回答时说明这一点）'))
+    msgs = [{'role': 'system', 'content': BOOK_CHAT_RULES + '\n\n' + head + '\n' + body}]
+    for m in history[-CHAT_HISTORY:]:
+        if m.get('role') in ('user', 'assistant') and m.get('content'):
+            msgs.append({'role': m['role'], 'content': str(m['content'])})
+    return msgs
+
+
+def structure(chapters):
+    """全书结构，按部分分组：「前言与目录；第一部分 甲：开篇 乙、第1章 丙；第二部分 ……」。"""
+    groups = []
+    for c in chapters:
+        part = c.get('part') or ''
+        if not groups or groups[-1][0] != part:
+            groups.append((part, []))
+        groups[-1][1].append(c['title'])
+    return '；'.join(f'{p}：{"、".join(ts)}' if p else '、'.join(ts) for p, ts in groups)
+
+
+def overview(settings, name, meta, chapters, files, info=None):
     from . import llm
     done = [(c, f) for c, f in zip(chapters, files) if (c.get('md') or '').strip()]
     if not done:
         raise BookError('还没有整理好的章节')
-    body = '\n\n'.join(f'===== 文件名：{f}｜{c["title"]}（{c.get("range", "")}） =====\n{c["md"]}' for c, f in done)
+    body = '\n\n'.join(f'===== 文件名：{f}｜{c["title"]}' + (f'（属于「{c["part"]}」）' if c.get('part') else '')
+                       + f'（{c.get("range", "")}） =====\n{c["md"]}' for c, f in done)
     todo = [c['title'] for c in chapters if not (c.get('md') or '').strip()]
     head = (f'书名：{meta.get("title") or ""}\n作者：{meta.get("author") or "（未填写）"}\n'
-            f'全书章节：{"、".join(c["title"] for c in chapters)}\n'
-            + (f'还没有整理的章节：{"、".join(todo)}\n' if todo else '全部章节都已整理。\n'))
+            f'全书结构：{structure(chapters)}\n'
+            + (f'还没有整理的章节：{"、".join(todo)}\n' if todo else '全部章节都已整理。\n')
+            + (LANG_RULE + '\n' if info and not is_chinese(info) else ''))
     return _strip_h1(llm.complete(settings, name, [{'role': 'user', 'content': OVERVIEW_PROMPT + '\n\n' + head + '\n' + body}]))
 
 
@@ -906,11 +1154,12 @@ def clip_book(doc, info, vault, folder, dir_pattern='《{title}》{author}', for
             rng = range_ref(c['start'], c['end'], shift)
             body = place_figures(c['md'], doc['media'], info, base)
             return '\n'.join(['---', f'标题: {_yaml(c["title"])}', '类型: 书籍章节整理', f'书名: {_yaml(title)}',
-                              f'作者: {_yaml(author)}', f'章节: {_yaml(c["title"])}', f'页码范围: {_yaml(rng)}',
+                              f'作者: {_yaml(author)}', *([f'部分: {_yaml(c["part"])}'] if c.get('part') else []),
+                              f'章节: {_yaml(c["title"])}', f'页码范围: {_yaml(rng)}',
                               f'来源类型: {_yaml(src_type)}', f'来源文件: {_yaml(doc["media"])}', f'整理时间: {time.strftime("%Y-%m-%d %H:%M")}',
                               *tag_lines, '---', '',
                               f'# {c["title"]}', '',
-                              f'> 来源：《{title}》' + (f'，{author}' if author else '') + '。', '>',
+                              f'> 来源：《{title}》' + (f'，{author}' if author else '') + (f'，{c["part"]}' if c.get('part') else '') + '。', '>',
                               f'> 整理范围：{rng}' + (f'（PDF 第 {c["start"]}-{c["end"]} 页）' if info['kind'] == 'pdf' and shift is not None else '') + '。', '>',
                               '> 整理边界：只忠实说明本章如何表述，不使用外部常识纠正作者理论，不评价或验证作者观点。', '', '---', '', body.strip(), ''])
         todo.append((fname, make))
