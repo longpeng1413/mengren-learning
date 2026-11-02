@@ -282,6 +282,23 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .md p { margin: .45em 0; }
 .md ul, .md ol { margin: .4em 0; padding-left: 1.4em; }
 .md li { margin: .2em 0; }
+/* 缩进的小点（2026-11-02）：按层级往右缩，第二级用空心圆点 */
+.md li.lvl-1 { margin-left: 1.4em; list-style-type: circle; } .md li.lvl-2 { margin-left: 2.8em; list-style-type: square; }
+.md li.lvl-3, .md li.lvl-4 { margin-left: 4.2em; list-style-type: square; }
+/* 每条重点旁边的小工具（2026-11-02）：鼠标移到一块上，它右上角出现一排按钮 */
+.ai-body { position: relative; }
+/* 和字幕栏每句右边的按钮一个样子：24 像素的小图标按钮排成一排，鼠标停在上面看提示 */
+.sum-tools { position: absolute; z-index: 5; display: flex; gap: 3px; padding: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.sum-tools[hidden] { display: none; }
+.sum-tools button { width: 24px; height: 24px; display: grid; place-items: center; padding: 0; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; color: var(--muted); }
+.sum-tools svg { width: 13px; height: 13px; }
+.sum-tools button:hover { color: var(--accent); border-color: var(--accent-line); }
+.sum-tools button[data-st="del"]:hover { color: var(--danger); border-color: var(--danger); }
+.sum-edit { margin: .3em 0; }
+.sum-edit textarea { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; line-height: 1.7; padding: 6px 8px; color: var(--text); background: var(--panel2); border: 1px solid var(--accent-line); border-radius: 8px; outline: none; }
+.sum-edit-bar { display: flex; align-items: center; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+.sum-edit-bar button { border: 1px solid var(--line); background: var(--panel2); color: var(--text); border-radius: 6px; padding: 2px 9px; font-size: 12px; cursor: pointer; }
+.sum-edit-bar button.primary { background: var(--accent); border-color: var(--accent); color: #111; }
 .md pre { background: var(--panel2); padding: 10px; border-radius: 8px; overflow-x: auto; }
 .md pre code { background: none; padding: 0; }
 .md table { border-collapse: collapse; margin: .6em 0; font-size: .95em; width: 100%; }
@@ -292,7 +309,10 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .tslink:hover { text-decoration: underline; }
 
 /* ---------- 字幕列表 ---------- */
-.sub-head { display: flex; align-items: center; gap: 8px 10px; padding: 0 0 10px 4px; flex: none; flex-wrap: wrap; }
+.sub-head { display: flex; align-items: center; gap: 8px 3px; padding: 0 0 10px 4px; flex: none; flex-wrap: wrap; }
+/* 标题栏的小图标按钮挨紧一点（2026-11-02 用户：省标题栏的地方）；文字和开关旁边留出空 */
+.sub-head .btn.icon-only, .ai-tabs .btn.icon-only { padding: 0 6px; }
+.sub-head .search, .sub-head .switch, .sub-head #cueCount { margin-right: 6px; }
 .search { display: flex; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 0 10px; height: 32px; flex: 0 1 240px; min-width: 130px; color: var(--muted); }
 .search input { flex: 1; border: 0; outline: 0; background: none; min-width: 0; color: var(--text); }
 .search:focus-within { border-color: var(--accent-line); }
@@ -328,8 +348,8 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .tr[data-ph=""]:empty:not(:focus) { display: none; }  /* 中文课这句没有译文：不留空行，否则开着「译文」时句子之间多出一行高 */
 .src:focus, .tr:focus { background: var(--panel2); box-shadow: 0 0 0 1px var(--accent-line); color: var(--text); }
 .tr:empty::before { content: attr(data-ph); color: var(--line); }
-/* 工具按钮排成 2×2，尽量不超出一行的高度；超出的部分也要盖在下一句上面，否则鼠标移过去会变成下一句的按钮 */
-.cue-tools { position: absolute; right: 6px; top: 4px; display: none; grid-template-columns: 24px 24px; gap: 2px; }
+/* 工具按钮排成一排、上下居中（2026-11-02 用户要求，以前是 2×2 两排），带底色盖住这一句右边一小段字，只在鼠标移上去时出现 */
+.cue-tools { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); display: none; grid-auto-flow: column; grid-auto-columns: 24px; gap: 3px; padding: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
 .cue:focus-within { z-index: 2; }
 .cue:hover { z-index: 3; }
 .cue:hover .cue-tools, .cue:focus-within .cue-tools { display: grid; }
@@ -692,3 +712,27 @@ a.cite.bad { background: color-mix(in srgb, var(--danger) 14%, transparent); bor
 .tv-words { line-height: 2.1; }
 .tv-word { display: inline-block; padding: 0 8px; margin: 0 6px 4px 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); }
 #tFileActions { margin-top: 6px; gap: 8px; }
+
+/* 图标开关（2026-11-02，打印「带时间」）：亮着 = 打开 */
+.btn.icon-toggle { cursor: pointer; }
+.btn.icon-toggle:has(input:checked) { color: var(--accent); border-color: var(--accent-line); background: var(--accent-weak); }
+
+/* 说明窗口「只看这一块」（字幕区、课程重点区的「?」打开）：不显示左边目录，下面有「查看完整使用说明」 */
+.help-dlg.help-focus #helpNav { display: none; }
+.help-dlg:not(.help-focus) #helpFull { display: none; }
+.help-keys { border: 1px solid var(--accent-line); background: var(--accent-weak); border-radius: 10px; padding: 10px 14px; margin: 6px 0 14px; line-height: 2; }
+.help-keys > b { color: var(--accent); }
+/* 说明里的按钮表：左边画成和界面上一样的按钮，右边是提示 */
+.help-btns table { border-collapse: collapse; margin: 4px 0 12px; }
+.help-btns td { padding: 4px 12px 4px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.help-btns td:first-child { white-space: nowrap; }
+.help-btns .hb-face { pointer-events: none; gap: 4px; }
+.help-btns .hb-switch { border-style: dashed; }
+/* 「快速开始」里的界面分区图：点哪一块跳到哪一节 */
+.help-map { display: grid; grid-template-columns: 1fr 1.7fr 1.3fr; grid-template-rows: auto 64px 64px; grid-template-areas: "top top top" "lib video subs" "lib ai subs"; gap: 6px; max-width: 560px; margin: 6px 0 10px; }
+.help-map button { border: 1px solid var(--accent-line); background: var(--accent-weak); color: var(--text); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 13px; line-height: 1.4; cursor: pointer; }
+.help-map button:hover { border-color: var(--accent); color: var(--accent); }
+.help-map .hm-top { grid-area: top; } .help-map .hm-lib { grid-area: lib; } .help-map .hm-video { grid-area: video; }
+.help-map .hm-ai { grid-area: ai; } .help-map .hm-subs { grid-area: subs; }
+.help-go { color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+kbd { display: inline-block; min-width: 18px; padding: 0 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--panel); font: 12px/1.6 var(--mono); text-align: center; }

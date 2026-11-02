@@ -404,6 +404,116 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     document.querySelectorAll('.ai-tabs .tab')[1].click();
     ok('「打印」「导出 PDF」只在课程重点页显示', $('#btnPrint').hidden && $('#btnPdf').hidden);
     document.querySelectorAll('.ai-tabs .tab')[0].click();
+    // 每条重点旁边的小工具（2026-11-02）：鼠标移上去出现按钮；只改那几行原文；Ctrl+Z 一步步退回
+    const tsum = '## 一、甲\n\n- 甲一 [00:10]\n  - 甲一的小点\n- 甲二\n\n## 二、乙\n\n- 乙一。[01:00]\n- 乙二';
+    S.doc.summary = tsum; S.sumUndo = []; renderSummary();
+    const blk = l => document.querySelector(`#summaryBox [data-l^="${l}-"]`);
+    const hover = l => blk(l).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    const tool = a => document.querySelector(`#sumTools [data-st="${a}"]`);
+    const ctrlZ = () => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+    ok('课程重点每一块记着原文行号，缩进的小点显示成第二级', blk(2).tagName === 'LI' && blk(3).classList.contains('lvl-1') && blk(6).tagName === 'H2');
+    hover(4);
+    ok('鼠标移到列表项上：出现改、上移、下移、合并、拆分、删除，只有图标；加一条、缩进改成按键，没有按钮（2026-11-02）', !$('#sumTools').hidden
+      && ['edit', 'up', 'down', 'merge', 'split', 'del'].every(a => tool(a) && tool(a).querySelector('svg') && !tool(a).textContent.trim() && tool(a).title)
+      && !tool('add') && !tool('indent') && !tool('outdent'));
+    hover(6);
+    ok('小标题上没有合并、拆分、缩进', tool('edit') && tool('up') && !tool('merge') && !tool('split') && !tool('indent'));
+    hover(9); tool('merge').click();
+    ok('并到上一条：乙一以出处时间结尾，直接接上', S.doc.summary.includes('- 乙一。[01:00]乙二') && !S.doc.summary.includes('- 乙二'), S.doc.summary);
+    ctrlZ();
+    ok('Ctrl+Z 撤销课程重点的修改', S.doc.summary === tsum, S.doc.summary);
+    hover(4); tool('up').click();
+    ok('上移：甲二和甲一（连同小点）换位置，不多出空行', S.doc.summary.includes('- 甲二\n- 甲一 [00:10]\n  - 甲一的小点'), S.doc.summary);
+    S.doc.summary = tsum; renderSummary();
+    hover(8); tool('up').click();
+    ok('一级条目上移可以跨过小标题，挪到上一节最后', /- 甲二\n+- 乙一。\[01:00\]\n+## 二、乙\n+- 乙二/.test(S.doc.summary), S.doc.summary);
+    S.doc.summary = tsum; renderSummary();
+    const keyOn = (el, key, shift) => el.dispatchEvent(new KeyboardEvent('keydown', { key, shiftKey: !!shift, bubbles: true }));
+    hover(4); keyOn(document.body, 'Tab');
+    ok('鼠标停在一条上按 Tab：缩进，变成上一条下面的小点（缩进两格）', S.doc.summary.includes('  - 甲一的小点\n  - 甲二'), S.doc.summary);
+    hover(6); tool('del').click();
+    ok('删除小标题：只删标题，内容留着', !S.doc.summary.includes('## 二、乙') && S.doc.summary.includes('- 乙一') && [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('撤销')), S.doc.summary);
+    ctrlZ(); ctrlZ();
+    ok('连续 Ctrl+Z 退回两步', S.doc.summary === tsum, S.doc.summary);
+    hover(4); tool('edit').click();
+    let sta = $('#summaryBox .sum-edit textarea');
+    ok('点「改」：只把这一条变成输入框，里面是这一条的文字', sta && sta.value === '甲二' && $('#sumTools').hidden);
+    sta.value = '甲二改过\n甲三是新的一条';
+    keyOn(sta, 'Enter');
+    ok('改完按 Enter 保存（换行写的那一行变成新的一条），并在下面开一条新的', S.doc.summary.includes('- 甲二改过\n- 甲三是新的一条') && $('#summaryBox .sum-edit textarea') && $('#summaryBox .sum-edit textarea').value === '', S.doc.summary);
+    keyOn($('#summaryBox .sum-edit textarea'), 'Enter');
+    ok('新的那一条没写字再按 Enter：结束，不留空条目', !$('#summaryBox .sum-edit') && !S.doc.summary.includes('…') && S.doc.summary.includes('- 甲三是新的一条\n\n## 二、乙'), S.doc.summary);
+    S.doc.summary = tsum; renderSummary();
+    hover(4); tool('split').click();
+    sta = $('#summaryBox .sum-edit textarea'); sta.value = '前半句后半句'; sta.selectionStart = sta.selectionEnd = 3;
+    $('#summaryBox .sum-edit [data-se="split"]').click();
+    ok('拆分：在光标处拆成两条', S.doc.summary.includes('- 前半句\n- 后半句'), S.doc.summary);
+    S.doc.summary = tsum; renderSummary();
+    hover(2); tool('edit').click();
+    keyOn($('#summaryBox .sum-edit textarea'), 'Enter');
+    sta = $('#summaryBox .sum-edit textarea');
+    ok('改甲一时按 Enter：在甲一（连同小点）下面空出一条，直接输入', sta && sta.value === '');
+    sta.value = '新加的一条'; keyOn(sta, 'Tab');
+    sta = $('#summaryBox .sum-edit textarea');
+    ok('新的一条里按 Tab：缩进成甲一的小点，编辑框还开着、字还在', sta && sta.value === '新加的一条' && S.doc.summary.includes('  - 甲一的小点\n  - 新加的一条\n- 甲二'), S.doc.summary);
+    keyOn(sta, 'Enter');
+    sta = $('#summaryBox .sum-edit textarea');
+    ok('再按 Enter：保存，并在同一级再开一条', sta && sta.value === '' && S.doc.summary.includes('  - 新加的一条\n  - …'), S.doc.summary);
+    keyOn(sta, 'Tab', true);
+    sta = $('#summaryBox .sum-edit textarea');
+    ok('按 Shift+Tab：取消缩进，回到一级', sta && /\n- …\n- 甲二/.test(S.doc.summary), S.doc.summary);
+    keyOn(sta, 'Escape');
+    ok('新的一条什么都没写按 Esc：当没加过', S.doc.summary.includes('  - 甲一的小点\n  - 新加的一条\n- 甲二') && !S.doc.summary.includes('…') && !$('#summaryBox .sum-edit'), S.doc.summary);
+    // 课程重点底部按钮、「已校对」带文字（2026-11-02 用户：底部按钮少、不常用，带字更直观）；标题栏其他图标按钮都有一句话的提示
+    ok('课程重点底部按钮带文字，「已校对」是带文字的开关', $('#btnReview').textContent.trim() === '查漏补缺' && $('#btnCopySummary').textContent.trim() === '复制'
+      && $('#btnSumShot').textContent.includes('插入截图') && $('#optReviewed').closest('label').classList.contains('switch') && $('#optReviewed').closest('label').textContent.includes('已校对'));
+    ok('标题栏的图标按钮都有提示，字幕导出 PDF 的提示是一句话', [...document.querySelectorAll('.sub-head .btn.icon-only, .ai-tabs .btn.icon-only')].every(b => b.title)
+      && $('#btnSubPdf').title === '把字幕输出为PDF');
+    $('#btnHelp').click();
+    ok('字幕区的「?」：只显示字幕区的说明（没有左边目录），快捷键单独列出', $('#dlgHelp').open && $('#dlgHelp').classList.contains('help-focus')
+      && !$('#helpBody [data-h="area-subs"]').hidden && $$('#helpBody section:not([hidden])').length === 1 && getComputedStyle($('#helpNav')).display === 'none'
+      && $('#helpBody [data-h="area-subs"] .help-keys'));
+    const subRows = $$('#helpBody [data-h="area-subs"] .help-btns tr');
+    ok('字幕区说明里有按钮表：从界面上的按钮生成（图标 + 提示），每句的小工具也列出', subRows.length >= 12
+      && subRows.some(r => r.textContent.includes('把字幕输出为PDF') && r.querySelector('svg')) && subRows.some(r => r.textContent.includes('与下一句合并'))
+      && subRows.some(r => r.textContent.includes('已校对')), subRows.map(r => r.textContent));
+    $('#helpClose').click();
+    $('#btnAiHelp').click();
+    ok('课程重点区的「?」：只显示课程重点区的说明，Enter / Tab / Shift+Tab 写在快捷键里', $('#dlgHelp').open && !$('#helpBody [data-h="area-sum"]').hidden
+      && /Enter[\s\S]*Tab[\s\S]*Shift/.test($('#helpBody [data-h="area-sum"] .help-keys').textContent));
+    const sumHelp = $('#helpBody [data-h="area-sum"]'), sumRows = $$('.help-btns tr', sumHelp);
+    ok('课程重点区说明：有三个标签页的说明和按钮表', ['课程重点', 'AI 对话', '画面'].every(t => [...$$('li > b', sumHelp)].some(b => b.textContent === t))
+      && sumRows.some(r => r.textContent.includes('查漏补缺')) && sumRows.some(r => r.textContent.includes('把课程重点输出为PDF')) && sumRows.some(r => r.textContent.includes('并到上一条'))
+      && sumRows.some(r => r.textContent.includes('找插图')), sumRows.map(r => r.textContent));
+    $('#helpFull').click();
+    ok('点「查看完整使用说明」：换成整个软件的说明，左边有目录', !$('#dlgHelp').classList.contains('help-focus') && getComputedStyle($('#helpNav')).display !== 'none' && !$('#helpBody [data-h="start"]').hidden);
+    $('#helpClose').click();
+    $('#btnHelpTop').click();
+    ok('右上角的「?」：整个软件的说明', $('#dlgHelp').open && !$('#dlgHelp').classList.contains('help-focus'));
+    // 总说明按界面版块排（2026-11-02）：目录分「开始 / 按界面版块 / 专题」，每个目录项都有对应的一节，分区图和「见某某」能跳过去
+    const navKeys = $$('#helpNav [data-h]').map(b => b.dataset.h);
+    ok('总说明的目录按版块分组，每一项都有对应的一节', ['开始', '按界面版块', '专题'].every(t => $$('#helpNav .nav-label').some(l => l.textContent === t))
+      && ['top', 'library', 'video', 'area-subs', 'area-sum', 'book', 'mentor', 'tts', 'export'].every(k => navKeys.includes(k))
+      && navKeys.every(k => $(`#helpBody section[data-h="${k}"]`)) && $$('#helpBody [data-go]').every(a => navKeys.includes(a.dataset.go)), navKeys);
+    $('#helpBody .help-map [data-go="area-subs"]').click();
+    ok('点分区图里的「字幕区」：跳到字幕区那一节', !$('#helpBody [data-h="area-subs"]').hidden && $('#helpNav [data-h="area-subs"]').classList.contains('active'));
+    $('#helpNav [data-h="top"]').click();
+    const topRows = $$('#helpBody [data-h="top"] .help-btns tr');
+    ok('顶栏那一节有按钮表（生成字幕、一键整理、剪藏都在）', ['生成字幕', '一键整理', '剪藏', '保存'].every(t => topRows.some(r => r.textContent.includes(t))), topRows.map(r => r.textContent));
+    $('#helpNav [data-h="video"]').click();
+    const vRows = $$('#helpBody [data-h="video"] .help-btns tr');
+    ok('视频区那一节有开关和按钮表', ['字幕跟随', '单句循环', '隐藏视频'].every(t => vRows.some(r => r.textContent.includes(t))), vRows.map(r => r.textContent));
+    $('#helpClose').click();
+    $('#btnAiHelp').click();
+    $('#helpBody [data-h="area-sum"] [data-go="tts"]').click();
+    ok('只看一块时点「见朗读」：换成完整说明并跳过去', !$('#dlgHelp').classList.contains('help-focus') && !$('#helpBody [data-h="tts"]').hidden);
+    $('#helpClose').click();
+    $('#helpClose').click();
+    // 字幕每句右边的按钮排成一排（2026-11-02）
+    const ctools = [...document.querySelectorAll('#cues .cue')[0].querySelectorAll('.cue-tools button')];
+    document.querySelectorAll('#cues .cue')[0].querySelector('.cue-tools').style.display = 'grid';
+    ok('字幕每句的四个按钮排成一排', ctools.length === 4 && new Set(ctools.map(b => Math.round(b.getBoundingClientRect().top))).size === 1, ctools.map(b => b.getBoundingClientRect().top));
+    document.querySelectorAll('#cues .cue')[0].querySelector('.cue-tools').style.display = '';
     S.doc.summary = sumKeep; delete S.doc.sum_shots; delete S.doc.fig_edits; renderSummary();
 
     // 查漏补缺按钮和覆盖率
@@ -865,10 +975,9 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     document.querySelector('#helpNav [data-h="book"]').click();
     ok('使用说明可以切换章节', !document.querySelector('#helpBody section[data-h="book"]').hidden && document.querySelector('#helpBody section[data-h="start"]').hidden
       && document.querySelectorAll('#helpNav [data-h]').length >= 17);
-    document.querySelector('#helpNav [data-h="ui"]').click();
-    const uiHelp = document.querySelector('#helpBody section[data-h="ui"]');
-    ok('使用说明：有「界面上的标签和按钮」，讲到媒体库的未整理完、字幕的存疑标记、课程重点的按钮', !uiHelp.hidden
-      && ['未整理完', '重点待更新', '待更新剪藏', '整理中', '存疑', '绿色下划线', '查漏补缺', '字幕被引用'].every(w => uiHelp.textContent.includes(w)));
+    const helpText = k => document.querySelector(`#helpBody section[data-h="${k}"]`).textContent;
+    ok('使用说明按版块讲到：媒体库的标记、字幕的存疑和绿色下划线、课程重点的查漏和引用比例', ['未整理完', '重点待更新', '待更新剪藏', '整理中'].every(w => helpText('library').includes(w))
+      && ['存疑', '绿色下划线'].every(w => helpText('area-subs').includes(w)) && ['查漏补缺', '字幕被引用'].every(w => helpText('area-sum').includes(w)));
     document.querySelector('#helpClose').click();
     ok('关闭使用说明', !document.querySelector('#dlgHelp').open);
 

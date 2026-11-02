@@ -14,20 +14,20 @@
   <div class="file-title" id="fileTitle"></div>
   <div class="teacher-chip" id="teacherChip" hidden>
     <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
-    <select id="teacherSelect" title="这个视频是哪位老师的课（决定用哪份术语表）"></select>
+    <select id="teacherSelect" title="这节课的老师（决定用哪份术语表）"></select>
   </div>
   <span class="grow"></span>
   <nav class="actions">
     <button class="btn" id="btnOpen" title="打开音视频文件（Ctrl+O）"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>打开</button>
     <span class="sep"></span>
-    <button class="btn primary video-only" id="btnTranscribe" disabled><svg viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>生成字幕</button>
+    <button class="btn primary video-only" id="btnTranscribe" disabled title="把视频里说的话识别成带时间的字幕"><svg viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>生成字幕</button>
     <button class="btn video-only" id="btnCorrect" disabled title="让 AI 按术语表校对识别错误"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>AI 校对</button>
-    <button class="btn video-only" id="btnTranslate" disabled><svg viewBox="0 0 24 24"><path d="M4 5h9M8 3v2m3 0c-1 4-4 7-7 8m3-5c1 2 3 4 6 5"/><path d="M13 21l4-9 4 9m-7-3h6"/></svg>翻译</button>
-    <button class="btn video-only" id="btnPipeline" disabled title="一次完成：生成字幕 → AI 校对 → 翻译 → 课程重点"><svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>一键整理</button>
+    <button class="btn video-only" id="btnTranslate" disabled title="把英文字幕翻译成中文"><svg viewBox="0 0 24 24"><path d="M4 5h9M8 3v2m3 0c-1 4-4 7-7 8m3-5c1 2 3 4 6 5"/><path d="M13 21l4-9 4 9m-7-3h6"/></svg>翻译</button>
+    <button class="btn video-only" id="btnPipeline" disabled title="一次做完：生成字幕、AI 校对、找插图、课程重点……"><svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>一键整理</button>
     <span class="sep"></span>
     <button class="btn" id="btnSave" disabled title="保存（Ctrl+S）"><svg viewBox="0 0 24 24"><path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v6h8V3M7 21v-7h10v7"/></svg><span id="saveLabel">保存</span></button>
     <div class="menu-wrap video-only">
-      <button class="btn" id="btnExport" disabled><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>下载</button>
+      <button class="btn" id="btnExport" disabled title="下载字幕文件（TXT / SRT）"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>下载</button>
       <div class="menu export-menu" id="menuExport">
         <div class="menu-label">内容</div>
         <label class="radio"><input type="radio" name="exMode" value="both" checked> 中英对照</label>
@@ -41,9 +41,9 @@
         </div>
       </div>
     </div>
-    <button class="btn" id="btnClip" disabled title="剪藏到 Obsidian：上半部分课程重点，下半部分完整字幕"><svg viewBox="0 0 24 24"><path d="M12 2l7 5-2 10-5 5-5-5-2-10z"/><path d="M12 2v20"/></svg>剪藏</button>
+    <button class="btn" id="btnClip" disabled title="剪藏到 Obsidian（课程重点 + 完整字幕）"><svg viewBox="0 0 24 24"><path d="M12 2l7 5-2 10-5 5-5-5-2-10z"/><path d="M12 2v20"/></svg>剪藏</button>
     <span class="sep"></span>
-    <button class="btn icon-only" id="btnHelpTop" title="使用说明：各种功能和设置方法"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14m0 3v.01"/></svg></button>
+    <button class="btn icon-only" id="btnHelpTop" title="使用说明"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14m0 3v.01"/></svg></button>
     <button class="btn icon-only" id="btnTheme" title="切换主题"><svg viewBox="0 0 24 24"><path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z"/></svg></button>
     <button class="btn icon-only" id="btnSettings" title="设置"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
   </nav>
@@ -67,10 +67,10 @@
     <div class="lib-head">
       <div class="lib-tabs" id="libTabs"><button class="lib-tab" data-view="book" title="媒体库里的书和文档（PDF、Word、EPUB、MOBI、PPT）">书籍</button><button class="lib-tab active" data-view="course" title="媒体库里的视频、音频">课程</button><button class="lib-tab" data-view="mentor" title="老师工作台：和蒸馏好的老师对话">老师</button></div>
       <span class="grow"></span>
-      <button class="btn icon-only small mentor-only" id="mentorAdd" hidden title="加一位老师：从媒体库的课蒸馏一位新老师，或导入「04、外部知识转化库/01、老师分身蒸馏资料」里已经蒸馏好的老师文件夹"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M19 8v6m-3-3h6"/></svg></button>
+      <button class="btn icon-only small mentor-only" id="mentorAdd" hidden title="添加老师（从课程蒸馏，或导入已蒸馏好的）"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M19 8v6m-3-3h6"/></svg></button>
       <button class="btn icon-only small course-only" id="libAddFolder" title="添加文件夹（包括子文件夹里的音视频）"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v6m-3-3h6"/></svg></button>
-      <button class="btn icon-only small course-only" id="libAddFiles" title="添加文件"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M12 12v6m-3-3h6"/></svg></button>
-      <button class="btn icon-only small course-only" id="libRefresh" title="刷新"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
+      <button class="btn icon-only small course-only" id="libAddFiles" title="添加单个文件"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M12 12v6m-3-3h6"/></svg></button>
+      <button class="btn icon-only small course-only" id="libRefresh" title="刷新（电脑上新增、改了文件后点）"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
     </div>
     <div class="lib-search course-only"><input id="libSearch" placeholder="筛选文件名"></div>
     <div class="lib-search mentor-only" hidden><input id="mentorSearch" placeholder="搜索对话（标题和内容）"></div>
@@ -101,24 +101,24 @@
         <span class="grow"></span>
         <span class="ai-model" id="mentorModel"></span>
         <button class="btn small tts-btn" id="mentorTts" title="朗读（边听边看）：读老师的回答"><svg viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M3 14h3v6H4a1 1 0 0 1-1-1zM21 14h-3v6h2a1 1 0 0 0 1-1z"/></svg>朗读</button>
-        <button class="btn small teacher-tools" id="mentorSaveAll" title="把这个对话里还没收藏的回答，一次都收藏到 Obsidian 的「对话精选」（已经收藏的不重复）">★ 收藏整个对话</button>
+        <button class="btn small teacher-tools" id="mentorSaveAll" title="把整个对话收藏到「对话精选」">★ 收藏整个对话</button>
         <button class="btn small teacher-tools" id="mentorFav" title="在 Obsidian 里打开这位老师的「对话精选」">对话精选</button>
         <button class="btn small teacher-tools" id="mentorNew" title="和这位老师开一个新对话">新对话</button>
         <span class="round-tools" id="roundTools" hidden>
-          <button class="btn small" id="rtReply" title="每位老师看了别人的回答后再回应一轮（只用他自己课程里的内容），然后重新总结">让老师们互相回应</button>
-          <button class="btn small" id="rtSummary" title="按现在每位老师的回答，重新写一次总结">重新总结</button>
-          <button class="btn small" id="rtSave" title="把整场讨论存进 Obsidian「04、外部知识转化库/02、主题蒸馏资料」的一个主题文件夹（再收藏就更新同一个文件）">★ 收藏到 Obsidian</button>
+          <button class="btn small" id="rtReply" title="让每位老师回应别人的回答，再重新总结">让老师们互相回应</button>
+          <button class="btn small" id="rtSummary" title="重新写总结">重新总结</button>
+          <button class="btn small" id="rtSave" title="整场讨论存进 Obsidian（再收藏就更新）">★ 收藏到 Obsidian</button>
         </span>
         <span class="round-tools" id="topicTools" hidden>
           <button class="btn small" id="tpOpen" title="在 Obsidian 里打开这份主题蒸馏">在 Obsidian 里打开</button>
           <button class="btn small" id="tpRedo" title="用现在各位老师的资料重新蒸馏（覆盖前备份）">重新蒸馏</button>
         </span>
-        <button class="btn small" id="mentorPrompts" title="查看软件蒸馏和对话时交给 AI 的提示词（知识库里也存了一份：02、规则体系/01、通用规则/08、AI蒸馏提示词）">提示词</button>
+        <button class="btn small" id="mentorPrompts" title="查看蒸馏、对话用的 AI 提示词">提示词</button>
       </div>
       <div class="mentor-distill" id="mentorDistill" hidden>
         <span class="md-msg" id="mdMsg"></span>
         <div class="md-bar"><i id="mdBar"></i></div>
-        <button class="btn small" id="mdStop" title="停下来：已经做完的课保存着，下次接着做">停止</button>
+        <button class="btn small" id="mdStop" title="停止后台整理（做完的已保存）">停止</button>
       </div>
       <div class="mentor-msgs" id="mentorMsgs"></div>
       <div class="mentor-input">
@@ -133,11 +133,11 @@
       <section class="bk-col bk-src" id="bookLeft" data-col="src">
         <button class="bk-rail" data-show="src" title="显示原书">原书</button>
         <div class="bk-col-head"><b class="bk-col-name">原书</b>
-          <span class="seg" id="bkSrcMode" title="看原来的 PDF，还是看提取出来的文字（朗读原文时自动切到文字版）"><button data-m="orig" class="on">PDF</button><button data-m="read">文字版</button></span>
+          <span class="seg" id="bkSrcMode" title="切换 PDF / 文字版"><button data-m="orig" class="on">PDF</button><button data-m="read">文字版</button></span>
           <span class="grow"></span>
-          <div class="menu-wrap"><button class="btn icon-only small" data-bktx title="文字设置：字号、行距、段间距、宽度、字体（整理笔记和原文文字版共用）"><b class="aa">Aa</b></button></div>
-          <button class="btn small tts-btn" id="bkSrcTts" title="朗读原文：读这一章的原书文字（页眉、页码不读），正在读的句子高亮；双击任意一句从那里读"><svg viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M3 14h3v6H4a1 1 0 0 1-1-1zM21 14h-3v6h2a1 1 0 0 0 1-1z"/></svg>朗读原文</button>
-          <button class="btn small" data-hide="src" title="隐藏原书这一列（左边会留一条竖条，点它就恢复）">隐藏</button>
+          <div class="menu-wrap"><button class="btn icon-only small" data-bktx title="文字设置（字号、行距、字体）"><b class="aa">Aa</b></button></div>
+          <button class="btn small tts-btn" id="bkSrcTts" title="朗读这一章原文"><svg viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M3 14h3v6H4a1 1 0 0 1-1-1zM21 14h-3v6h2a1 1 0 0 0 1-1z"/></svg>朗读原文</button>
+          <button class="btn small" data-hide="src" title="隐藏原书列">隐藏</button>
         </div>
         <div class="bk-col-body">
           <iframe id="bookPdf" title="原文" hidden></iframe>
@@ -164,7 +164,7 @@
             <button class="btn small" id="bkOverview" title="根据整理好的章节写「00、全书总览」">全书总览</button>
             <button class="btn small" id="bkAiToc" title="章节分得不对时，让 AI 读目录页重新分">AI 读目录分章</button>
             <button class="btn small" id="bkAddCh" title="手动加一章">＋ 加一章</button>
-            <button class="btn small" id="bkOcr" hidden title="扫描书：用 Windows 自带的文字识别把每页认成文字（本机识别，不联网、不花钱），生成可搜索 PDF；原文件挪进同一文件夹的「_OCR前的原件」">识别文字（OCR）</button>
+            <button class="btn small" id="bkOcr" hidden title="识别扫描书的文字，生成可搜索 PDF（本机、免费）">识别文字（OCR）</button>
           </div>
           <div class="chapter-list" id="bkChapters"></div>
         </div>
@@ -173,9 +173,9 @@
       <section class="bk-col bk-note chapter-view" id="bookNote" data-col="note">
         <button class="bk-rail" data-show="note" title="显示整理笔记">整理笔记</button>
         <div class="bk-col-head"><b class="bk-col-name">整理笔记</b>
-          <span class="seg" id="bkNoteMode" title="看提炼笔记，或者问 AI（AI 读原文回答）"><button data-m="note" class="on">笔记</button><button data-m="chat">AI 对话</button></span>
+          <span class="seg" id="bkNoteMode" title="看笔记，或问 AI"><button data-m="note" class="on">笔记</button><button data-m="chat">AI 对话</button></span>
           <span class="grow"></span>
-          <div class="menu-wrap"><button class="btn icon-only small" data-bktx title="文字设置：字号、行距、段间距、宽度、字体（整理笔记和原文文字版共用）"><b class="aa">Aa</b></button>
+          <div class="menu-wrap"><button class="btn icon-only small" data-bktx title="文字设置（字号、行距、字体）"><b class="aa">Aa</b></button>
             <div class="menu text-menu" id="menuBookText">
               <div class="tm-row"><span>字号</span><button data-btx="book_font_size:-1">－</button><output id="bkTxSize"></output><button data-btx="book_font_size:1">＋</button></div>
               <div class="tm-row"><span>行距</span><button data-btx="book_line_height:-0.1">－</button><output id="bkTxLine"></output><button data-btx="book_line_height:0.1">＋</button></div>
@@ -189,9 +189,9 @@
               <div class="tm-row"><span>主题</span><select id="bkTxTheme"></select></div>
               <div class="hint">整理笔记和原文文字版共用这套设置；字幕栏的「Aa」单独设。</div>
             </div></div>
-          <button class="btn small tts-btn" id="bkTts" title="朗读（边听边看）：读这一章整理好的内容；双击任意一句从那里读"><svg viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M3 14h3v6H4a1 1 0 0 1-1-1zM21 14h-3v6h2a1 1 0 0 0 1-1z"/></svg>朗读</button>
+          <button class="btn small tts-btn" id="bkTts" title="朗读这一章笔记"><svg viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M3 14h3v6H4a1 1 0 0 1-1-1zM21 14h-3v6h2a1 1 0 0 0 1-1z"/></svg>朗读</button>
           <button class="btn small" id="bkEdit" disabled>编辑</button><button class="btn small" id="bkCopy" disabled>复制</button>
-          <button class="btn small" id="bkZoom" title="放大：隐藏原书和目录，笔记占满；再点还原">放大</button>
+          <button class="btn small" id="bkZoom" title="放大笔记（再点还原）">放大</button>
           <button class="btn small" data-hide="note" title="隐藏整理笔记这一列">隐藏</button></div>
         <div class="chapter-head"><b id="bkViewTitle"></b><span class="grow"></span><span class="muted small-text" id="bkViewHint"></span></div>
         <div class="ai-scroll md bk-text" id="bkView"></div>
@@ -238,7 +238,7 @@
               <option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option>
               <option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option>
             </select>
-            <button class="btn small" data-pane-hide="video" title="隐藏视频（声音照常播放；留一条，点它就恢复）">隐藏</button>
+            <button class="btn small icon-only" data-pane-hide="video" title="隐藏视频（声音照常）"><svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 6.1A10 10 0 0 1 12 6c5 0 9 6 9 6a17 17 0 0 1-3 3.6M6.6 6.6A17 17 0 0 0 3 12s4 6 9 6a9 9 0 0 0 4-1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg></button>
           </div>
         </div>
         <div class="hsplit" id="vSplit" title="上下拖动调整视频和 AI 区的高度"></div>
@@ -254,15 +254,15 @@
             <span id="searchCount" class="muted"></span>
           </div>
           <span class="grow"></span>
-          <button class="btn small doubt-btn" id="btnDoubts" hidden title="AI 校对时标出的存疑句，点一下跳到下一句（会单句循环播放，方便回听）"></button>
-          <label class="switch" title="人工检查过字幕后打开，剪藏的笔记里会标注「已人工校对」"><input type="checkbox" id="optReviewed"><span></span>已校对</label>
+          <button class="btn small doubt-btn" id="btnDoubts" hidden title="跳到下一句存疑句（单句循环回听）"></button>
+          <label class="switch" title="字幕已人工检查过（剪藏的笔记会标「已人工校对」）"><input type="checkbox" id="optReviewed"><span></span>已校对</label>
           <span class="muted small-text" id="cueCount"></span>
-          <button class="btn small video-shot" id="btnSubShot" title="把视频现在的画面截下来，插在正在播放的这一句后面（插进去以后可以上下移动；剪藏时也放进笔记的「完整字幕」）"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>插入截图</button>
-          <button class="btn small video-shot" id="btnSubPrint" disabled title="打印完整字幕（时间、原文、译文、存疑标记和插的截图）：打开打印预览，选打印机、颜色后打印"><svg viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg>打印</button>
-          <button class="btn small video-shot" id="btnSubPdf" disabled title="把完整字幕（时间、原文、译文、存疑标记和插的截图）直接存成 PDF 文件，不用打印机"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h4"/></svg>导出 PDF</button>
-          <label class="switch" title="打印、导出 PDF 时每句前面带不带时间（如 [03:57]），默认带"><input type="checkbox" id="optPrintTsSubs"><span></span>带时间</label>
+          <button class="btn small video-shot icon-only" id="btnSubShot" title="把当前画面截图插到正在播放的这一句后面"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
+          <button class="btn small video-shot icon-only" id="btnSubPrint" disabled title="打印字幕"><svg viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg></button>
+          <button class="btn small video-shot icon-only" id="btnSubPdf" disabled title="把字幕输出为PDF"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h4"/></svg></button>
+          <label class="btn icon-only small icon-toggle" title="打印、PDF 带时间（亮着 = 带）"><input type="checkbox" id="optPrintTsSubs" hidden><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></label>
           <div class="menu-wrap">
-            <button class="btn icon-only small" id="btnText" title="文字设置：字号、行距、宽度、字体"><b class="aa">Aa</b></button>
+            <button class="btn icon-only small" id="btnText" title="文字设置（字号、行距、字体）"><b class="aa">Aa</b></button>
             <div class="menu text-menu" id="menuText">
               <div class="tm-row"><span>字号</span><button data-tx="font_size:-1">－</button><output id="txSize"></output><button data-tx="font_size:1">＋</button></div>
               <div class="tm-row"><span>行距</span><button data-tx="line_height:-0.1">－</button><output id="txLine"></output><button data-tx="line_height:0.1">＋</button></div>
@@ -277,12 +277,12 @@
             </div>
           </div>
           <div class="menu-wrap">
-            <button class="btn icon-only small" id="btnVersions" title="字幕的历史版本、清空字幕"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg></button>
+            <button class="btn icon-only small" id="btnVersions" title="历史版本、清空字幕"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg></button>
             <div class="menu versions-menu" id="menuVersions"></div>
           </div>
-          <button class="btn icon-only small" id="btnUndo" title="撤销拆分/合并/删除/校对（Ctrl+Z）" disabled><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
-          <button class="btn small" data-pane-hide="subs" title="隐藏字幕栏（留一条竖条，点它就恢复）">隐藏</button>
-          <button class="btn icon-only small" id="btnHelp" title="使用说明"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14m0 3v.01"/></svg></button>
+          <button class="btn icon-only small" id="btnUndo" title="撤销（Ctrl+Z）" disabled><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+          <button class="btn small icon-only" data-pane-hide="subs" title="隐藏字幕栏"><svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 6.1A10 10 0 0 1 12 6c5 0 9 6 9 6a17 17 0 0 1-3 3.6M6.6 6.6A17 17 0 0 0 3 12s4 6 9 6a9 9 0 0 0 4-1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg></button>
+          <button class="btn icon-only small" id="btnHelp" title="字幕区说明"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14m0 3v.01"/></svg></button>
         </div>
         <div class="cues" id="cues"></div>
       </section>
@@ -294,42 +294,43 @@
 
 <!-- AI 区（会被移到下方或右侧） -->
 <div class="ai-panel" id="aiPanel">
-  <button class="pane-rail" data-pane-show="ai" title="显示 AI 区（课程重点、AI 对话、画面）">课程重点 · AI</button>
+  <button class="pane-rail" data-pane-show="ai" title="显示 AI 区">课程重点 · AI</button>
   <div class="ai-tabs">
     <button class="tab active" data-tab="summary">课程重点</button>
     <button class="tab" data-tab="chat">AI 对话</button>
     <button class="tab" data-tab="frames">画面<span class="tab-count" id="framesCount"></span></button>
     <span class="grow"></span>
-    <button class="btn small tts-btn" id="btnTts" title="朗读（边听边看）：课程重点页读课程重点，AI 对话页读 AI 的回答"><svg viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M3 14h3v6H4a1 1 0 0 1-1-1zM21 14h-3v6h2a1 1 0 0 0 1-1z"/></svg>朗读</button>
-    <button class="btn small" id="btnPrint" disabled title="打印课程重点（连同插图）：打开打印预览，选打印机、颜色后打印"><svg viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg>打印</button>
-    <button class="btn small" id="btnPdf" disabled title="把课程重点（连同插图）直接存成 PDF 文件，不用打印机"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h4"/></svg>导出 PDF</button>
-    <label class="switch" id="optPrintTsSumWrap" title="打印、导出 PDF 时带不带出处时间（如 [03:57]）。软件里点时间能跳转，印在纸上一般用不着，默认不带"><input type="checkbox" id="optPrintTsSum"><span></span>带时间</label>
+    <button class="btn small tts-btn icon-only" id="btnTts" title="朗读课程重点或 AI 回答"><svg viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M3 14h3v6H4a1 1 0 0 1-1-1zM21 14h-3v6h2a1 1 0 0 0 1-1z"/></svg></button>
+    <button class="btn small icon-only" id="btnPrint" disabled title="打印课程重点"><svg viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg></button>
+    <button class="btn small icon-only" id="btnPdf" disabled title="把课程重点输出为PDF"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h4"/></svg></button>
+    <label class="btn icon-only small icon-toggle" id="optPrintTsSumWrap" title="打印、PDF 带出处时间（亮着 = 带）"><input type="checkbox" id="optPrintTsSum" hidden><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></label>
     <span class="ai-model" id="aiModel"></span>
-    <button class="btn icon-only small" id="btnAiMax" title="放大 AI 区（视频缩到最小）"><svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg></button>
+    <button class="btn icon-only small" id="btnAiMax" title="放大 AI 区"><svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg></button>
     <button class="btn icon-only small" id="btnAiDock" title="移到右侧 / 移回视频下方"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>
-    <button class="btn small" id="btnAiHide" data-pane-hide="ai" title="隐藏 AI 区（课程重点、AI 对话、画面；留一条，点它就恢复）">隐藏</button>
+    <button class="btn small icon-only" id="btnAiHide" data-pane-hide="ai" title="隐藏 AI 区"><svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 6.1A10 10 0 0 1 12 6c5 0 9 6 9 6a17 17 0 0 1-3 3.6M6.6 6.6A17 17 0 0 0 3 12s4 6 9 6a9 9 0 0 0 4-1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg></button>
+    <button class="btn icon-only small" id="btnAiHelp" title="课程重点区说明"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14m0 3v.01"/></svg></button>
   </div>
   <div class="ai-body" data-pane="summary">
-    <div class="summary-stale" id="summaryStale" hidden><span id="summaryStaleText"></span><button class="btn primary small" id="btnSummaryStale" title="用改好的字幕重新写课程重点（会自动查漏补缺）">重新生成</button></div>
+    <div class="summary-stale" id="summaryStale" hidden><span id="summaryStaleText"></span><button class="btn primary small" id="btnSummaryStale" title="用改好的字幕重新写课程重点">重新生成</button></div>
     <div class="ai-scroll md" id="summaryBox"></div>
     <textarea class="summary-edit" id="summaryEdit" hidden spellcheck="false"></textarea>
     <div class="ai-foot">
-      <button class="btn primary small" id="btnSummary">生成课程重点</button>
-      <button class="btn small" id="btnReview" disabled title="对照完整字幕，找出课程重点漏掉的内容，补进对应的小节">查漏补缺</button>
-      <button class="btn small" id="btnTerms" disabled title="找出这节课里术语表还没有的新术语和识别错误，你勾选确认后加进老师的术语表。还没选老师时：找出这节课的专用术语，勾选后填老师名字，建立这位老师的术语表">新术语</button>
-      <button class="btn small" id="btnEditSummary" disabled>编辑</button>
-      <button class="btn small" id="btnCopySummary" disabled>复制</button>
-      <button class="btn small video-shot" id="btnSumShot" disabled title="把视频现在的画面截下来，插在出处时间离现在最近的那一条重点后面（正在编辑时插在光标那一行后面）；插进去以后可以上下移动，剪藏时也放进笔记"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>插入截图</button>
+      <button class="btn primary small" id="btnSummary" title="AI 整理这节课的重点，每条标出处时间">生成课程重点</button>
+      <button class="btn small" id="btnReview" disabled title="对照字幕，补上课程重点漏掉的内容">查漏补缺</button>
+      <button class="btn small" id="btnTerms" disabled title="找出术语表里还没有的新术语，勾选后加进术语表">新术语</button>
+      <button class="btn small" id="btnEditSummary" disabled title="编辑整篇课程重点">编辑</button>
+      <button class="btn small" id="btnCopySummary" disabled title="复制整篇课程重点">复制</button>
+      <button class="btn small video-shot" id="btnSumShot" disabled title="把当前画面截图插进课程重点"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>插入截图</button>
       <span class="muted small-text" id="summaryHint"></span>
     </div>
   </div>
   <div class="ai-body" data-pane="frames" hidden>
     <div class="ai-scroll" id="framesBox"></div>
     <div class="ai-foot">
-      <button class="btn primary small" id="btnFrames" disabled title="挑出光看文字不好理解、需要看图的画面，课程重点里可以插图">找插图</button>
-      <button class="btn small" id="btnCapture" disabled title="把视频当前的画面加进来，当作可以插的图">截取当前画面</button>
+      <button class="btn primary small" id="btnFrames" disabled title="AI 挑出需要看图才懂的画面">找插图</button>
+      <button class="btn small" id="btnCapture" disabled title="把当前画面加为可插的图">截取当前画面</button>
       <button class="btn small" id="btnDescribe" disabled title="给还没有说明的图让 AI 写一句说明">补写说明</button>
-      <button class="btn small" id="btnRecheck" disabled title="截下每句存疑句说话时的画面（常有烧录字幕），让 AI 核对：能确认的改正，看不清的继续存疑">用画面复核存疑句</button>
+      <button class="btn small" id="btnRecheck" disabled title="让 AI 看画面（课件、烧录字幕）核对存疑句">用画面复核存疑句</button>
       <span class="muted small-text" id="framesHint"></span>
     </div>
   </div>
@@ -554,34 +555,45 @@
   <div class="settings-wrap">
     <aside class="settings-nav" id="helpNav">
       <div class="nav-label">开始</div>
-      <button data-h="start" class="active">快速开始</button>
-      <button data-h="ui">界面上的标签和按钮</button>
-      <button data-h="library">媒体库</button>
-      <div class="nav-label">视频和音频</div>
-      <button data-h="asr">生成字幕</button>
+      <button data-h="start" class="active">快速开始和界面分区</button>
+      <div class="nav-label">按界面版块</div>
+      <button data-h="top">顶栏</button>
+      <button data-h="library">左栏：媒体库</button>
+      <button data-h="video">视频区</button>
+      <button data-h="area-subs">字幕区</button>
+      <button data-h="area-sum">课程重点区（重点、对话、画面）</button>
+      <button data-h="book">书籍界面</button>
+      <button data-h="mentor">老师工作台</button>
+      <button data-h="settings">设置</button>
+      <div class="nav-label">专题</div>
       <button data-h="teacher">老师与术语表</button>
-      <button data-h="edit">看字幕、改字幕</button>
+      <button data-h="asr">生成字幕和识别服务</button>
       <button data-h="correct">AI 校对和存疑句</button>
-      <button data-h="frames">画面（课件和板书）</button>
-      <button data-h="summary">课程重点和查漏</button>
-      <button data-h="chat">AI 对话</button>
-      <button data-h="mentor">老师工作台（和老师对话）</button>
-      <button data-h="pipeline">一键整理</button>
-      <button data-h="export">下载字幕</button>
+      <button data-h="pipeline">一键整理和后台整理</button>
       <button data-h="clip">剪藏到 Obsidian</button>
-      <div class="nav-label">书籍和文档</div>
-      <button data-h="book">书籍和文档整理</button>
-      <div class="nav-label">其他</div>
-      <button data-h="settings">设置说明</button>
-      <button data-h="keys">快捷键</button>
+      <button data-h="export">打印、导出 PDF、下载字幕</button>
+      <button data-h="tts">朗读</button>
+      <button data-h="keys">快捷键汇总</button>
       <button data-h="data">数据和隐私</button>
       <button data-h="faq">常见问题</button>
     </aside>
     <div class="settings-body help-body" id="helpBody">
 
+      <!-- 2026-11-02 用户：说明按界面版块来排更直观。左边目录分「开始 / 按界面版块 / 专题」；字幕区、课程重点区的「?」打开的就是对应那一节（不显示目录） -->
       <section data-h="start">
-        <h3>快速开始</h3>
-        <p>猛人学习把本地的课程视频、音频和书籍、文档整理成可以放进 Obsidian 知识库的笔记。第一次使用按下面四步来：</p>
+        <h3>快速开始和界面分区</h3>
+        <p>猛人学习把本地的课程视频、音频和书籍、文档整理成可以放进 Obsidian 知识库的笔记。</p>
+        <h4>界面分哪几块</h4>
+        <p class="muted">点下面任意一块，看这一块怎么用。</p>
+        <div class="help-map">
+          <button data-go="top" class="hm-top">顶栏：生成字幕、AI 校对、一键整理、保存、剪藏、设置</button>
+          <button data-go="library" class="hm-lib">左栏<br>媒体库</button>
+          <button data-go="video" class="hm-video">视频区</button>
+          <button data-go="area-sum" class="hm-ai">课程重点区<br>（课程重点 / AI 对话 / 画面）</button>
+          <button data-go="area-subs" class="hm-subs">字幕区</button>
+        </div>
+        <p>左上角切到「书籍」打开一本书时，中间换成<a class="help-go" data-go="book">书籍界面</a>（原书、目录、整理笔记三列）；切到「老师」时换成<a class="help-go" data-go="mentor">老师工作台</a>。</p>
+        <h4>第一次使用</h4>
         <ol>
           <li><b>设置 AI 服务</b>：点右上角的齿轮打开「设置」。
             <ul>
@@ -591,178 +603,194 @@
               <li>每个服务都有「测试连接」按钮，填好点一下确认能用。</li>
             </ul></li>
           <li><b>选 Obsidian 库</b>：「设置 → Obsidian」里选库的位置和存放的文件夹。</li>
-          <li><b>建老师档案</b>：「设置 → 老师与术语表」给常听的老师建一份术语表，推荐直接关联 Obsidian 里的术语表文件。</li>
-          <li><b>加课程</b>：左边媒体库点「＋文件夹」，把课程文件夹加进来，点哪个看哪个；再点顶栏的「一键整理」。</li>
+          <li><b>建老师档案</b>：「设置 → 老师与术语表」给常听的老师建一份术语表，推荐直接关联 Obsidian 里的术语表文件（见<a class="help-go" data-go="teacher">老师与术语表</a>）。</li>
+          <li><b>加课程</b>：左边媒体库点「添加文件夹」，把课程文件夹加进来，点哪个看哪个；再点顶栏的「一键整理」。</li>
         </ol>
-        <p class="hint">看不懂某个按钮时，把鼠标停在上面一会儿，会出现说明。</p>
+        <p class="hint">看不懂某个按钮时，把鼠标停在上面一会儿，会出现一句说明。字幕区、课程重点区右上角的「?」只讲那一块。</p>
       </section>
 
-      <section data-h="ui" hidden>
-        <h3>界面上的标签和按钮</h3>
-        <p class="muted">鼠标停在大多数按钮和标签上，也会显示一句说明。</p>
-
-        <h4>媒体库（左边）</h4>
+      <section data-h="top" hidden>
+        <h3>顶栏</h3>
         <ul>
-          <li><b>上方三个按钮</b>：添加文件夹（包括子文件夹里的音视频和文档）、添加单个文件、刷新（在电脑上新增或改了文件后点一下）。下面的「筛选文件名」框：输入几个字，只显示名字（或所在文件夹名）里有这几个字的。</li>
-          <li><b>文件前面的小圆点</b>：灰色 = 还什么都没做；绿色 = 已经有字幕（书是整理了至少一章）；金色 = 已剪藏到 Obsidian，而且之后没改过。</li>
-          <li><b>字幕 582 句</b>：这节课的字幕有多少句。</li>
-          <li><b>重点</b>：已经有课程重点。</li>
-          <li><b>重点待更新</b>：生成课程重点之后，你又改了 3 句以上字幕，重点里可能还是改之前的说法。打开这节课，在课程重点上方点「重新生成」。</li>
-          <li><b>未整理完</b>：已经有课程重点（书是每章都整理完了），但「一键整理」默认的步骤还没全做完，常见的是写完重点后 AI 额度用完，「查漏补缺」「新术语」没做成。鼠标停在标签上能看到还差哪几步。再点一次「一键整理」，或右键选「排进后台整理」，只会补做没做完的那几步，做过的不重复做、不重复花钱。</li>
-          <li><b>已校对</b>：你在字幕栏上方打开了「已校对」开关（人工检查过字幕）。</li>
-          <li><b>已剪藏</b>：已经剪藏到 Obsidian，笔记和软件里的内容一致。<b>待更新剪藏</b>：剪藏之后又改了字幕或课程重点，再点一次「剪藏」，Obsidian 里的笔记才会更新。</li>
-          <li><b>整理中 45%</b> / <b>排队中</b>：这节课正在后台整理 / 排在后台整理队列里，等前面的整理完。</li>
-          <li><b>看到 12:30</b> 和下面的细进度条：上次看到哪里，再打开从这里接着播。</li>
-          <li><b>整理 2/5</b>（书籍）：一共 5 章，整理了 2 章。</li>
-          <li><b>右键或「⋯」</b>：文件可以打开、排进后台整理、重命名、在资源管理器中显示；文件夹可以绑定老师（术语表）、重命名、重新扫描、在资源管理器中打开；最上层的还可以从媒体库移除（不删除电脑上的文件）。</li>
-          <li><b>按住拖动</b>：在同一层里调整顺序。带序号的按序号排，拖乱了序号会请你改名。</li>
+          <li><b>最左边的按钮</b>：收起 / 展开左边的媒体库。旁边是正在看的课程名，鼠标停在上面能看到文件在哪里。</li>
+          <li><b>老师下拉框</b>：这节课是哪位老师的，决定校对、找新术语时用哪份术语表。媒体库里给文件夹绑定了老师的，打开时自动选好（见<a class="help-go" data-go="teacher">老师与术语表</a>）。</li>
         </ul>
-
-        <h4>字幕（右边）和视频下方</h4>
+        <h4>右边的按钮</h4>
+        <div class="help-btns" data-from=".topbar .actions"></div>
         <ul>
-          <li><b>视频下方的开关</b>：字幕跟随（播放时字幕自动滚到当前句）、译文（显示中文译文）、画面字幕（在视频画面上叠加当前字幕）、单句循环（反复播放当前这一句，开着时旁边写着在循环哪一句，点一下就关）。最右边是播放速度。</li>
-          <li><b>隐藏视频、字幕、AI 区</b>（和书籍一样）：视频下方、字幕栏上方、AI 区右上角各有「隐藏」，想放大看某一块就把别的隐藏起来。隐藏的那块缩成一条（叠在左边的视频、AI 区是横条，字幕栏、右侧的 AI 区是竖条），点那一条就恢复；三块不能全部隐藏。隐藏视频时声音照常播放，可以边听边看字幕或课程重点。下次打开软件还是上次的样子。</li>
-          <li><b>搜索字幕</b>：输入后按 Enter 跳到下一处，旁边显示一共找到几处。</li>
-          <li><b>存疑 5</b>（有存疑句时才出现）：AI 校对时拿不准的句子还剩几句，点一下跳到下一句并单句循环播放，方便回听。</li>
-          <li><b>已校对</b>开关：你人工检查完字幕后打开，剪藏的笔记里会标注「已人工校对」，媒体库也标「已校对」。旁边的「582 句」是字幕句数。</li>
-          <li><b>Aa</b>：字号、行距、句间距、宽度、字体、配色主题。</li>
-          <li><b>时钟图标（历史版本）</b>：重新识别、AI 校对、清空、恢复之前自动存的旧字幕（最多 5 份），可以恢复；也可以在这里清空字幕。</li>
-          <li><b>弯箭头（撤销）</b>：撤销拆分、合并、删除、校对（Ctrl + Z）。</li>
-          <li><b>每一句上的标记</b>：<b>橙色下划线</b> = 存疑句，下面写着原因，有「回听」（单句循环播放这一句）和「已确认」（回听确认或改好了，去掉标记）两个按钮；<b>绿色下划线</b> = 刚被 AI 校对或画面复核改过的句子（方便你看改了哪里，可以撤销）；<b>高亮的那一句</b> = 正在播放。</li>
-          <li><b>鼠标移到某一句，右边出现四个小工具</b>：对齐（把这一句的开始时间设为当前播放位置）、拆分（在光标处拆成两句）、合并（和下一句合并）、删除。</li>
-          <li>点时间只跳转；点文字跳转并可以直接改，改完自动保存。</li>
-        </ul>
-
-        <h4>课程重点（AI 区）</h4>
-        <ul>
-          <li><b>三个标签页</b>：课程重点、AI 对话（就这节课提问）、画面（挑出来的插图，数字是有几张）。</li>
-          <li><b>朗读</b>（耳机图标）：边听边看。课程重点页读课程重点，AI 对话页读 AI 的回答；中括号里的时间（如 [01:50]）、插图、流程图不读，开始时视频自动暂停。正在读的句子高亮，快读到底部时自动往下翻；自己用滚轮滚动后暂停跟随，停手 6 秒自动恢复，点「定位」马上回来。<b>双击任意一句，从这一句开始读</b>（没在朗读时也直接开始）；双击正在读的那一句暂停 / 继续。播放条上有上一句、下一句、语速（0.75×～2×）、声音、更多（从头朗读、从当前屏幕开始、高亮颜色）。下次再点朗读，从上次读到的地方接着读。<br>声音有三种来源：<b>Edge 在线朗读</b>（默认，声音最自然，晓晓、云希等，要联网）、<b>百度朗读</b>（要联网，正在读的句子会发给百度翻译；不是百度正式开放的服务，百度改了就会失效）、<b>系统声音</b>（Windows 自带的慧慧、瑶瑶、康康，不联网）。在线声音没取到时自动重试，还不行就停在这一句并告诉你。会提前准备后面几句；在线声音某一句回得慢时会自动再要一次。声音只在内存里，不占硬盘。</li>
-          <li><b>右上角</b>：写着现在用的是哪个 AI 和模型；两个小按钮分别是放大 AI 区（视频缩到最小）、移到右侧 / 移回视频下方；「隐藏」把 AI 区收成一条，点那一条恢复。</li>
-          <li><b>「生成课程重点之后，字幕又改了 N 句」提醒条</b>：同媒体库的「重点待更新」，点里面的「重新生成」用改好的字幕重写（会自动查漏补缺）。</li>
-          <li><b>生成课程重点 / 重新生成</b>：按这节课的完整字幕写课程重点，写完默认自动查漏补缺。</li>
-          <li><b>查漏补缺</b>：对照完整字幕，找出课程重点漏掉的内容，补进对应的小节。</li>
-          <li><b>新术语</b>：找出这节课里术语表还没有的新术语和识别错误，你勾选确认后才加进老师的术语表。按钮变亮表示已经找好了、等你勾选。</li>
-          <li><b>编辑</b>：直接改课程重点。<b>复制</b>：复制全文。</li>
-          <li><b>插入截图</b>（视频才有）：把视频现在的画面截下来，插在出处时间离现在最近（不晚于现在）的那一条重点后面；正在「编辑」时插在光标那一行后面。图下面「上移 / 下移」一次挪过一条重点（标题、一张表也算一条），「删除」去掉这张图；AI 插的图也能这样挪。手动插的图「重新生成」课程重点后会自动放回去；剪藏时和 AI 插的图一样放进笔记。</li>
-          <li><b>✂ 裁剪</b>（课程重点和字幕栏的截图下面都有）：在截图上拖出要留下的部分（框还是整张时直接拖就是画框；画好后拖框里面移动，拖四角、四边调整），「整张（不裁剪）」恢复整张图。原截图不会被改。</li>
-          <li><b>⇲ 大小</b>（同上）：拖滑块调这张图显示多宽，图马上跟着变，不用点确定；也可以点「小 / 中 / 大 / 自动」（自动 = 原来的大小）；「这节课的图都用这个大小」把课程重点和字幕栏里这节课的截图都改成一样大。软件里、打印出来、剪藏到 Obsidian 的笔记里都是这个大小。</li>
-          <li><b>打印 / 导出 PDF</b>（朗读旁边，课程重点页才有）：只印课程名和课程重点（连同插图），文字黑色，图片保持原色。「打印」打开打印预览：能看到印出来的样子，选打印机、份数，「颜色」选彩色就打印彩色图片，选黑白省彩色墨水；预览开着时点软件右上角的 × 只会关掉预览，不会退出软件。「导出 PDF」直接存成 PDF 文件、不用打印机，存好点提示里的「打开 PDF」就能看。每页顶上印页眉：左边日期、中间课程名、右边「第 n / n 页」（打印预览里不用勾「页眉和页脚」，勾了也一样，不会重叠，也不会在底部印出文件地址）。旁边的「带时间」开关：打开就连出处时间（如 [03:57]）一起印，默认不带。</li>
-          <li><b>下面那行小字</b>：「字幕被引用约 93%」是课程重点里标了出处时间的内容，覆盖了多少字幕；「有 3 段没有出处（如 00:06…）」是哪几段字幕没被重点引用，可以点时间回去听听有没有漏掉要紧的。</li>
-          <li>重点里带方括号的时间（如 [01:42]）点一下跳到视频那里。</li>
+          <li><b>后台整理条</b>：有课在后台整理时，顶栏下面出现一条进度，点它看排着的课、停下某一节或全部停下（见<a class="help-go" data-go="pipeline">一键整理和后台整理</a>）。</li>
+          <li>打开书时，生成字幕、AI 校对、翻译、一键整理、下载这几个按钮会隐藏，书的整理按钮在<a class="help-go" data-go="book">书籍界面</a>的目录列里。</li>
         </ul>
       </section>
 
       <section data-h="library" hidden>
-        <h3>媒体库</h3>
+        <h3>左栏：媒体库</h3>
         <ul>
-          <li><b>＋文件夹</b>：一次加入整个文件夹，<b>按实际层级显示</b>，每一层子文件夹都能展开、收起。识别视频、音频和文档（PDF、Word .docx / .doc、电子书 EPUB / MOBI / AZW3、演示文稿 PPT / PPTX）；字幕、txt、软件自己的记录文件不列。名字以「_」或「.」开头的文件夹（比如「_关键帧缓存」）不列出。选文件夹的窗口里<b>只显示文件夹、看不到文件是正常的</b>，选中点「选择文件夹」就行，加完会告诉你加了几个、跳过了哪些格式。</li>
+          <li><b>左上角「书籍 / 课程 / 老师」</b>：书籍、课程是同一个媒体库分开列（书和文档一边，视频、音频一边），文件夹里没有这一类文件的不显示；「老师」换成<a class="help-go" data-go="mentor">老师工作台</a>。打开文件时会自动切到对应的那一栏。</li>
+          <li><b>筛选文件名</b>：输入几个字，只显示名字（或所在文件夹名）里有这几个字的。</li>
+          <li>拖动媒体库右边的分隔条可以调宽度；顶栏最左边的按钮可以收起。</li>
+        </ul>
+        <h4>上方的按钮</h4>
+        <div class="help-btns" data-from="#library .lib-head"></div>
+        <h4>加课程</h4>
+        <ul>
+          <li><b>添加文件夹</b>：一次加入整个文件夹，<b>按实际层级显示</b>，每一层子文件夹都能展开、收起。识别视频、音频和文档（PDF、Word .docx / .doc、电子书 EPUB / MOBI / AZW3、演示文稿 PPT / PPTX）；字幕、txt、软件自己的记录文件不列。名字以「_」或「.」开头的文件夹（比如「_关键帧缓存」）不列出。选文件夹的窗口里<b>只显示文件夹、看不到文件是正常的</b>，选中点「选择文件夹」就行，加完会告诉你加了几个、跳过了哪些格式。</li>
           <li><b>先加了子文件夹、又加它的上层</b>：会问你要不要合并。合并就按实际层级显示，原来单独加的并进来（绑定的老师、排好的顺序都保留）；不合并就重复加入，子文件夹会出现两次。上层已经在了再加子文件夹，会提示「已经在里面了」。</li>
-          <li><b>＋文件</b>：加入单个文件，和文件夹一起按加入的先后排在最上层。TXT 和 Markdown 用顶栏的「打开」。</li>
+          <li><b>添加文件</b>：加入单个文件，和文件夹一起按加入的先后排在最上层。TXT 和 Markdown 用顶栏的「打开」。</li>
+        </ul>
+        <h4>排列、改名、右键菜单</h4>
+        <ul>
           <li><b>排列</b>：最上层按加入的先后；文件夹里同一层，带序号的（1、 01. 第3讲）按序号排在前面，没序号的按下载时间排在后面。<b>按住拖动</b>可以在同一层里调整顺序；带序号的拖乱了序号，会提示你改名（改序号），改完自动按序号排好。</li>
-          <li><b>重命名</b>（右键或「⋯」菜单）：电脑上的文件 / 文件夹、字幕记录、播放进度一起改名。已经剪藏到 Obsidian 的笔记保留原来的文件名，重新剪藏也不改（Obsidian 里其他笔记的链接不会断）。</li>
-          <li><b>状态标记</b>（字幕句数、重点、重点待更新、未整理完、已校对、已剪藏、待更新剪藏、整理中、排队中、看到哪里、整理几章）：每个是什么意思，见「界面上的标签和按钮」。</li>
-          <li><b>文件夹的「⋯」菜单</b>：每一层文件夹都能绑定一位老师，里面的课用这位老师的术语表；子文件夹没单独绑定的，沿用上一层的。还可以重命名、重新扫描、在资源管理器中打开，最上层的可以从媒体库移除（不会删除电脑上的文件）。</li>
-          <li>顶栏最左边的按钮可以收起 / 展开媒体库，拖动媒体库右边的分隔条可以调宽度。</li>
+          <li><b>文件的右键（或「⋯」）</b>：打开、排进后台整理（按一键整理默认的步骤，只做还没做完的）、重命名、在资源管理器中显示。</li>
+          <li><b>文件夹的右键（或「⋯」）</b>：绑定老师（里面的课用这位老师的术语表，子文件夹没单独绑定的沿用上一层）；「这里的课不写课程重点」（适合只识别、校对的逐字稿课程，下层沿用）；整个文件夹排进后台整理（先定好做哪几步、老师、识别模型，只排还没整理完的课）；用这个文件夹的课蒸馏一位老师；重命名、重新扫描、在资源管理器中打开；最上层的还可以从媒体库移除（不删除电脑上的文件）。</li>
+          <li><b>重命名</b>：电脑上的文件 / 文件夹、字幕记录、播放进度一起改名。已经剪藏到 Obsidian 的笔记保留原来的文件名，重新剪藏也不改（Obsidian 里其他笔记的链接不会断）。</li>
           <li><b>续播</b>：每个视频都记住看到哪里，再打开时从上次的位置接着播。</li>
         </ul>
-      </section>
-
-      <section data-h="asr" hidden>
-        <h3>生成字幕</h3>
-        <ol>
-          <li>打开视频，点顶栏的「生成字幕」。</li>
-          <li>选视频里说的是中文还是英文、是哪位老师的课（决定用哪份术语表）、用哪个识别服务。</li>
-          <li>勾选「识别完后让 AI 按术语表校对一遍」可以自动接着校对。</li>
-        </ol>
+        <h4>文件后面的标记</h4>
         <ul>
-          <li><b>豆包语音</b>（中文最准）：带逐句时间；术语会作为热词传给豆包。按「流式识别 2.0 → 录音文件识别 1.0 极速版 → 录音文件识别 2.0」的顺序自动用，额度用完自动换下一个；可以在「设置 → 豆包语音」里填好几个账号。</li>
-          <li><b>OpenAI Whisper</b>（英文）：带逐句时间；术语写进提示词。国内要在「设置 → 网络代理」里填代理。</li>
-          <li><b>硅基流动</b>：便宜，但只返回文字不返回时间，软件按停顿切段，时间可能差几秒；读不了术语表，靠后面的 AI 校对。</li>
-          <li>软件先用 ffmpeg 从视频里抽出声音（只上传声音，不上传画面），长视频在停顿处切段、几段同时识别，再拼回去。</li>
-          <li>已经有字幕时重新识别，原来的字幕会自动存成历史版本，可以换回来。</li>
+          <li><b>文件前面的小圆点</b>：灰色 = 还什么都没做；绿色 = 已经有字幕（书是整理了至少一章）；金色 = 已剪藏到 Obsidian，而且之后没改过。</li>
+          <li><b>字幕 582 句</b>：这节课的字幕有多少句。<b>重点</b>：已经有课程重点。</li>
+          <li><b>重点待更新</b>：生成课程重点之后，你又改了 3 句以上字幕，重点里可能还是改之前的说法。打开这节课，在课程重点上方点「重新生成」。</li>
+          <li><b>未整理完</b>：「一键整理」默认的步骤还没全做完，常见的是写完重点后 AI 额度用完，「查漏补缺」「新术语」没做成。鼠标停在标签上能看到还差哪几步。再点一次「一键整理」，或右键选「排进后台整理」，只会补做没做完的那几步，不重复花钱。</li>
+          <li><b>已校对</b>：你在字幕栏上方打开了「已校对」开关（人工检查过字幕）。</li>
+          <li><b>已剪藏</b>：已经剪藏到 Obsidian，笔记和软件里的内容一致。<b>待更新剪藏</b>：剪藏之后又改了字幕或课程重点，再点一次「剪藏」，Obsidian 里的笔记才会更新。</li>
+          <li><b>整理中 45%</b> / <b>排队中</b>：这节课正在后台整理 / 排在后台整理队列里。</li>
+          <li><b>看到 12:30</b> 和下面的细进度条：上次看到哪里。<b>整理 2/5</b>（书籍）：一共 5 章，整理了 2 章。</li>
         </ul>
       </section>
 
-      <section data-h="teacher" hidden>
-        <h3>老师与术语表</h3>
-        <p>在「设置 → 老师与术语表」里给每位老师建一份档案；在顶栏的老师下拉框里选这节课是哪位老师的。</p>
+      <section data-h="video" hidden>
+        <h3>视频区</h3>
+        <h4>视频下方的开关和按钮</h4>
+        <div class="help-btns" data-from="#playerArea .player-tools"></div>
         <ul>
-          <li><b>关联 Obsidian 里的术语表文件（推荐）</b>：选中知识库里那份术语表 MD，软件每次都读最新内容——小节里「正确写法 / 标准写法」的词和 <code>--hotwords "…"</code> 里的词当术语，表头含「ASR / 误识 / 识别」的表格当识别错误参考，整份文件给 AI 当术语说明。以后只在 Obsidian 里改。<b>软件不把文件里的术语抄进下面的「术语表（手写）」框</b>：那个框只用来额外手写几个，空着是正常的。关联后下面有两个按钮：<b>查看术语和重复检查</b>（看软件从文件里读到的每个术语、识别错误对照、直接替换；同一个术语或同一条「错写 → 正确」在文件里出现不止一次的，列出在第几行，想清理就去 Obsidian 删掉多余的那行，软件读的时候本来就只算一次）、<b>在 Obsidian 里打开</b>（直接打开这份术语表手动修改）。</li>
-          <li><b>不会重复加</b>：每节课找新术语时，术语表里已有的（整份文件任何一张表里有的）不会再列出来；几节课一起在后台整理、再一节节勾选时，前面的课已经加过的，打开对话框时会先去掉；写进文件前也会再查一遍整份文件。</li>
-          <li><b>手写术语表</b>（可选，和关联的文件合在一起用），每行一条：
-            <ul>
-              <li><code>峰级, 峰级线, 破级</code>：专用术语，传给识别服务当热词；</li>
-              <li><code>风级, 风机 => 峰级</code>：常见识别错误，交给 AI 结合上下文判断，不直接替换；</li>
-              <li><code>托破旋 =>! 拓扑学</code>：确定不会误伤的，识别完直接替换。单字或常用词不要加感叹号，否则「部分」会被改成「部峰」。</li>
-            </ul></li>
-          <li><b>逐课积累</b>：AI 区「课程重点」页的「新术语」按钮（一键整理的最后一步也会做）：AI 从这节课的校对改动（AI 改的、看画面改的、你手动改的）和完整字幕里，找出术语表还没有的新术语和识别错误，弹出来让你勾选、改字、点时间回听；确认的才加进去。关联了文件时写在文件末尾的「逐课补充（猛人学习）」一节（表格，软件下次就会用上），写之前自动备份到 <code>%APPDATA%\猛人学习\backups\术语表</code>；只记名称，不写定义。</li>
-          <li><b>新老师的第一节课</b>：还没有这位老师、也没有术语表时，同样点「新术语」（或一键整理勾上「新术语」，没选老师时默认勾上）。AI 找出这节课的专用术语，弹出来让你勾选，再<b>填老师名字</b>、选「以后哪个文件夹里的课都用这位老师」（默认是加进媒体库的那个文件夹），点「建立术语表」：软件建好老师档案，在 Obsidian「02、规则体系/02、课程专用规则」里建一份「老师名课程术语表」（结构和峰级那份一样：怎么用 / 术语 / 识别错误对照 / 逐课补充），关联上，把勾选的写进「逐课补充」，并把那个文件夹绑定这位老师。以后这个文件夹里的课自动用这位老师：识别时用这些术语当热词，每节课整理完接着找新术语让你勾选。填的名字和已有的老师一样时，就加进他原来的术语表。</li>
-          <li><b>术语说明</b>：放整份术语说明文档，只给 AI 参考，不传给识别服务。关联了文件时一般留空。</li>
-          <li>剪藏笔记里<b>不写老师</b>：一份术语表常常是几位老师共用的（例如「峰级分析」），它的名字只当笔记的标签。讲课老师请在 Obsidian 里给笔记加一个「老师」属性自己填，重新剪藏会保留。</li>
-          <li><b>剪藏子文件夹</b>、<b>单独的课程重点模板</b>：可选。</li>
+          <li><b>单句循环</b>开着时，旁边写着在循环哪一句，点一下就关；换一节课自动关掉。</li>
+          <li><b>播放速度</b>：最右边的下拉框，0.5× ～ 2×。</li>
+          <li>播放、暂停、前进后退的快捷键见<a class="help-go" data-go="keys">快捷键汇总</a>。打不开的格式见<a class="help-go" data-go="faq">常见问题</a>。</li>
+        </ul>
+        <h4>调整布局</h4>
+        <ul>
+          <li><b>分隔条</b>：视频和字幕之间、视频和 AI 区之间的分隔条都能拖动。</li>
+          <li><b>隐藏</b>：视频下方、字幕栏上方、AI 区右上角各有「隐藏」，想放大看某一块就把别的隐藏起来。隐藏的那块缩成一条（叠在左边的视频、AI 区是横条，字幕栏、右侧的 AI 区是竖条），点那一条就恢复；三块不能全部隐藏。隐藏视频时声音照常播放，可以边听边看字幕或课程重点。下次打开软件还是上次的样子。</li>
+          <li><b>AI 区</b>（课程重点区）可以放大（视频缩到最小），也可以移到最右边当侧边栏，按钮在 AI 区右上角。</li>
         </ul>
       </section>
 
-      <section data-h="edit" hidden>
-        <h3>看字幕、改字幕</h3>
+      <section data-h="area-subs" hidden>
+        <h3>字幕区</h3>
+        <p class="muted">字幕栏右上角的「?」打开的就是这一节。</p>
         <ul>
-          <li><b>点字幕文字</b>：跳到这一句，同时可以直接修改，改完自动保存。<b>点时间</b>：只跳转。</li>
-          <li><b>鼠标移到某一句</b>，右侧有工具：把开始时间对齐到当前播放位置、在光标处拆成两句、与下一句合并、删除。都可以撤销（Ctrl + Z 或字幕栏上方的撤销按钮）。</li>
-          <li><b>字幕栏上方</b>：搜索（Enter 跳到下一个）、「插入截图」（把视频现在的画面插在正在播放的这一句后面；断句不准时点图下面的「上移 / 下移」挪位置，「✂ 裁剪」只留需要的部分，「⇲ 大小」调图显示多大，用法和课程重点的截图一样；剪藏时也放进笔记的「完整字幕」）、「打印」「导出 PDF」（完整字幕：每句时间、原文、译文、存疑原因，插的截图放在对应那一句下面，按你裁剪、调好的大小；用法和课程重点的打印、导出 PDF 一样；旁边「带时间」默认开，关掉就不印每句前面的时间）、「已校对」开关（人工检查完打开，剪藏的笔记会标明）、「Aa」文字设置（字号、行距、句间距、宽度、字体、主题）、历史版本（重新识别、AI 校对、清空、恢复前自动存的，最多 5 份）。</li>
-          <li><b>视频下方</b>：字幕跟随、显示译文、画面上叠加字幕、单句循环（开着时旁边写明在循环哪一句，点一下就关；换一节课自动关掉）、播放速度。</li>
-          <li><b>布局</b>：视频和字幕之间、视频和 AI 区之间的分隔条都能拖动；AI 区可以移到最右边当侧边栏、放大或隐藏。</li>
+          <li><b>改字幕</b>：点一句的文字直接改，改完自动保存；点左边的时间只跳转、不改。</li>
+          <li><b>每一句上的标记</b>：<b>橙色下划线</b> = 存疑句，下面写着原因，「回听」单句循环播放这一句，「已确认」去掉标记；<b>绿色下划线</b> = 刚被 AI 校对或画面复核改过的句子（方便你看改了哪里，可以撤销）；<b>高亮的那一句</b> = 正在播放。存疑句是怎么来的见<a class="help-go" data-go="correct">AI 校对和存疑句</a>。</li>
         </ul>
+        <div class="help-keys">
+          <b>快捷键</b>
+          <div><kbd>Ctrl</kbd> + <kbd>Z</kbd> 撤销（一步步往回退；最后改的是课程重点时先撤销课程重点）</div>
+          <div><kbd>Ctrl</kbd> + <kbd>F</kbd> 搜索字幕，<kbd>Enter</kbd> 跳到下一个</div>
+          <div><kbd>空格</kbd> 播放 / 暂停　<kbd>Ctrl</kbd> + <kbd>←</kbd> / <kbd>→</kbd> 后退 / 前进 3 秒　<kbd>Ctrl</kbd> + <kbd>↑</kbd> / <kbd>↓</kbd> 上一句 / 下一句</div>
+          <div>改字幕时 <kbd>Enter</kbd> 或 <kbd>Esc</kbd> 结束修改（改完自动保存）</div>
+        </div>
+        <h4>上面一排按钮</h4>
+        <div class="help-btns" data-from="#right .sub-head"></div>
+        <ul>
+          <li><b>历史版本</b>：重新识别、AI 校对、清空、恢复之前自动存的旧字幕（最多 5 份），可以恢复；也可以在这里清空字幕。</li>
+          <li><b>打印、导出 PDF</b>：完整字幕连同时间、译文、存疑原因、插的截图，详见<a class="help-go" data-go="export">打印、导出 PDF、下载字幕</a>。</li>
+        </ul>
+        <h4>每句右边的小工具</h4>
+        <p class="muted">鼠标移到这一句上才出现，都能撤销。</p>
+        <div class="help-btns" data-tpl="cue"></div>
+        <h4>插进字幕的截图</h4>
+        <p>图下面「上移 / 下移」挪到上一句 / 下一句后面（断句不准时用），「裁剪」只留需要的那一块，「大小」调显示多大，「删除」去掉这张图（裁剪、大小的用法见<a class="help-go" data-go="area-sum">课程重点区</a>最后）。剪藏时截图放进笔记的「完整字幕」。</p>
       </section>
 
-      <section data-h="correct" hidden>
-        <h3>AI 校对和存疑句</h3>
+      <section data-h="area-sum" hidden>
+        <h3>课程重点区（课程重点、AI 对话、画面）</h3>
+        <p class="muted">课程重点区右上角的「?」打开的就是这一节。</p>
+        <p>这一块有三个标签页：</p>
         <ul>
-          <li>点顶栏的「AI 校对」：AI 参考术语表、识别错误对照和术语说明，只改识别错误（错别字、同音词、术语、人名、数字），不改写句子。</li>
-          <li>改过的句子用绿色下划线标出，不满意可以撤销；校对前的字幕也会存一份历史版本，关掉软件后还能恢复。</li>
-          <li>校对到一半出错（网络断了、AI 返回不对），字幕一句都不改，保持原样，可以直接再点一次。</li>
-          <li><b>存疑句</b>：读起来不通、像是听错了、但 AI 拿不准的句子，不会乱改，而是用橙色标出并写明原因。点字幕栏上方的「存疑 N」逐句跳过去，会单句循环播放方便回听；改好或确认没问题后点「已确认」。剪藏的笔记里，没确认的存疑句会标「〔存疑：…〕」。</li>
+          <li><b>课程重点</b>：AI 按老师这节课讲的内容整理的重点，每条标出处时间 [03:57]，点时间视频跳过去。可以逐条改、挪、删，插截图，朗读、打印、导出 PDF。剪藏到 Obsidian 时，它是笔记的上半部分。</li>
+          <li><b>AI 对话</b>：就这节课问 AI，AI 读这节课的完整字幕回答。下面有现成的问题（概括要点、解释难点、出复习题……），点一下就问。<kbd>Enter</kbd> 发送，<kbd>Shift</kbd> + <kbd>Enter</kbd> 换行。</li>
+          <li><b>画面</b>：视频里需要看图才懂的画面（标签上的数字是有几张），可以插进课程重点。看不清的可以让 AI 依据老师的讲解重画示意图。</li>
         </ul>
-      </section>
+        <div class="help-keys">
+          <b>快捷键（重点）</b>
+          <div><kbd>Enter</kbd>　保存这一条，并在下面加一条新的，直接接着写；新的那一条什么都没写时再按 <kbd>Enter</kbd> 就结束</div>
+          <div><kbd>Tab</kbd>　缩进：变成上一条下面的小点　　<kbd>Shift</kbd> + <kbd>Tab</kbd>　取消缩进：回到上一级</div>
+          <div><kbd>Shift</kbd> + <kbd>Enter</kbd>　在这一条里换行（圆点里换行写的每一行，保存后会变成新的一条）</div>
+          <div><kbd>Esc</kbd>　取消这次修改　　点别处　保存</div>
+          <div><kbd>Ctrl</kbd> + <kbd>Z</kbd>　撤销，一步步往回退（最后改的是字幕时先撤销字幕）</div>
+          <div class="muted">缩进、取消缩进：正在改某一条时按，或者鼠标停在某一条上直接按 <kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd> 都行。</div>
+        </div>
+        <h4>标签旁边那一排按钮</h4>
+        <div class="help-btns" data-from="#aiPanel .ai-tabs"></div>
+        <p class="muted">右上角还写着现在用的是哪个 AI 和模型。朗读的用法见<a class="help-go" data-go="tts">朗读</a>，打印、导出 PDF 见<a class="help-go" data-go="export">打印、导出 PDF、下载字幕</a>。</p>
 
-      <section data-h="frames" hidden>
-        <h3>插图（画面）</h3>
-        <p>AI 区的「画面」页，用来给课程重点挑必要的插图：只有光看文字不好理解的地方才插图，笔记尽量小。需要能看图的 AI（「设置 → 任务用哪个 AI → 画面识别」）。</p>
+        <h4>「课程重点」页</h4>
+        <p class="muted">每条重点旁边的小工具：鼠标移到某一条上才出现，每一步都能撤销。小标题上只有编辑、整节上移 / 下移、删除；一级圆点上移、下移能跨过小标题挪到相邻的小节。</p>
+        <div class="help-btns" data-tpl="sum-item"></div>
+        <p class="muted">最下面的按钮：</p>
+        <div class="help-btns" data-from="#aiPanel [data-pane=summary] .ai-foot"></div>
         <ul>
-          <li><b>找插图</b>：软件每隔约 15 秒截一张候选画面（避开老师挡住屏幕的那几秒），老师说「大家请看」时也截一张；AI 只留需要看图才好理解的（走势图、K 线标注、老师手画的曲线和结构图），纯文字课件、标题页都不要；每张写一句说明，告诉课程重点该插在哪里。</li>
-          <li><b>截取当前画面</b>：看到重要画面时手动加一张。</li>
-          <li><b>用画面复核存疑句</b>：AI 校对后还拿不准的句子，软件截下每句说话时的画面（课程画面底部常有烧录字幕，课件、板书上也可能有这个词），交给 AI：能确认的直接改正（绿色下划线），看不清的继续存疑，留给你回听。一键整理里会自动做。</li>
-          <li>说明可以自己改；去掉「可插图」的勾，课程重点就不会插这张；点缩略图看大图。</li>
-          <li><b>AI辅助理解图</b>：要插的图如果画面本身看不清（PPT、板书模糊或被挡住），AI 会依据老师的讲解和画面里能看清的部分重画一张：结构、流程类画成流程图，走势、K 线、曲线类画成矢量图；剪藏时代替截图，并标注「AI辅助理解图｜根据老师讲解和画面整理，非原画面」。只画老师讲过、画过的，拿不准就不画。也可以在画面页对某张图点「AI 重画」；不满意点「改用原截图」。</li>
-          <li>课程重点只在文字确实说不清的地方插图，整节课最多 3 张；剪藏时图片缩小压缩，复制到笔记旁边的 image 文件夹。</li>
-          <li><b>插图非必要不用</b>：只有文字确实说不清的（手绘曲线的形状、K 线标注的位置、复杂结构图）才插，整节课最多 3 张，剪藏时缩到 960 宽并压缩。</li>
+          <li><b>怎么写</b>：不套固定栏目，按老师这节课实际的知识体系组织；只写老师讲过的，不补充、不评价；定义、口诀、规则、数字照录，每条标出处时间。老师的自述（经历、学员数量、出版、原创声明）和课程安排一律保留，标「老师自述：」；口述和课件不一致时两边分别写出，加「整理者注」；拿不准的标「（存疑）」，提到但没讲明的标「（未讲明）」。要求（模板）可以在「设置 → 课程重点模板」里改，每位老师也可以单独设一份。</li>
+          <li><b>查漏补缺</b>：生成后默认自动做（可以在「设置 → 课程重点模板」里关掉），AI 对照完整字幕，把漏掉的内容补进对应小节。</li>
+          <li><b>下面那行小字</b>：「字幕被引用约 93%」是课程重点里标了出处时间的内容覆盖了多少字幕；「有 3 段没有出处（如 00:06…）」可以点时间回去听听有没有漏掉要紧的。</li>
+          <li><b>「生成课程重点之后，字幕又改了 N 句」提醒</b>：重点是按生成时的字幕写的，之后改了 3 句以上字幕会出现这条提醒（媒体库标「重点待更新」）。点里面的「重新生成」用改好的字幕重写；你手动插的截图会自动放回去。存疑句多的课，建议改完再重新生成一次。</li>
+          <li><b>编辑</b>：直接改整篇（适合大段重写），再点一下「完成编辑」。</li>
+          <li><b>插入截图</b>（视频才有）：插在出处时间离现在最近（不晚于现在）的那一条重点后面；正在「编辑」时插在光标那一行后面。图下面「上移 / 下移」一次挪过一条重点，「删除」去掉这张图；AI 插的图也能这样挪。</li>
+          <li><b>新术语</b>：按钮上带数字时表示已经找好、等你勾选（见<a class="help-go" data-go="teacher">老师与术语表</a>）。</li>
+          <li><b>双击</b>任意一句，从那里开始朗读。</li>
         </ul>
-      </section>
 
-      <section data-h="summary" hidden>
-        <h3>课程重点和查漏补缺</h3>
+        <h4>「AI 对话」页</h4>
         <ul>
-          <li>AI 区「课程重点」页点「生成课程重点」。不套固定栏目，按老师这节课实际的知识体系组织；只写老师讲过的，不补充、不评价；定义、口诀、规则、数字照录，每条标出处时间（点时间跳过去）。</li>
-          <li>老师的自述（经历、学员数量、出版、原创声明）和课程安排（哪些放到后面的课、线下课讲）一律保留，每条标「老师自述：」，不评价、不删除。</li>
-          <li>老师口述和课件不一致时两边分别写出，加「整理者注：口述与课件不一致」。</li>
-          <li>拿不准的标「（存疑）」，老师提到但没讲明的标「（未讲明）」，不补写；字幕提前结束、最后一句没说完、视频结尾损坏，会写一行「整理者注」。</li>
-          <li><b>查漏补缺</b>：生成后默认自动进行（可在「设置 → 课程重点模板」里关掉），AI 对照完整字幕，把漏掉的内容补进对应小节。下方会显示「字幕被引用约 xx%」和没有出处的时间段。也可以随时点「查漏补缺」。</li>
-          <li><b>重点待更新</b>：课程重点是按生成时的字幕写的。之后你又改了 3 句以上字幕（比如回听改了存疑句），上方会出现提醒和「重新生成」按钮，媒体库也标「重点待更新」。存疑句多的课，建议改完再重新生成一次。</li>
-          <li>可以点「编辑」直接改；剪藏时放在笔记上半部分。</li>
-          <li>要求（模板）可以在「设置 → 课程重点模板」里改，每位老师也可以单独设一份。</li>
-        </ul>
-      </section>
-
-      <section data-h="chat" hidden>
-        <h3>AI 对话</h3>
-        <ul>
-          <li>AI 读过这节课的全部字幕和术语表，可以问任何内容；回答里的时间点可以点击跳转。</li>
+          <li>AI 读过这节课的全部字幕和术语表，可以问任何内容；回答里的时间点可以点击跳转。对话记录跟着这节课保存，「清空」清掉。</li>
           <li>下面的快捷问题：概括要点、解释难点、出复习题、整理方法、找识别错误。</li>
-          <li>对话记录跟着这节课保存。</li>
         </ul>
+
+        <h4>「画面」页</h4>
+        <p class="muted">用来给课程重点挑必要的插图：只有光看文字不好理解的地方才插，笔记尽量小。需要能看图的 AI（「设置 → 任务用哪个 AI → 画面识别」）。</p>
+        <div class="help-btns" data-from="#aiPanel [data-pane=frames] .ai-foot"></div>
+        <ul>
+          <li><b>找插图</b>：软件每隔约 15 秒截一张候选画面（避开老师挡住屏幕的那几秒），老师说「大家请看」时也截一张；AI 只留需要看图才好理解的（走势图、K 线标注、老师手画的曲线和结构图），纯文字课件、标题页都不要；每张写一句说明，告诉课程重点该插在哪里。整节课最多插 3 张，剪藏时缩到 960 宽并压缩。</li>
+          <li><b>用画面复核存疑句</b>：AI 校对后还拿不准的句子，截下每句说话时的画面（底部常有烧录字幕，课件、板书上也可能有这个词）交给 AI：能确认的直接改正（绿色下划线），看不清的继续存疑。一键整理里会自动做。</li>
+          <li>每张图的说明可以自己改；去掉「可插图」的勾，课程重点就不会插这张；点缩略图看大图。</li>
+          <li><b>AI辅助理解图</b>：要插的图如果画面本身看不清（PPT、板书模糊或被挡住），AI 会依据老师的讲解和画面里能看清的部分重画一张：结构、流程类画成流程图，走势、K 线、曲线类画成矢量图；剪藏时代替截图，并标注「AI辅助理解图｜根据老师讲解和画面整理，非原画面」。只画老师讲过、画过的，拿不准就不画。也可以对某张图点「AI 重画」；不满意点「改用原截图」。</li>
+        </ul>
+
+        <h4>截图的裁剪和大小</h4>
+        <p class="muted">课程重点和字幕栏里插的截图下面都有。</p>
+        <ul>
+          <li><b>✂ 裁剪</b>：在截图上拖出要留下的部分（框还是整张时直接拖就是画框；画好后拖框里面移动，拖四角、四边调整），「整张（不裁剪）」恢复。原截图不会被改。</li>
+          <li><b>⇲ 大小</b>：拖滑块调这张图显示多宽，图马上跟着变，不用点确定；也可以点「小 / 中 / 大 / 自动」；「这节课的图都用这个大小」把这节课所有截图改成一样大。软件里、打印出来、剪藏的笔记里都是这个大小。</li>
+        </ul>
+      </section>
+
+      <section data-h="book" hidden>
+        <h3>书籍界面（书和文档的整理）</h3>
+        <ol>
+          <li>在媒体库里点要整理的书或文档：PDF、Word（.docx / 老版 .doc）、电子书（EPUB、MOBI、AZW3）、演示文稿（PPTX / 老版 .ppt，一张幻灯片算一「页」）。TXT / Markdown 用「打开」。扫描或拍照的 PDF（每页是整张图片）点目录列的「识别文字（OCR）」：用 Windows 自带的文字识别在这台电脑上把每页认成文字，不联网、不花钱，300 页大约 1.5 分钟；原文件挪进同一文件夹的「_OCR前的原件」，确认没问题可以删。别的软件识别得很差的，可以点「重新识别文字」。有 DRM 加密的电子书（书店买的加密书）读不了，软件会提示。老版 .doc / .ppt 读不出标题层级，章节分得不对就点「AI 读目录分章」或手动改。</li>
+          <li>书分三列：左边「原书」（PDF 或文字版，「朗读原文」会读这一章的文字），中间「目录」，右边「整理笔记」；每一列都能点「隐藏」收成一条竖条、拖分隔线调宽度，「放大」让笔记占满。先在目录里核对：
+            <ul>
+              <li>书名、作者（在「书籍信息」里）；</li>
+              <li>「书上第 1 页是 PDF 第几页」：软件会自动认书上的页码，认不出时手动填，否则锚点写成「PDF 第 X 页」；</li>
+              <li>章节分得对不对：和原书目录一致，前言、各部分的开篇、每一章、附录都单独一篇，按部分分组；可以直接改章名和起止页、加一章、删一章，或点「AI 读目录分章」。前言、目录不编号。</li>
+            </ul></li>
+          <li>勾选章节点「整理选中的章节」，或「整理全部未整理的」。每章写一份<b>提炼笔记</b>：
+            <ul>
+              <li>篇幅约原文的 1/5，开头一句话说这一章回答什么问题；</li>
+              <li>按这一章自己的逻辑分几个小标题，不设固定栏目；留核心观点和结论、作者的原话定义、代表性的例子，能照着做的方法集中写在最后「照着做」；</li>
+              <li>每个小标题标一次书上的页码（P42），点页码左边就跳到那一页；拿不准的句子标「（存疑）」；</li>
+              <li>有图表的页截成图片给 AI 看；PDF 旁边有同名 Word（WPS OCR 导出的）时自动拿它当正文参考；外文书的笔记也用中文写；</li>
+              <li>每章挑最关键的 1～2 张原书的图（形态、结构、流程、案例走势、关键表格）插进去；整理笔记里直接显示图，点图看大图；AI 看不准图的位置时用整页。</li>
+            </ul></li>
+          <li>「整理笔记」切到「AI 对话」：可以「问这一章」（AI 读这一章的原文全文和笔记）或「问整本书」（AI 读全部章节笔记，再从原文里挑相关的页）。回答标页码，点了原书跳过去。</li>
+          <li>点「全书总览」生成「00、全书总览」，再点顶栏「剪藏」：写进 Obsidian 的 <code>《书名》作者/</code> 文件夹。重新剪藏和视频笔记一样：你在 Obsidian 里自己加的小节（例如 <code>## 我的笔记</code>）、写在要点下面的标注（<code>&gt; [!note] 我的理解</code>）、属性和标签都会保留；直接改了软件写的小节，剪藏前会先问你，确认后先备份再更新。</li>
+          <li>可以在「设置 → Obsidian」里关联知识库里的《外部书籍与文档整理规范》，整理时作为补充参考（和软件的提炼要求冲突时以软件为准）。</li>
+        </ol>
       </section>
 
       <section data-h="mentor" hidden>
-        <h3>老师工作台（和老师对话）</h3>
+        <h3>老师工作台（和老师对话、蒸馏）</h3>
         <p>把一位老师的全部课程蒸馏好以后，AI 就能按这位老师的知识和思路和你对话，像向老师本人提问一样。</p>
         <h4>怎么开始：蒸馏一位老师</h4>
         <ul>
@@ -812,17 +840,80 @@
         </ul>
       </section>
 
+      <section data-h="settings" hidden>
+        <h3>设置</h3>
+        <p class="muted">右上角的齿轮打开。</p>
+        <dl class="help-dl">
+          <dt>关于与数据</dt><dd>版本、开源地址；检查更新（有新版本时点「去下载页」到 GitHub 下载，换上新的「猛人学习」文件夹即可，设置和字幕不受影响；可以打开软件时每天自动检查一次）；点右上角 × 时收到右下角还是直接退出；导出 / 导入设置（换电脑用，可以带密钥和 ChatGPT 登录）；缓存和日志放在哪里；打开日志、设置文件夹；清空缓存。</dd>
+          <dt>外观</dt><dd>主题（墨黑、帝王紫、深灰、浅色）和强调色。顶栏的月亮按钮也能切换主题。</dd>
+          <dt>老师与术语表</dt><dd>见<a class="help-go" data-go="teacher">老师与术语表</a>。</dd>
+          <dt>任务用哪个 AI</dt><dd>课程重点和对话、AI 校对、翻译、画面识别可以分别选不同的服务。书籍整理用「课程重点和对话」选的那个。画面识别要能看图：ChatGPT 账号、Claude、Gemini、OpenAI 都可以；DeepSeek 不能看图。</dd>
+          <dt>课程重点模板</dt><dd>生成课程重点时发给 AI 的要求，可以改，可以恢复默认；「生成后自动查漏补缺」的开关也在这里。</dd>
+          <dt>Obsidian</dt><dd>库的位置；视频笔记存到哪个文件夹、是否按老师分子文件夹、笔记文件名格式；书籍和文档存到哪个文件夹、书的文件夹名格式、关联的书籍整理规范文件。</dd>
+          <dt>识别设置</dt><dd>英文、中文视频分别默认用哪个识别服务；选了老师时识别完是否默认校对。</dd>
+          <dt>豆包语音</dt><dd>只用四种模型，默认按这个顺序自动换：<b>流式识别 2.0</b>（识别最准）→ <b>录音文件识别 1.0 极速版</b>（几秒就好）→ <b>录音文件识别 1.0 标准版</b> → <b>录音文件识别 2.0 标准版</b>。也可以在「设置 → 豆包语音」里固定只用其中一种（生成字幕、一键整理时还能临时换）：固定时只用这一种，出错就停下，不会换到别的模型。注意：资源包或免费额度用完后，豆包可能继续按量扣费，账户欠费后所有模型都用不了，所以要留意用量。都要先在火山引擎控制台「豆包语音 → 开通管理」开通。可以填好几个账号（不同的火山引擎账号，额度各算各的）：每种模型先把所有账号的额度用完，再换下一种；用完的会记下来、以后跳过，充值或买了资源包后在这里点「重新启用」，或点「测试连接」（能用的自动重新启用）。识别到一半换了账号或模型，会从头重新识别这节课。账号 1 支持新版控制台的 API Key 或旧版的 App ID + Access Token。</dd>
+          <dt>硅基流动 / OpenAI</dt><dd>API Key、识别模型、对话模型；OpenAI 可以改接口地址（用中转服务时）和是否走代理。</dd>
+          <dt>ChatGPT 账号</dt><dd>用 ChatGPT Plus / Pro / Business 账号登录，用套餐里的额度，不另花 API 费用。浏览器登录完会自动回来；浏览器显示「无法访问此网站」时，把地址栏里的网址复制粘贴回来。</dd>
+          <dt>Claude / Gemini / DeepSeek / 豆包大模型</dt><dd>填 API Key、选模型，「获取模型列表」可以列出能用的模型。豆包大模型（火山方舟）和豆包语音是两个不同的服务。</dd>
+          <dt>网络代理</dt><dd>填代理地址（比如 Clash Verge 默认 http://127.0.0.1:7897），只给勾选了「通过网络代理连接」的服务用。</dd>
+        </dl>
+      </section>
+
+      <section data-h="teacher" hidden>
+        <h3>老师与术语表</h3>
+        <p>在「设置 → 老师与术语表」里给每位老师建一份档案；在顶栏的老师下拉框里选这节课是哪位老师的。</p>
+        <ul>
+          <li><b>关联 Obsidian 里的术语表文件（推荐）</b>：选中知识库里那份术语表 MD，软件每次都读最新内容——小节里「正确写法 / 标准写法」的词和 <code>--hotwords "…"</code> 里的词当术语，表头含「ASR / 误识 / 识别」的表格当识别错误参考，整份文件给 AI 当术语说明。以后只在 Obsidian 里改。<b>软件不把文件里的术语抄进下面的「术语表（手写）」框</b>：那个框只用来额外手写几个，空着是正常的。关联后下面有两个按钮：<b>查看术语和重复检查</b>（看软件从文件里读到的每个术语、识别错误对照、直接替换；同一个术语或同一条「错写 → 正确」在文件里出现不止一次的，列出在第几行，想清理就去 Obsidian 删掉多余的那行，软件读的时候本来就只算一次）、<b>在 Obsidian 里打开</b>（直接打开这份术语表手动修改）。</li>
+          <li><b>不会重复加</b>：每节课找新术语时，术语表里已有的（整份文件任何一张表里有的）不会再列出来；几节课一起在后台整理、再一节节勾选时，前面的课已经加过的，打开对话框时会先去掉；写进文件前也会再查一遍整份文件。</li>
+          <li><b>手写术语表</b>（可选，和关联的文件合在一起用），每行一条：
+            <ul>
+              <li><code>峰级, 峰级线, 破级</code>：专用术语，传给识别服务当热词；</li>
+              <li><code>风级, 风机 => 峰级</code>：常见识别错误，交给 AI 结合上下文判断，不直接替换；</li>
+              <li><code>托破旋 =>! 拓扑学</code>：确定不会误伤的，识别完直接替换。单字或常用词不要加感叹号，否则「部分」会被改成「部峰」。</li>
+            </ul></li>
+          <li><b>逐课积累</b>：AI 区「课程重点」页的「新术语」按钮（一键整理的最后一步也会做）：AI 从这节课的校对改动（AI 改的、看画面改的、你手动改的）和完整字幕里，找出术语表还没有的新术语和识别错误，弹出来让你勾选、改字、点时间回听；确认的才加进去。关联了文件时写在文件末尾的「逐课补充（猛人学习）」一节（表格，软件下次就会用上），写之前自动备份到 <code>%APPDATA%\猛人学习\backups\术语表</code>；只记名称，不写定义。</li>
+          <li><b>新老师的第一节课</b>：还没有这位老师、也没有术语表时，同样点「新术语」（或一键整理勾上「新术语」，没选老师时默认勾上）。AI 找出这节课的专用术语，弹出来让你勾选，再<b>填老师名字</b>、选「以后哪个文件夹里的课都用这位老师」（默认是加进媒体库的那个文件夹），点「建立术语表」：软件建好老师档案，在 Obsidian「02、规则体系/02、课程专用规则」里建一份「老师名课程术语表」（结构和峰级那份一样：怎么用 / 术语 / 识别错误对照 / 逐课补充），关联上，把勾选的写进「逐课补充」，并把那个文件夹绑定这位老师。以后这个文件夹里的课自动用这位老师：识别时用这些术语当热词，每节课整理完接着找新术语让你勾选。填的名字和已有的老师一样时，就加进他原来的术语表。</li>
+          <li><b>术语说明</b>：放整份术语说明文档，只给 AI 参考，不传给识别服务。关联了文件时一般留空。</li>
+          <li>剪藏笔记里<b>不写老师</b>：一份术语表常常是几位老师共用的（例如「峰级分析」），它的名字只当笔记的标签。讲课老师请在 Obsidian 里给笔记加一个「老师」属性自己填，重新剪藏会保留。</li>
+          <li><b>剪藏子文件夹</b>、<b>单独的课程重点模板</b>：可选。</li>
+        </ul>
+      </section>
+
+      <section data-h="asr" hidden>
+        <h3>生成字幕和识别服务</h3>
+        <ol>
+          <li>打开视频，点顶栏的「生成字幕」。</li>
+          <li>选视频里说的是中文还是英文、是哪位老师的课（决定用哪份术语表）、用哪个识别服务。</li>
+          <li>勾选「识别完后让 AI 按术语表校对一遍」可以自动接着校对。</li>
+        </ol>
+        <ul>
+          <li><b>豆包语音</b>（中文最准）：带逐句时间；术语会作为热词传给豆包。默认按「流式识别 2.0 → 录音文件识别 1.0 极速版 → 录音文件识别 1.0 标准版 → 录音文件识别 2.0 标准版」的顺序自动用，额度用完自动换下一个；也可以固定只用一种、只用某个账号（见<a class="help-go" data-go="settings">设置</a>里的「豆包语音」）。</li>
+          <li><b>OpenAI Whisper</b>（英文）：带逐句时间；术语写进提示词。国内要在「设置 → 网络代理」里填代理。</li>
+          <li><b>硅基流动</b>：便宜，但只返回文字不返回时间，软件按停顿切段，时间可能差几秒；读不了术语表，靠后面的 AI 校对。</li>
+          <li>软件先用 ffmpeg 从视频里抽出声音（只上传声音，不上传画面），长视频在停顿处切段、几段同时识别，再拼回去。</li>
+          <li>已经有字幕时重新识别，原来的字幕会自动存成历史版本，可以换回来。</li>
+        </ul>
+      </section>
+
+      <section data-h="correct" hidden>
+        <h3>AI 校对和存疑句</h3>
+        <ul>
+          <li>点顶栏的「AI 校对」：AI 参考术语表、识别错误对照和术语说明，只改识别错误（错别字、同音词、术语、人名、数字），不改写句子、不润色。</li>
+          <li>改过的句子用绿色下划线标出，不满意可以撤销；校对前的字幕也会存一份历史版本，关掉软件后还能恢复。</li>
+          <li>校对到一半出错（网络断了、AI 返回不对），字幕一句都不改，保持原样，可以直接再点一次。</li>
+          <li><b>存疑句</b>：读起来不通、像是听错了、但 AI 拿不准的句子，不会乱改，而是用橙色标出并写明原因。点字幕栏上方的「存疑 N」逐句跳过去，会单句循环播放方便回听；改好或确认没问题后点「已确认」。剪藏的笔记里，没确认的存疑句会标「〔存疑：…〕」。</li>
+          <li><b>用画面复核存疑句</b>（「画面」页的按钮，一键整理会自动做）：看画面上的烧录字幕、课件核对存疑句，能确认的直接改正。</li>
+          <li>建议整理完逐句检查存疑句，再打开字幕栏的「已校对」开关，然后剪藏。</li>
+        </ul>
+      </section>
+
       <section data-h="pipeline" hidden>
-        <h3>一键整理</h3>
+        <h3>一键整理和后台整理</h3>
         <p>按顺序自动完成勾选的步骤：生成字幕 → AI 按术语表校对 → 挑必要的插图 → 用画面复核校对后还存疑的句子 → 翻译（英文课程）→ 课程重点（含查漏）→ 剪藏 → 找新术语（弹出来让你勾选）。某一步失败会停下来并告诉你原因，前面做完的步骤已经保存；「用画面复核存疑句」「查漏补缺」失败不影响后面的步骤。整理完建议检查一遍存疑句，打开「已校对」再剪藏。</p>
         <p><b>单独点的整理按钮</b>（生成字幕、AI 校对、课程重点等）做的时候，也可以切到别的课：任务在后台接着做，上方进度条写明是哪节课，做完会提示你；切回来时还没做完的话会接着显示进度。只有「AI 写图片说明」「AI 重画」「AI 读目录分章」这几个短任务要等它做完再切。</p>
         <p><b>整理时可以切到别的课</b>：点「开始」后，这节课交给后台整理，你马上可以打开别的课听课、校对。上方的「后台整理」条显示整理到哪了，点它可以看排着的课、停下某一节；媒体库里标「整理中 xx%」「排队中」。在媒体库右键一节课选「排进后台整理」，可以一次排好几节（按一键整理默认的步骤，只做还没做完的），一节一节接着整理。整理完会提示你；这节课正开着就直接显示结果，勾了「剪藏」或有新术语要勾选的，也在这节课开着时接着做。最好整理 A 课、校对 B 课；你在正被整理的课里改了东西，保存时会先问你要哪一份。软件完全退出时（不是点 × 收到托盘），没整理完的会停下，做完的步骤已经保存，下次再点一键整理会接着做。</p>
         <p><b>让 AI 在后台自动整理</b>：也可以让 Claude Code、Codex 这类 AI 助手调用猛人学习，替你做一键整理（不剪藏，用法见软件开源页的「命令行」说明）。它和这里的一键整理是同一套流程，整理好的课在媒体库里点刷新就能看到。你正开着的课如果被后台整理了，打开时会提示；保存时会先问你要后台整理的结果还是你自己的版本，不会互相覆盖。</p>
-      </section>
-
-      <section data-h="export" hidden>
-        <h3>下载字幕</h3>
-        <p>顶栏「下载」：TXT 或 SRT；可以选中英对照、只要原文或只要中文；TXT 可以选带不带时间戳。</p>
+        <p><b>整个文件夹排进后台整理</b>：媒体库里右键文件夹 →「整个文件夹排进后台整理」，先定好这个文件夹的整理规则（做哪几步、老师、中文还是英文、豆包模型和账号；不勾「课程重点」就等于设成「这里的课不写课程重点」），软件按显示顺序把还没整理完的课一节一节排进去，做过的步骤跳过。某一节因为 AI 或豆包额度用完停下时，同一批剩下的也停下，只提示一次。规则记在这个文件夹上，下层沿用。</p>
       </section>
 
       <section data-h="clip" hidden>
@@ -842,59 +933,52 @@
         </ul>
       </section>
 
-      <section data-h="book" hidden>
-        <h3>书籍和文档整理</h3>
-        <ol>
-          <li>在媒体库里点要整理的书或文档：PDF、Word（.docx / 老版 .doc）、电子书（EPUB、MOBI、AZW3）、演示文稿（PPTX / 老版 .ppt，一张幻灯片算一「页」）。TXT / Markdown 用「打开」。扫描或拍照的 PDF（每页是整张图片）点目录列的「识别文字（OCR）」：用 Windows 自带的文字识别在这台电脑上把每页认成文字，不联网、不花钱，300 页大约 1.5 分钟；原文件挪进同一文件夹的「_OCR前的原件」，确认没问题可以删。别的软件识别得很差的，可以点「重新识别文字」。有 DRM 加密的电子书（书店买的加密书）读不了，软件会提示。老版 .doc / .ppt 读不出标题层级，章节分得不对就点「AI 读目录分章」或手动改。</li>
-          <li>书分三列：左边「原书」（PDF 或文字版，「朗读原文」会读这一章的文字），中间「目录」，右边「整理笔记」；每一列都能点「隐藏」收成一条竖条、拖分隔线调宽度，「放大」让笔记占满。先在目录里核对：
-            <ul>
-              <li>书名、作者（在「书籍信息」里）；</li>
-              <li>「书上第 1 页是 PDF 第几页」：软件会自动认书上的页码，认不出时手动填，否则锚点写成「PDF 第 X 页」；</li>
-              <li>章节分得对不对：和原书目录一致，前言、各部分的开篇、每一章、附录都单独一篇，按部分分组；可以直接改章名和起止页、加一章、删一章，或点「AI 读目录分章」。前言、目录不编号。</li>
-            </ul></li>
-          <li>勾选章节点「整理选中的章节」，或「整理全部未整理的」。每章写一份<b>提炼笔记</b>：
-            <ul>
-              <li>篇幅约原文的 1/5，开头一句话说这一章回答什么问题；</li>
-              <li>按这一章自己的逻辑分几个小标题，不设固定栏目；留核心观点和结论、作者的原话定义、代表性的例子，能照着做的方法集中写在最后「照着做」；</li>
-              <li>每个小标题标一次书上的页码（P42），点页码左边就跳到那一页；拿不准的句子标「（存疑）」；</li>
-              <li>有图表的页截成图片给 AI 看；PDF 旁边有同名 Word（WPS OCR 导出的）时自动拿它当正文参考；外文书的笔记也用中文写；</li>
-              <li>每章挑最关键的 1～2 张原书的图（形态、结构、流程、案例走势、关键表格）插进去；整理笔记里直接显示图，点图看大图；AI 看不准图的位置时用整页。</li>
-            </ul></li>
-          <li>「整理笔记」切到「AI 对话」：可以「问这一章」（AI 读这一章的原文全文和笔记）或「问整本书」（AI 读全部章节笔记，再从原文里挑相关的页）。回答标页码，点了原书跳过去。</li>
-          <li>点「全书总览」生成「00、全书总览」，再点顶栏「剪藏」：写进 Obsidian 的 <code>《书名》作者/</code> 文件夹。重新剪藏和视频笔记一样：你在 Obsidian 里自己加的小节（例如 <code>## 我的笔记</code>）、写在要点下面的标注（<code>&gt; [!note] 我的理解</code>）、属性和标签都会保留；直接改了软件写的小节，剪藏前会先问你，确认后先备份再更新。</li>
-          <li>可以在「设置 → Obsidian」里关联知识库里的《外部书籍与文档整理规范》，整理时作为补充参考（和软件的提炼要求冲突时以软件为准）。</li>
-        </ol>
+      <section data-h="export" hidden>
+        <h3>打印、导出 PDF、下载字幕</h3>
+        <ul>
+          <li><b>在哪里</b>：课程重点在 AI 区标签旁边（课程重点页才有），完整字幕在字幕栏上方。课程重点印课程名和课程重点（连同插图）；字幕印每句时间、原文、译文、存疑原因，插的截图放在对应那一句下面，按你裁剪、调好的大小。文字黑色，图片保持原色。</li>
+          <li><b>打印</b>：打开打印预览，能看到印出来的样子，选打印机、份数；「颜色」选彩色就打印彩色图片，选黑白省彩色墨水。预览开着时点软件右上角的 × 只会关掉预览，不会退出软件。</li>
+          <li><b>导出 PDF</b>：直接存成 PDF 文件、不用打印机，存好点提示里的「打开 PDF」就能看。</li>
+          <li><b>页眉</b>：每页顶上印左边日期、中间课程名、右边「第 n / n 页」。打印预览里不用勾「页眉和页脚」，勾了也一样，不会重叠。</li>
+          <li><b>带时间</b>（打印、导出 PDF 旁边的时钟开关，亮着 = 带）：课程重点默认不带出处时间（印在纸上一般用不着），字幕默认带每句前面的时间。</li>
+          <li><b>下载字幕</b>（顶栏「下载」）：TXT 或 SRT；可以选中英对照、只要原文或只要中文；TXT 可以选带不带时间戳。</li>
+        </ul>
       </section>
 
-      <section data-h="settings" hidden>
-        <h3>设置说明</h3>
-        <dl class="help-dl">
-          <dt>关于与数据</dt><dd>版本、开源地址；检查更新（有新版本时点「去下载页」到 GitHub 下载，换上新的「猛人学习」文件夹即可，设置和字幕不受影响；可以打开软件时每天自动检查一次）；点右上角 × 时收到右下角还是直接退出；导出 / 导入设置（换电脑用，可以带密钥和 ChatGPT 登录）；缓存和日志放在哪里；打开日志、设置文件夹；清空缓存。</dd>
-          <dt>外观</dt><dd>主题（墨黑、帝王紫、深灰、浅色）和强调色。顶栏的月亮按钮也能切换主题。</dd>
-          <dt>老师与术语表</dt><dd>见左边「老师与术语表」。</dd>
-          <dt>任务用哪个 AI</dt><dd>课程重点和对话、AI 校对、翻译、画面识别可以分别选不同的服务。书籍整理用「课程重点和对话」选的那个。画面识别要能看图：ChatGPT 账号、Claude、Gemini、OpenAI 都可以；DeepSeek 不能看图。</dd>
-          <dt>课程重点模板</dt><dd>生成课程重点时发给 AI 的要求，可以改，可以恢复默认；「生成后自动查漏补缺」的开关也在这里。</dd>
-          <dt>Obsidian</dt><dd>库的位置；视频笔记存到哪个文件夹、是否按老师分子文件夹、笔记文件名格式；书籍和文档存到哪个文件夹、书的文件夹名格式、关联的书籍整理规范文件。</dd>
-          <dt>识别设置</dt><dd>英文、中文视频分别默认用哪个识别服务；选了老师时识别完是否默认校对。</dd>
-          <dt>豆包语音</dt><dd>只用四种模型，默认按这个顺序自动换：<b>流式识别 2.0</b>（识别最准）→ <b>录音文件识别 1.0 极速版</b>（几秒就好）→ <b>录音文件识别 1.0 标准版</b> → <b>录音文件识别 2.0 标准版</b>。也可以在「设置 → 豆包语音」里固定只用其中一种（生成字幕、一键整理时还能临时换）：固定时只用这一种，出错就停下，不会换到别的模型。注意：资源包或免费额度用完后，豆包可能继续按量扣费，账户欠费后所有模型都用不了，所以要留意用量。都要先在火山引擎控制台「豆包语音 → 开通管理」开通。可以填好几个账号（不同的火山引擎账号，额度各算各的）：每种模型先把所有账号的额度用完，再换下一种；用完的会记下来、以后跳过，充值或买了资源包后在这里点「重新启用」，或点「测试连接」（能用的自动重新启用）。识别到一半换了账号或模型，会从头重新识别这节课。账号 1 支持新版控制台的 API Key 或旧版的 App ID + Access Token。</dd>
-          <dt>硅基流动 / OpenAI</dt><dd>API Key、识别模型、对话模型；OpenAI 可以改接口地址（用中转服务时）和是否走代理。</dd>
-          <dt>ChatGPT 账号</dt><dd>用 ChatGPT Plus / Pro / Business 账号登录，用套餐里的额度，不另花 API 费用。浏览器登录完会自动回来；浏览器显示「无法访问此网站」时，把地址栏里的网址复制粘贴回来。</dd>
-          <dt>Claude / Gemini / DeepSeek / 豆包大模型</dt><dd>填 API Key、选模型，「获取模型列表」可以列出能用的模型。豆包大模型（火山方舟）和豆包语音是两个不同的服务。</dd>
-          <dt>网络代理</dt><dd>填代理地址（比如 Clash Verge 默认 http://127.0.0.1:7897），只给勾选了「通过网络代理连接」的服务用。</dd>
-        </dl>
+      <section data-h="tts" hidden>
+        <h3>朗读</h3>
+        <p>课程重点、AI 对话、书的整理笔记和原文、老师工作台的回答都能朗读，边听边看。</p>
+        <ul>
+          <li><b>开始</b>：点耳机图标。课程重点页读课程重点，AI 对话页读 AI 的回答；中括号里的时间（如 [01:50]）、插图、流程图不读，开始时视频自动暂停。下次再点朗读，从上次读到的地方接着读。</li>
+          <li><b>跟着看</b>：正在读的句子高亮，快读到底部时自动往下翻；自己用滚轮滚动后暂停跟随，停手 6 秒自动恢复，点「定位」马上回来。</li>
+          <li><b>双击</b>任意一句，从这一句开始读（没在朗读时也直接开始）；双击正在读的那一句暂停 / 继续。</li>
+          <li><b>播放条</b>：上一句、下一句、语速（0.75× ～ 2×）、声音、更多（从头朗读、从当前屏幕开始、高亮颜色）。</li>
+          <li><b>声音有三种来源</b>：<b>Edge 在线朗读</b>（默认，声音最自然，晓晓、云希等，要联网）、<b>百度朗读</b>（要联网，正在读的句子会发给百度翻译；不是百度正式开放的服务，百度改了就会失效）、<b>系统声音</b>（Windows 自带的慧慧、瑶瑶、康康，不联网）。英文句子自动换英文声音。在线声音没取到时自动重试，还不行就停在这一句并告诉你。声音只在内存里，不占硬盘。</li>
+        </ul>
       </section>
 
       <section data-h="keys" hidden>
-        <h3>快捷键</h3>
+        <h3>快捷键汇总</h3>
+        <h4>播放和字幕</h4>
         <table class="help-keys">
           <tr><td>空格</td><td>播放 / 暂停（不在编辑字幕时）</td></tr>
           <tr><td>Ctrl + K</td><td>任何时候播放 / 暂停</td></tr>
           <tr><td>Ctrl + ← / →</td><td>后退 / 前进 3 秒</td></tr>
           <tr><td>Ctrl + ↑ / ↓</td><td>上一句 / 下一句</td></tr>
           <tr><td>Enter / Esc</td><td>结束编辑当前这句</td></tr>
-          <tr><td>Ctrl + S</td><td>立即保存</td></tr>
-          <tr><td>Ctrl + Z</td><td>撤销拆分、合并、删除和 AI 校对</td></tr>
           <tr><td>Ctrl + F</td><td>搜索字幕</td></tr>
+        </table>
+        <h4>课程重点（改某一条时）</h4>
+        <table class="help-keys">
+          <tr><td>Enter</td><td>保存这一条，并在下面加一条新的（新的那一条没写字再按 Enter 结束）</td></tr>
+          <tr><td>Shift + Enter</td><td>在这一条里换行</td></tr>
+          <tr><td>Tab / Shift + Tab</td><td>缩进 / 取消缩进（鼠标停在某一条上直接按也行）</td></tr>
+          <tr><td>Esc</td><td>取消这次修改</td></tr>
+        </table>
+        <h4>到处都能用</h4>
+        <table class="help-keys">
+          <tr><td>Ctrl + Z</td><td>撤销：字幕的拆分、合并、删除、AI 校对，课程重点的每一步修改（先撤销最后改的那一边）</td></tr>
+          <tr><td>Ctrl + S</td><td>立即保存</td></tr>
           <tr><td>Ctrl + O</td><td>打开文件</td></tr>
         </table>
       </section>
@@ -918,7 +1002,7 @@
           <dt>提示「还没有填写 API Key」「鉴权失败」？</dt><dd>到「设置」对应的服务里填好，点「测试连接」。ChatGPT 账号登录过期时重新登录。</dd>
           <dt>国外的服务连不上？</dt><dd>「设置 → 网络代理」里填代理地址，并勾选那个服务的「通过网络代理连接」。</dd>
           <dt>术语还是识别错？</dt><dd>把常错的词加进术语表（或在 Obsidian 的术语表里补上），再「AI 校对」；剩下的看「存疑」逐句回听修改。</dd>
-          <dt>书籍的页码不对？</dt><dd>改右边的「书上第 1 页是 PDF 第几页」。章节不对就改起止页，或点「AI 读目录分章」。</dd>
+          <dt>书籍的页码不对？</dt><dd>在目录列的「书籍信息」里改「书上第 1 页是 PDF 第几页」。章节不对就改起止页，或点「AI 读目录分章」。</dd>
           <dt>软件卡住、报错、关不掉？</dt><dd>「设置 → 关于与数据 → 打开日志文件夹」，把 app.log 发给 Claude 或维护的人看（后台自动整理的日志是 agent.log）。</dd>
         </dl>
       </section>
@@ -927,6 +1011,7 @@
   <div class="dialog-btns settings-btns">
     <span class="muted small-text">猛人学习（作者：longpeng1413 和 Claude）　开源：github.com/longpeng1413/mengren-learning</span>
     <span class="grow"></span>
+    <button class="btn" id="helpFull" title="看整个软件的说明">查看完整使用说明</button>
     <button class="btn primary" id="helpClose">知道了</button>
   </div>
 </dialog>
@@ -977,7 +1062,7 @@
             <div class="field"><div class="label">关联 Obsidian 里的术语表文件（推荐）</div>
               <div class="file-link"><code class="path" id="tFile">没有关联</code><button class="btn small" id="tFilePick">选择文件…</button><button class="btn small" id="tFileClear">取消关联</button></div>
               <div class="hint" id="tFileHint">关联后，软件每次都读这个文件的最新内容：小节里的「正确写法 / 标准写法」和热词当术语，「ASR 常见错误」表当识别错误参考，整份文件给 AI 当术语说明。以后只在 Obsidian 里改术语表就行。</div>
-              <div class="file-link" id="tFileActions" hidden><button class="btn small" id="tFileView" title="看软件从文件里读到的每个术语、识别错误，以及重复的条目在第几行">查看术语和重复检查</button><button class="btn small" id="tFileOpen" title="打开这份术语表，在 Obsidian 里手动修改">在 Obsidian 里打开</button></div></div>
+              <div class="file-link" id="tFileActions" hidden><button class="btn small" id="tFileView" title="查看术语表内容和重复条目">查看术语和重复检查</button><button class="btn small" id="tFileOpen" title="打开这份术语表，在 Obsidian 里手动修改">在 Obsidian 里打开</button></div></div>
             <div class="field"><div class="label">老师和课程背景（可选）</div><input id="tAbout" placeholder="例如：期货交易，讲交易底层逻辑、波段和仓位管理"></div>
             <div class="field"><div class="label">术语表（手写，可选；关联了文件时，这里的会和文件里的合在一起用）</div>
               <textarea id="tTerms" rows="10" spellcheck="false" placeholder="每行一个或几个术语（逗号隔开）：&#10;峰级, 峰级线, 破级&#10;&#10;常见识别错误（交给 AI 结合上下文判断，不直接替换）：&#10;风级, 风机 => 峰级&#10;&#10;确定不会误伤的，加感叹号，识别完直接替换：&#10;托破旋 =>! 拓扑学"></textarea>

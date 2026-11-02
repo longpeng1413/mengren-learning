@@ -348,7 +348,7 @@ const TTS = (() => {
     if (!s || !s.bar) return;
     const play = $('[data-t=play]', s.bar), icon = s.state === 'playing' ? 'pause' : s.state === 'ended' ? 'again' : 'play';
     if (play.dataset.icon !== icon) { play.innerHTML = svg(icon); play.dataset.icon = icon; }
-    play.title = s.state === 'playing' ? '暂停（也可以双击正在读的句子）' : s.state === 'ended' ? '重新朗读' : '继续';
+    play.title = s.state === 'playing' ? '暂停' : s.state === 'ended' ? '重新朗读' : '继续';
     $('[data-t=rate]', s.bar).textContent = rate() + '×';
     s.bar.dataset.follow = String(s.follow);
     const total = s.segs.reduce((n, x) => n + x.text.length, 0) || 1;
@@ -358,9 +358,9 @@ const TTS = (() => {
   function updateBtn() {
     const b = $('#btnTts'); if (!b) return;
     b.classList.toggle('primary', !!s && s.state === 'playing');
-    b.title = s && s.state === 'playing' ? '暂停朗读' : '朗读（边听边看）：课程重点页读课程重点，AI 对话页读 AI 的回答';
+    b.title = s && s.state === 'playing' ? '暂停朗读' : '朗读课程重点或 AI 回答';
     const bk = $('#bkTts');
-    if (bk) { bk.classList.toggle('primary', !!s && s.state === 'playing' && s.root === $('#bkView')); bk.title = s && s.state === 'playing' ? '暂停朗读' : '朗读（边听边看）：读这一章整理好的内容；双击任意一句从那里读'; }
+    if (bk) { bk.classList.toggle('primary', !!s && s.state === 'playing' && s.root === $('#bkView')); bk.title = s && s.state === 'playing' ? '暂停朗读' : '朗读这一章笔记'; }
     const bs = $('#bkSrcTts');
     if (bs) bs.classList.toggle('primary', !!s && s.state === 'playing' && s.root === $('#bkSrcText'));
   }

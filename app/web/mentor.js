@@ -156,7 +156,7 @@ function renderMentorMsgs() {
       <p>${run ? '正在后台蒸馏，进度在上方。可以切到「课程」照常看课，做完会提示你。' : '还没蒸馏完（可能停下了，或者 AI 额度用完了）。做完的课都存着，点「继续蒸馏」接着做，不会重复花钱。'}
       蒸馏好以后，就能在这里和他对话。</p>
       <ul class="ds-status">${st.lessons.map(x => `<li><span>${x.sid}　${esc(x.title)}</span><span class="muted">${label[x.state](x)}</span>`
-        + (run ? '' : `<button class="btn small" data-rm-sid="${x.sid}" title="这节课不用了（编号空着，不给别的课用）">去掉</button>`) + '</li>').join('')}</ul>
+        + (run ? '' : `<button class="btn small" data-rm-sid="${x.sid}" title="去掉这节课">去掉</button>`) + '</li>').join('')}</ul>
       ${run ? '' : '<button class="btn primary" data-distill-go>继续蒸馏</button> <button class="btn" data-distill-edit>加课…</button>'}</div>`;
     return;
   }
@@ -282,11 +282,11 @@ $('#mentorMsgs').addEventListener('mouseover', async e => {
 $('#mentorAdd').onclick = e => {
   e.stopPropagation();  // 不然窗口的 click 会马上关掉刚打开的菜单
   const r = e.currentTarget.getBoundingClientRect();
-  showCtx(r.left, r.bottom + 4, `<button class="menu-item" data-a="distill" title="AI 逐节提取观点库，再合并成课程蒸馏、写老师画像，写进 Obsidian">从媒体库的课蒸馏一位新老师…</button>
-    <button class="menu-item" data-a="import" title="Obsidian「04、外部知识转化库/01、老师分身蒸馏资料」里已经有观点库和老师画像的老师文件夹">导入已经蒸馏好的老师文件夹…</button>
+  showCtx(r.left, r.bottom + 4, `<button class="menu-item" data-a="distill" title="从媒体库的课蒸馏一位新老师">从媒体库的课蒸馏一位新老师…</button>
+    <button class="menu-item" data-a="import" title="导入 Obsidian 里已经蒸馏好的老师文件夹">导入已经蒸馏好的老师文件夹…</button>
     <div class="menu-sep"></div>
-    <button class="menu-item" data-a="round" title="就一个问题请几位老师一起讨论：各自回答、可以互相回应，AI 总结共识和分歧">新建圆桌讨论（几位老师一起讨论）…</button>
-    <button class="menu-item" data-a="topic" title="选一个主题和几位老师，AI 比较他们分别怎么说，写进 Obsidian 的「02、主题蒸馏资料」">新建主题蒸馏（比较几位老师）…</button>`, m => {
+    <button class="menu-item" data-a="round" title="几位老师一起讨论一个问题">新建圆桌讨论（几位老师一起讨论）…</button>
+    <button class="menu-item" data-a="topic" title="比较几位老师对一个主题的说法">新建主题蒸馏（比较几位老师）…</button>`, m => {
     $('[data-a=distill]', m).onclick = () => { m.hidden = true; openDistill({}); };
     $('[data-a=import]', m).onclick = () => { m.hidden = true; importMentor(); };
     $('[data-a=round]', m).onclick = () => { m.hidden = true; openMulti('round'); };
