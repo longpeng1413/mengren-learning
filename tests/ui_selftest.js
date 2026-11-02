@@ -105,6 +105,12 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     src0.focus(); document.getSelection().selectAllChildren(src0);
     document.execCommand('insertText', false, '改过的第一句');
     src0.blur();
+    if (src0.textContent !== '改过的第一句') {  // 测试窗口不在最前面时模拟打字进不去（2026-11-02 几次偶发失败）：直接写进去，按编辑时同样的顺序触发事件
+      src0.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      src0.textContent = '改过的第一句';
+      src0.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      src0.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    }
     ok('自动保存', await until(() => !S.dirty && !S.saving, 5000));
     ok('手动改字幕记下改动（用来积累术语表）', (S.doc.fixes || []).some(f => f.after === '改过的第一句' && f.by === 'manual' && f.before && f.before !== f.after), S.doc.fixes);
     const reread = await api('open', { path: base + '演示视频.mp4' });
@@ -202,11 +208,35 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     }
     const subW = document.querySelector('#right').getBoundingClientRect().width;
     ok('字幕栏没有被挤掉', subW >= 250, subW);
+    // 视频、字幕、AI 区都能隐藏（2026-11-02，和书籍一样）：缩成一条，点它恢复；全部隐藏不行
+    const railOf = sel => document.querySelector(sel + ' > .pane-rail');
+    const W = sel => document.querySelector(sel).getBoundingClientRect().width, Hh = sel => document.querySelector(sel).getBoundingClientRect().height;
+    const subW0 = W('#right');
     document.querySelector('#btnAiHide').click(); await wait(50);
-    ok('隐藏 AI 区', !document.querySelector('#aiPanel').classList.contains('docked') && !document.querySelector('#btnShowAi').hidden);
-    document.querySelector('#btnShowAi').click();
+    ok('隐藏右侧的 AI 区：缩成竖条，空出来的宽度分给视频和字幕', $('#aiPanel').classList.contains('pane-collapsed') && W('#aiDockSide') < 60
+      && getComputedStyle(railOf('#aiPanel')).writingMode.startsWith('vertical') && W('#right') > subW0 + 100, [W('#aiDockSide'), W('#right'), subW0]);
+    railOf('#aiPanel').click(); await wait(50);
+    ok('点竖条恢复 AI 区', !$('#aiPanel').classList.contains('pane-collapsed') && !S.settings.ai_hidden && W('#aiDockSide') > 250);
     savePrefs({ ai_dock: 'bottom', video_h: 0.55 });
     ok('移回视频下方', document.querySelector('#aiPanel').parentElement.id === 'aiDockBottom');
+    const vv = $('#video'), leftW0 = W('#left'), aiH0 = Hh('#aiDockBottom');
+    vv.muted = true; await vv.play().catch(() => {});
+    document.querySelector('[data-pane-hide="video"]').click(); await wait(400);
+    ok('隐藏视频：缩成横条，AI 区占满左边；声音照常播放', $('#playerArea').classList.contains('pane-collapsed') && Hh('#playerArea') < 50
+      && Hh('#aiDockBottom') > aiH0 + 100 && !vv.paused && vv.currentTime > 0, [Hh('#playerArea'), Hh('#aiDockBottom'), aiH0, vv.paused]);
+    vv.pause(); vv.muted = false;
+    document.querySelector('[data-pane-hide="subs"]').click(); await wait(50);
+    ok('隐藏字幕栏：缩成竖条，左边变宽', $('#right').classList.contains('pane-collapsed') && W('#right') < 60 && W('#left') > leftW0 + 150, [W('#right'), W('#left'), leftW0]);
+    document.querySelector('#btnAiHide').click(); await wait(50);
+    ok('最后一块不能隐藏', !S.settings.ai_hidden && !$('#aiPanel').classList.contains('pane-collapsed')
+      && [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('至少要留一块')));
+    railOf('#right').click(); await wait(50);
+    document.querySelector('#btnAiHide').click(); await wait(50);
+    ok('视频和 AI 区都隐藏：左边整列缩成竖条，字幕占满', $('#stageMain').classList.contains('left-rail') && W('#left') < 60 && W('#right') > subW0 + 150
+      && getComputedStyle(railOf('#playerArea')).writingMode.startsWith('vertical'), [W('#left'), W('#right')]);
+    railOf('#playerArea').click(); railOf('#aiPanel').click(); await wait(50);
+    ok('全部恢复', !S.settings.video_hidden && !S.settings.subs_hidden && !S.settings.ai_hidden && !document.querySelector('#stageMain .pane-collapsed')
+      && Math.abs(W('#left') - leftW0) < 30, [W('#left'), leftW0]);
 
     // 课程重点可以编辑
     document.querySelector('#btnEditSummary').click();
@@ -277,7 +307,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     const sumKeep = S.doc.summary;
     S.doc.summary = '## 一、开头\n\n- 要点甲 [00:03]\n- 要点乙 [00:20]\n\n## 二、后面\n\n- 要点丙 [00:30]';
     S.doc.sum_shots = []; renderSummary(); updateButtons();
-    ok('课程重点有「插入截图」和「打印」按钮', !$('#btnSumShot').hidden && !$('#btnSumShot').disabled && !$('#btnPrint').hidden && !$('#btnPrint').disabled);
+    ok('课程重点有「插入截图」「打印」「导出 PDF」按钮', !$('#btnSumShot').hidden && !$('#btnSumShot').disabled && !$('#btnPrint').hidden && !$('#btnPrint').disabled && !$('#btnPdf').hidden && !$('#btnPdf').disabled);
     v.currentTime = 25; await wait(300);
     $('#btnSumShot').click();
     ok('插入截图：插在出处时间不晚于现在、最接近的那一条后面，图片加载出来', S.doc.summary.includes('- 要点乙 [00:20]\n\n![[画面 00:25]]\n\n## 二、后面')
@@ -312,16 +342,45 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     $('#summaryBox .fig-tools [data-sf="del"]').click();
     window.confirm = keepConfirm2;
     ok('删除课程重点里的截图', !S.doc.summary.includes('00:33]]') && S.doc.sum_shots.join() === '25' && document.querySelectorAll('#summaryBox .shot-fig').length === 1, S.doc.summary);
-    let printed = null; const keepPrint = window.print;
-    window.print = () => { const pa = $('#printArea'); printed = { cls: document.body.classList.contains('printing'), html: pa ? pa.innerHTML : '', imgs: pa ? [...pa.querySelectorAll('img')].filter(im => im.complete && im.naturalWidth > 0).length : 0 }; };
+    // 打印（2026-11-02）：打开 Windows 的打印窗口（后台 print_ui，测试里换成假的 systemPrint，记下那时要印的内容）
+    let printed = null; const keepSys = window.systemPrint;
+    window.systemPrint = async () => { const pa = $('#printArea'); printed = { cls: document.body.classList.contains('printing'), html: pa ? pa.innerHTML : '', imgs: pa ? [...pa.querySelectorAll('img')].filter(im => im.complete && im.naturalWidth > 0).length : 0, hidden: pa && getComputedStyle(pa).display === 'none' }; };
     $('#btnPrint').click();
-    ok('打印：只印课程名和课程重点，插图加载好了，没有上移下移按钮', await until(() => printed) && printed.cls && printed.html.includes(S.doc.title)
-      && printed.html.includes('要点丙') && printed.imgs === 1 && !printed.html.includes('上移') && getComputedStyle($('#printArea')).display === 'none', printed);
-    window.print = keepPrint;
-    window.dispatchEvent(new Event('afterprint'));
-    ok('打印完恢复原样', !document.body.classList.contains('printing') && !$('#printArea'));
+    ok('打印：直接打开打印窗口；只印课程名和课程重点，插图加载好了，没有上移下移按钮', await until(() => printed) && printed.cls && printed.html.includes(S.doc.title)
+      && printed.html.includes('要点丙') && printed.imgs === 1 && !printed.html.includes('上移') && printed.hidden, printed);
+    ok('打印窗口关掉后恢复原样', await until(() => !document.body.classList.contains('printing') && !$('#printArea')));
+    // 字幕栏「打印」：和剪藏的「完整字幕」一样排，插的截图在挂的那一句下面
+    const psegs = S.doc.segments;
+    S.doc.sub_shots = [{ t: 10, at: psegs[1].start, w: 300, crop: [0, 0, 0.5, 0.5] }];
+    const keepTr = psegs[2].tr; psegs[2].tr = '第三句的译文';
+    S.doc.doubts = [{ t: psegs[3].start, reason: '听不清' }];
+    updateButtons();
+    ok('字幕栏有「打印」「导出 PDF」两个按钮', !$('#btnSubPrint').disabled && !$('#btnSubPdf').disabled);
+    let printed2 = null;
+    window.systemPrint = async () => { const pa = $('#printArea'); printed2 = pa && { html: pa.innerHTML, cues: [...pa.querySelectorAll('.print-cue')].map(x => x.textContent),
+      figAfter: pa.querySelector('.shot-fig') && pa.querySelector('.shot-fig').previousElementSibling.textContent,
+      w: pa.querySelector('.shot-fig') && pa.querySelector('.shot-fig').style.maxWidth,
+      img: [...pa.querySelectorAll('img')].filter(im => im.complete && im.naturalWidth > 0 && /_c[0-9a-f]{8}\.jpg/.test(im.src)).length }; };
+    $('#btnSubPrint').click();
+    ok('打印字幕：课程名、每句 [时间] 原文、译文、存疑原因，截图（裁剪、大小照旧）在挂的那一句下面', await until(() => printed2) && printed2.html.includes('完整字幕')
+      && printed2.html.includes(S.doc.title) && printed2.cues.length === psegs.length && printed2.cues[0].startsWith(`[${fmt(psegs[0].start)}]`)
+      && printed2.cues[2].includes('第三句的译文') && printed2.cues[3].includes('〔存疑：听不清〕') && printed2.figAfter === printed2.cues[1]
+      && printed2.w === '300px' && printed2.img === 1, printed2);
+    window.systemPrint = keepSys;
+    await until(() => !$('#printArea'));
+    // 导出 PDF（2026-11-02，单独的按钮）：不弹打印窗口，后台按打印的样子直接存（测试存在测试数据的缓存文件夹，run_ui_test 全部通过后整个删掉）
+    const cacheDir = decodeURI(new URL(await frameUrl(psegs[0].start, false)).pathname).replace(/^\//, '').replace(/\/frames\/.*$/, '');
+    const keepAsk = window.askPdfPath; window.askPdfPath = async () => cacheDir + '/打印测试.pdf';
+    $('#btnSubPdf').click();
+    ok('字幕「导出 PDF」：直接存好，提示可以打开，打印内容收掉', await until(() => [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('已导出 PDF')), 30000)
+      && await until(() => !$('#printArea') && !document.body.classList.contains('printing')), [...document.querySelectorAll('.toast')].map(t => t.textContent));
+    window.askPdfPath = async () => cacheDir + '/打印测试2.pdf';
+    $('#btnPdf').click();
+    ok('课程重点「导出 PDF」也能直接存', await until(() => [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('打印测试2.pdf')), 30000));
+    window.askPdfPath = keepAsk;
+    psegs[2].tr = keepTr; S.doc.sub_shots = []; S.doc.doubts = []; renderCues();
     document.querySelectorAll('.ai-tabs .tab')[1].click();
-    ok('「打印」只在课程重点页显示', $('#btnPrint').hidden);
+    ok('「打印」「导出 PDF」只在课程重点页显示', $('#btnPrint').hidden && $('#btnPdf').hidden);
     document.querySelectorAll('.ai-tabs .tab')[0].click();
     S.doc.summary = sumKeep; delete S.doc.sum_shots; delete S.doc.fig_edits; renderSummary();
 
@@ -692,7 +751,14 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
 
     // 设置窗口
     openSettings('codex');
-    ok('设置：ChatGPT 账号登录', document.querySelector('#codexBox').textContent.includes('用 ChatGPT 账号登录'));
+    ok('设置：「关于与数据」在最上面（2026-11-02）', document.querySelector('#settingsNav button').dataset.sec === 'about');
+    ok('设置：最上面是「关于」标题，下面是「关于与数据」', document.querySelector('#settingsNav').firstElementChild.textContent === '关于' && document.querySelector('#settingsNav').firstElementChild.nextElementSibling.dataset.sec === 'about');
+    // 检查更新（2026-11-02）：有新版本时显示版本号、「去下载页」、更新说明（界面自测里后台返回假的 99.0.0，不联网）
+    ok('关于与数据：有「检查更新」和「打开软件时自动检查」', $('#btnCheckUpdate') && $('[data-k="update_auto"]') && $('[data-k="update_auto"]').checked);
+    $('#btnCheckUpdate').click();
+    ok('检查更新：有新版本时显示版本号、「去下载页」和更新说明', await until(() => $('#updateInfo').textContent.includes('有新版本 99.0.0'))
+      && !$('#btnGoDownload').hidden && !$('#updateNotes').hidden && $('#updateNotesBody').textContent.includes('测试用的更新说明'), $('#updateInfo').textContent);
+    ok('设置：ChatGPT 账号登录',document.querySelector('#codexBox').textContent.includes('用 ChatGPT 账号登录'));
     showSection('teachers');
     ok('设置：老师列表', document.querySelectorAll('#teacherList button').length === 2);
     document.querySelectorAll('#teacherList button')[0].click();

@@ -1595,6 +1595,45 @@ t0 = time.time()
 r = api.call('dropped', {'names': ['乙.mp4']})
 check('没找到时等一会儿就返回空的，不会一直等', r['ok'] and r['path'] == '' and time.time() - t0 < 3)
 
+# 检查更新（2026-11-02）：问 GitHub 最新版本；直接连不上、填了代理时再走代理；版本号按数字比（1.10.0 比 1.9.2 新）
+import requests as _rq  # noqa: E402
+
+
+class _Resp:
+    status_code = 200
+
+    def json(self):
+        return {'tag_name': 'v1.10.0', 'html_url': 'https://github.com/longpeng1413/mengren-learning/releases/tag/v1.10.0',
+                'body': '## 1.10.0\n\n- 新功能', 'published_at': '2026-11-03T08:00:00Z'}
+
+
+_seen, _keep_get, _keep_ver = [], _rq.get, api._version
+
+
+def _fake_get(url, **kw):
+    _seen.append(kw.get('proxies'))
+    if not kw.get('proxies'):
+        raise _rq.ConnectionError('直接连不上')
+    return _Resp()
+
+
+_rq.get = _fake_get
+try:
+    api._version = '1.9.2'
+    config.update({'proxy': 'http://127.0.0.1:7890'})
+    r = api.call('check_update', {'auto': True})
+    check('检查更新：直接连不上时走代理再试；1.10.0 比 1.9.2 新；自动检查记下日期', r['ok'] and r['newer'] and r['latest'] == '1.10.0'
+          and r['date'] == '2026-11-03' and _seen == [None, {'http': 'http://127.0.0.1:7890', 'https': 'http://127.0.0.1:7890'}]
+          and config.load()['update_checked'] == time.strftime('%Y-%m-%d'), (r, _seen))
+    api._version = '1.10.0'
+    check('检查更新：已经是最新版本', not api.call('check_update', {})['newer'])
+    config.update({'proxy': ''})
+    r = api.call('check_update', {})
+    check('检查更新：连不上 GitHub 时说清楚原因和办法', not r['ok'] and '连不上 GitHub' in r['error'] and '网络代理' in r['error'], r)
+finally:
+    _rq.get, api._version = _keep_get, _keep_ver
+    config.update({'proxy': ''})
+
 # 代码里没有写错的变量名（pyflakes）
 import importlib.util  # noqa: E402
 if importlib.util.find_spec('pyflakes'):

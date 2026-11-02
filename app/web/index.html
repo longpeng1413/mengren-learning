@@ -221,6 +221,7 @@
     <div class="stage-main" id="stageMain" hidden>
       <section class="left" id="left">
         <div class="player-area" id="playerArea">
+          <button class="pane-rail" data-pane-show="video" title="显示视频">视频</button>
           <div class="player-wrap" id="playerWrap">
             <video id="video" controls preload="metadata"></video>
             <div class="audio-cover" id="audioCover" hidden><img src="icon.png" alt=""><span id="audioName"></span></div>
@@ -237,7 +238,7 @@
               <option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option>
               <option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option>
             </select>
-            <button class="btn small" id="btnShowAi" hidden title="显示 AI 区">AI</button>
+            <button class="btn small" data-pane-hide="video" title="隐藏视频（声音照常播放；留一条，点它就恢复）">隐藏</button>
           </div>
         </div>
         <div class="hsplit" id="vSplit" title="上下拖动调整视频和 AI 区的高度"></div>
@@ -245,6 +246,7 @@
       </section>
       <div class="splitter" id="splitter" title="拖动调整视频和字幕的宽度"></div>
       <section class="right" id="right">
+        <button class="pane-rail" data-pane-show="subs" title="显示字幕">字幕</button>
         <div class="sub-head">
           <div class="search">
             <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
@@ -256,6 +258,8 @@
           <label class="switch" title="人工检查过字幕后打开，剪藏的笔记里会标注「已人工校对」"><input type="checkbox" id="optReviewed"><span></span>已校对</label>
           <span class="muted small-text" id="cueCount"></span>
           <button class="btn small video-shot" id="btnSubShot" title="把视频现在的画面截下来，插在正在播放的这一句后面（插进去以后可以上下移动；剪藏时也放进笔记的「完整字幕」）"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>插入截图</button>
+          <button class="btn small video-shot" id="btnSubPrint" disabled title="打印完整字幕（时间、原文、译文、存疑标记和插的截图）：打开打印预览，选打印机、颜色后打印"><svg viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg>打印</button>
+          <button class="btn small video-shot" id="btnSubPdf" disabled title="把完整字幕（时间、原文、译文、存疑标记和插的截图）直接存成 PDF 文件，不用打印机"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h4"/></svg>导出 PDF</button>
           <div class="menu-wrap">
             <button class="btn icon-only small" id="btnText" title="文字设置：字号、行距、宽度、字体"><b class="aa">Aa</b></button>
             <div class="menu text-menu" id="menuText">
@@ -276,6 +280,7 @@
             <div class="menu versions-menu" id="menuVersions"></div>
           </div>
           <button class="btn icon-only small" id="btnUndo" title="撤销拆分/合并/删除/校对（Ctrl+Z）" disabled><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+          <button class="btn small" data-pane-hide="subs" title="隐藏字幕栏（留一条竖条，点它就恢复）">隐藏</button>
           <button class="btn icon-only small" id="btnHelp" title="使用说明"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14m0 3v.01"/></svg></button>
         </div>
         <div class="cues" id="cues"></div>
@@ -288,17 +293,19 @@
 
 <!-- AI 区（会被移到下方或右侧） -->
 <div class="ai-panel" id="aiPanel">
+  <button class="pane-rail" data-pane-show="ai" title="显示 AI 区（课程重点、AI 对话、画面）">课程重点 · AI</button>
   <div class="ai-tabs">
     <button class="tab active" data-tab="summary">课程重点</button>
     <button class="tab" data-tab="chat">AI 对话</button>
     <button class="tab" data-tab="frames">画面<span class="tab-count" id="framesCount"></span></button>
     <span class="grow"></span>
     <button class="btn small tts-btn" id="btnTts" title="朗读（边听边看）：课程重点页读课程重点，AI 对话页读 AI 的回答"><svg viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M3 14h3v6H4a1 1 0 0 1-1-1zM21 14h-3v6h2a1 1 0 0 0 1-1z"/></svg>朗读</button>
-    <button class="btn small" id="btnPrint" disabled title="打印课程重点（连同插图）；在打印窗口里也可以选「另存为 PDF」"><svg viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg>打印</button>
+    <button class="btn small" id="btnPrint" disabled title="打印课程重点（连同插图）：打开打印预览，选打印机、颜色后打印"><svg viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg>打印</button>
+    <button class="btn small" id="btnPdf" disabled title="把课程重点（连同插图）直接存成 PDF 文件，不用打印机"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h4"/></svg>导出 PDF</button>
     <span class="ai-model" id="aiModel"></span>
     <button class="btn icon-only small" id="btnAiMax" title="放大 AI 区（视频缩到最小）"><svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg></button>
     <button class="btn icon-only small" id="btnAiDock" title="移到右侧 / 移回视频下方"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>
-    <button class="btn icon-only small" id="btnAiHide" title="隐藏 AI 区"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <button class="btn small" id="btnAiHide" data-pane-hide="ai" title="隐藏 AI 区（课程重点、AI 对话、画面；留一条，点它就恢复）">隐藏</button>
   </div>
   <div class="ai-body" data-pane="summary">
     <div class="summary-stale" id="summaryStale" hidden><span id="summaryStaleText"></span><button class="btn primary small" id="btnSummaryStale" title="用改好的字幕重新写课程重点（会自动查漏补缺）">重新生成</button></div>
@@ -612,6 +619,7 @@
         <h4>字幕（右边）和视频下方</h4>
         <ul>
           <li><b>视频下方的开关</b>：字幕跟随（播放时字幕自动滚到当前句）、译文（显示中文译文）、画面字幕（在视频画面上叠加当前字幕）、单句循环（反复播放当前这一句，开着时旁边写着在循环哪一句，点一下就关）。最右边是播放速度。</li>
+          <li><b>隐藏视频、字幕、AI 区</b>（和书籍一样）：视频下方、字幕栏上方、AI 区右上角各有「隐藏」，想放大看某一块就把别的隐藏起来。隐藏的那块缩成一条（叠在左边的视频、AI 区是横条，字幕栏、右侧的 AI 区是竖条），点那一条就恢复；三块不能全部隐藏。隐藏视频时声音照常播放，可以边听边看字幕或课程重点。下次打开软件还是上次的样子。</li>
           <li><b>搜索字幕</b>：输入后按 Enter 跳到下一处，旁边显示一共找到几处。</li>
           <li><b>存疑 5</b>（有存疑句时才出现）：AI 校对时拿不准的句子还剩几句，点一下跳到下一句并单句循环播放，方便回听。</li>
           <li><b>已校对</b>开关：你人工检查完字幕后打开，剪藏的笔记里会标注「已人工校对」，媒体库也标「已校对」。旁边的「582 句」是字幕句数。</li>
@@ -627,7 +635,7 @@
         <ul>
           <li><b>三个标签页</b>：课程重点、AI 对话（就这节课提问）、画面（挑出来的插图，数字是有几张）。</li>
           <li><b>朗读</b>（耳机图标）：边听边看。课程重点页读课程重点，AI 对话页读 AI 的回答；中括号里的时间（如 [01:50]）、插图、流程图不读，开始时视频自动暂停。正在读的句子高亮，快读到底部时自动往下翻；自己用滚轮滚动后暂停跟随，停手 6 秒自动恢复，点「定位」马上回来。<b>双击任意一句，从这一句开始读</b>（没在朗读时也直接开始）；双击正在读的那一句暂停 / 继续。播放条上有上一句、下一句、语速（0.75×～2×）、声音、更多（从头朗读、从当前屏幕开始、高亮颜色）。下次再点朗读，从上次读到的地方接着读。<br>声音有三种来源：<b>Edge 在线朗读</b>（默认，声音最自然，晓晓、云希等，要联网）、<b>百度朗读</b>（要联网，正在读的句子会发给百度翻译；不是百度正式开放的服务，百度改了就会失效）、<b>系统声音</b>（Windows 自带的慧慧、瑶瑶、康康，不联网）。在线声音没取到时自动重试，还不行就停在这一句并告诉你。会提前准备后面几句；在线声音某一句回得慢时会自动再要一次。声音只在内存里，不占硬盘。</li>
-          <li><b>右上角</b>：写着现在用的是哪个 AI 和模型；三个小按钮分别是放大 AI 区（视频缩到最小）、移到右侧 / 移回视频下方、隐藏 AI 区。</li>
+          <li><b>右上角</b>：写着现在用的是哪个 AI 和模型；两个小按钮分别是放大 AI 区（视频缩到最小）、移到右侧 / 移回视频下方；「隐藏」把 AI 区收成一条，点那一条恢复。</li>
           <li><b>「生成课程重点之后，字幕又改了 N 句」提醒条</b>：同媒体库的「重点待更新」，点里面的「重新生成」用改好的字幕重写（会自动查漏补缺）。</li>
           <li><b>生成课程重点 / 重新生成</b>：按这节课的完整字幕写课程重点，写完默认自动查漏补缺。</li>
           <li><b>查漏补缺</b>：对照完整字幕，找出课程重点漏掉的内容，补进对应的小节。</li>
@@ -636,7 +644,7 @@
           <li><b>插入截图</b>（视频才有）：把视频现在的画面截下来，插在出处时间离现在最近（不晚于现在）的那一条重点后面；正在「编辑」时插在光标那一行后面。图下面「上移 / 下移」一次挪过一条重点（标题、一张表也算一条），「删除」去掉这张图；AI 插的图也能这样挪。手动插的图「重新生成」课程重点后会自动放回去；剪藏时和 AI 插的图一样放进笔记。</li>
           <li><b>✂ 裁剪</b>（课程重点和字幕栏的截图下面都有）：在截图上拖出要留下的部分（框还是整张时直接拖就是画框；画好后拖框里面移动，拖四角、四边调整），「整张（不裁剪）」恢复整张图。原截图不会被改。</li>
           <li><b>⇲ 大小</b>（同上）：拖滑块调这张图显示多宽，图马上跟着变，不用点确定；也可以点「小 / 中 / 大 / 自动」（自动 = 原来的大小）；「这节课的图都用这个大小」把课程重点和字幕栏里这节课的截图都改成一样大。软件里、打印出来、剪藏到 Obsidian 的笔记里都是这个大小。</li>
-          <li><b>打印</b>（朗读旁边，课程重点页才有）：只打印课程名和课程重点（连同插图），文字黑色，图片保持原色；在弹出的打印窗口里「颜色」选「彩色」就打印彩色图片，选「黑白」省彩色墨水；也可以选「另存为 PDF」。</li>
+          <li><b>打印 / 导出 PDF</b>（朗读旁边，课程重点页才有）：只印课程名和课程重点（连同插图），文字黑色，图片保持原色。「打印」打开打印预览：能看到印出来的样子，选打印机、份数，「颜色」选彩色就打印彩色图片，选黑白省彩色墨水；预览开着时点软件右上角的 × 只会关掉预览，不会退出软件。「导出 PDF」直接存成 PDF 文件、不用打印机，存好点提示里的「打开 PDF」就能看。</li>
           <li><b>下面那行小字</b>：「字幕被引用约 93%」是课程重点里标了出处时间的内容，覆盖了多少字幕；「有 3 段没有出处（如 00:06…）」是哪几段字幕没被重点引用，可以点时间回去听听有没有漏掉要紧的。</li>
           <li>重点里带方括号的时间（如 [01:42]）点一下跳到视频那里。</li>
         </ul>
@@ -698,7 +706,7 @@
         <ul>
           <li><b>点字幕文字</b>：跳到这一句，同时可以直接修改，改完自动保存。<b>点时间</b>：只跳转。</li>
           <li><b>鼠标移到某一句</b>，右侧有工具：把开始时间对齐到当前播放位置、在光标处拆成两句、与下一句合并、删除。都可以撤销（Ctrl + Z 或字幕栏上方的撤销按钮）。</li>
-          <li><b>字幕栏上方</b>：搜索（Enter 跳到下一个）、「插入截图」（把视频现在的画面插在正在播放的这一句后面；断句不准时点图下面的「上移 / 下移」挪位置，「✂ 裁剪」只留需要的部分，「⇲ 大小」调图显示多大，用法和课程重点的截图一样；剪藏时也放进笔记的「完整字幕」）、「已校对」开关（人工检查完打开，剪藏的笔记会标明）、「Aa」文字设置（字号、行距、句间距、宽度、字体、主题）、历史版本（重新识别、AI 校对、清空、恢复前自动存的，最多 5 份）。</li>
+          <li><b>字幕栏上方</b>：搜索（Enter 跳到下一个）、「插入截图」（把视频现在的画面插在正在播放的这一句后面；断句不准时点图下面的「上移 / 下移」挪位置，「✂ 裁剪」只留需要的部分，「⇲ 大小」调图显示多大，用法和课程重点的截图一样；剪藏时也放进笔记的「完整字幕」）、「打印」「导出 PDF」（完整字幕：每句时间、原文、译文、存疑原因，插的截图放在对应那一句下面，按你裁剪、调好的大小；用法和课程重点的打印、导出 PDF 一样）、「已校对」开关（人工检查完打开，剪藏的笔记会标明）、「Aa」文字设置（字号、行距、句间距、宽度、字体、主题）、历史版本（重新识别、AI 校对、清空、恢复前自动存的，最多 5 份）。</li>
           <li><b>视频下方</b>：字幕跟随、显示译文、画面上叠加字幕、单句循环（开着时旁边写明在循环哪一句，点一下就关；换一节课自动关掉）、播放速度。</li>
           <li><b>布局</b>：视频和字幕之间、视频和 AI 区之间的分隔条都能拖动；AI 区可以移到最右边当侧边栏、放大或隐藏。</li>
         </ul>
@@ -859,6 +867,7 @@
       <section data-h="settings" hidden>
         <h3>设置说明</h3>
         <dl class="help-dl">
+          <dt>关于与数据</dt><dd>版本、开源地址；检查更新（有新版本时点「去下载页」到 GitHub 下载，换上新的「猛人学习」文件夹即可，设置和字幕不受影响；可以打开软件时每天自动检查一次）；点右上角 × 时收到右下角还是直接退出；导出 / 导入设置（换电脑用，可以带密钥和 ChatGPT 登录）；缓存和日志放在哪里；打开日志、设置文件夹；清空缓存。</dd>
           <dt>外观</dt><dd>主题（墨黑、帝王紫、深灰、浅色）和强调色。顶栏的月亮按钮也能切换主题。</dd>
           <dt>老师与术语表</dt><dd>见左边「老师与术语表」。</dd>
           <dt>任务用哪个 AI</dt><dd>课程重点和对话、AI 校对、翻译、画面识别可以分别选不同的服务。书籍整理用「课程重点和对话」选的那个。画面识别要能看图：ChatGPT 账号、Claude、Gemini、OpenAI 都可以；DeepSeek 不能看图。</dd>
@@ -870,7 +879,6 @@
           <dt>ChatGPT 账号</dt><dd>用 ChatGPT Plus / Pro / Business 账号登录，用套餐里的额度，不另花 API 费用。浏览器登录完会自动回来；浏览器显示「无法访问此网站」时，把地址栏里的网址复制粘贴回来。</dd>
           <dt>Claude / Gemini / DeepSeek / 豆包大模型</dt><dd>填 API Key、选模型，「获取模型列表」可以列出能用的模型。豆包大模型（火山方舟）和豆包语音是两个不同的服务。</dd>
           <dt>网络代理</dt><dd>填代理地址（比如 Clash Verge 默认 http://127.0.0.1:7897），只给勾选了「通过网络代理连接」的服务用。</dd>
-          <dt>关于与数据</dt><dd>版本、开源地址；点右上角 × 时收到右下角还是直接退出；导出 / 导入设置（换电脑用，可以带密钥和 ChatGPT 登录）；缓存和日志放在哪里；打开日志、设置文件夹；清空缓存。</dd>
         </dl>
       </section>
 
@@ -925,6 +933,8 @@
 <dialog id="dlgSettings" class="dialog settings">
   <div class="settings-wrap">
     <aside class="settings-nav" id="settingsNav">
+      <div class="nav-label">关于</div>
+      <button data-sec="about">关于与数据</button>
       <div class="nav-label">常用</div>
       <button data-sec="look" class="active">外观</button>
       <button data-sec="teachers">老师与术语表</button>
@@ -943,8 +953,6 @@
       <button data-sec="deepseek">DeepSeek</button>
       <button data-sec="ark">豆包大模型</button>
       <button data-sec="net">网络代理</button>
-      <div class="nav-label">其他</div>
-      <button data-sec="about">关于与数据</button>
     </aside>
     <div class="settings-body" id="settingsBody">
       <section data-sec="look">
@@ -1144,6 +1152,16 @@
       <section data-sec="about" hidden>
         <h3>关于与数据</h3>
         <p>猛人学习（作者：longpeng1413 和 Claude）　版本 <b id="aboutVersion"></b>　·　开源项目：<a href="#" id="aboutHome">github.com/longpeng1413/mengren-learning</a></p>
+
+        <div class="label strong">检查更新</div>
+        <div class="field update-row">
+          <button type="button" class="btn small" id="btnCheckUpdate">检查更新</button>
+          <button type="button" class="btn small primary" id="btnGoDownload" hidden title="在浏览器里打开 GitHub 的下载页面">去下载页</button>
+          <span class="muted small-text" id="updateInfo"></span>
+        </div>
+        <details class="update-notes" id="updateNotes" hidden><summary>这个版本更新了什么</summary><div class="md" id="updateNotesBody"></div></details>
+        <div class="field"><label class="check"><input type="checkbox" data-k="update_auto"> 打开软件时自动检查（每天最多一次），有新版本时提示</label></div>
+        <p class="hint">有新版本时点「去下载页」，在浏览器里打开 GitHub 的下载页面，下载 <code>mengren-learning-版本号-windows-with-ffmpeg.zip</code>。更新方法：先退出猛人学习（右下角图标右键「退出」），把解压出来的「猛人学习」文件夹替换旧的。设置、老师、媒体库、字幕都不在这个文件夹里，替换不会丢。GitHub 在国内有时很慢或打不开，可以多试几次。</p>
 
         <div class="label strong">点右上角 × 时</div>
         <div class="field"><label class="check"><input type="checkbox" data-k="close_to_tray"> 收到屏幕右下角（任务栏通知区域），软件继续运行；单击那里的图标打开，右键「退出」才真正退出。不勾选就是点 × 直接退出。</label></div>

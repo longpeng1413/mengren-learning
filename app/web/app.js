@@ -11,7 +11,8 @@ const S = {
   active: -1, editing: null, userScrollAt: 0, undo: [], job: null,
   hits: [], hitPos: -1, chatAbort: null, lib: [], resumeAt: 0, resumePending: false, loopIdx: null, frameUrls: {},
 };
-const LAYOUT_KEYS = ['font_size', 'line_height', 'cue_gap', 'cue_width', 'font_family', 'split', 'sidebar', 'lib_w', 'ai_dock', 'ai_hidden', 'ai_w', 'video_h'];
+const LAYOUT_KEYS = ['font_size', 'line_height', 'cue_gap', 'cue_width', 'font_family', 'split', 'sidebar', 'lib_w', 'ai_dock', 'ai_hidden', 'ai_w', 'video_h',
+  'video_hidden', 'subs_hidden'];
 
 /* ---------------------------------------------------------------- 工具 ---- */
 async function api(name, body = {}) {
@@ -172,20 +173,35 @@ function applyLayout() {
   $('#library').style.width = (s.lib_w || 270) + 'px';
   $('#left').style.width = Math.round((s.split || 0.5) * 100) + '%';
   const main = $('#stageMain'), panel = $('#aiPanel');
-  const side = s.ai_dock === 'side', hidden = !!s.ai_hidden;
-  main.classList.toggle('ai-side', side && !hidden);
-  main.classList.toggle('ai-hidden', hidden);
-  const target = hidden ? null : (side ? $('#aiDockSide') : $('#aiDockBottom'));
-  if (target && panel.parentElement !== target) target.appendChild(panel);
-  if (!target && panel.parentElement !== document.body) document.body.appendChild(panel);
-  panel.classList.toggle('docked', !!target);
+  // 视频、字幕、AI 区各自能隐藏（2026-11-02，和书籍一样）：隐藏的缩成一条，点它恢复。ai_hidden 以前是让 AI 区整个消失，现在也是缩成一条
+  const side = s.ai_dock === 'side', hide = { video: !!s.video_hidden, subs: !!s.subs_hidden, ai: !!s.ai_hidden };
+  const leftRail = hide.video && (side || hide.ai);  // 左边整列都隐藏了：缩成竖条
+  main.classList.toggle('ai-side', side);
+  main.classList.toggle('ai-collapsed', hide.ai);
+  main.classList.toggle('video-hidden', hide.video);
+  main.classList.toggle('subs-hidden', hide.subs);
+  main.classList.toggle('left-rail', leftRail);
+  const target = side ? $('#aiDockSide') : $('#aiDockBottom');
+  if (panel.parentElement !== target) target.appendChild(panel);
+  panel.classList.add('docked');
+  $('#playerArea').classList.toggle('pane-collapsed', hide.video);
+  $('#right').classList.toggle('pane-collapsed', hide.subs);
+  panel.classList.toggle('pane-collapsed', hide.ai);
   const stageW = $('#stage').getBoundingClientRect().width || 1200;
   const aiW = clamp(s.ai_w || 440, 280, Math.max(300, stageW * 0.65));
   $('#aiDockSide').style.width = aiW + 'px';
-  // AI 在右侧时，视频和字幕按剩下的宽度分配比例
-  if (side && !hidden) $('#left').style.width = `calc((100% - ${Math.round(aiW + 20)}px) * ${(s.split || 0.5).toFixed(3)})`;
-  $('#playerArea').style.flex = (!side && !hidden && !$('#playerWrap').classList.contains('audio')) ? `0 0 ${Math.round((s.video_h || 0.55) * 100)}%` : '';
-  $('#btnShowAi').hidden = !hidden;
+  // AI 在右侧时，视频和字幕按剩下的宽度分配比例（隐藏了的那块由样式定宽度）
+  if (side && !hide.ai) $('#left').style.width = `calc((100% - ${Math.round(aiW + 20)}px) * ${(s.split || 0.5).toFixed(3)})`;
+  $('#playerArea').style.flex = (!side && !hide.ai && !hide.video && !$('#playerWrap').classList.contains('audio')) ? `0 0 ${Math.round((s.video_h || 0.55) * 100)}%` : '';
+  // 朗读的那一块被隐藏了：停下
+  const t = typeof TTS !== 'undefined' && TTS.active();
+  if (t && t.root && t.root.closest('.pane-collapsed')) TTS.stop();
+}
+const PANE_KEY = { video: 'video_hidden', subs: 'subs_hidden', ai: 'ai_hidden' };
+function setPane(k, hidden) {
+  const s = S.settings;
+  if (hidden && Object.entries(PANE_KEY).every(([x, key]) => x === k || s[key])) return toast('至少要留一块，不能全部隐藏');
+  savePrefs({ [PANE_KEY[k]]: hidden });
 }
 
 let prefTimer = null, prefPatch = {};
@@ -1496,12 +1512,13 @@ function updateButtons() {
   $('#btnCapture').disabled = !S.doc || busy || !vid;
   $('#btnSubShot').hidden = !vid;  // 音频没有画面
   $('#btnSubShot').disabled = !has || busy;
+  $('#btnSubPrint').disabled = $('#btnSubPdf').disabled = !has;
   $('#btnDescribe').disabled = !S.doc || busy || !((S.doc && S.doc.frames) || []).some(f => !f.note);
   $('#btnRecheck').disabled = !S.doc || busy || !vid || !doubtIndexes().length;
   $('#btnReview').disabled = !has || busy || !(S.doc && (S.doc.summary || '').trim()) || !!S.chatAbort;
   $('#btnSumShot').hidden = !vid;
   $('#btnSumShot').disabled = !(S.doc && (S.doc.summary || '').trim()) || busy || !!S.chatAbort;
-  $('#btnPrint').disabled = !(S.doc && (S.doc.summary || '').trim()) || !!S.chatAbort;
+  $('#btnPrint').disabled = $('#btnPdf').disabled = !(S.doc && (S.doc.summary || '').trim()) || !!S.chatAbort;
   $('#btnTerms').disabled = !has || busy;
   const pend = S.doc && S.doc.terms_pending, nPend = pend ? pend.terms.length + pend.errors.length : 0;
   $('#btnTerms').textContent = nPend ? `新术语 ${nPend}` : '新术语';
@@ -2557,20 +2574,58 @@ function moveSumShot(n, act) {  // n：课程重点里从上往下第几张图
   markDirty(); renderSummary();
   if (act !== 'del') scrollToSumFig(t);
 }
-/* 打印课程重点（2026-11-02 用户要求，按钮在朗读旁边）：只印课程名和课程重点（连同插图），白底黑字；打印窗口里也能另存为 PDF */
-async function printSummary() {
-  if (!S.doc || !(S.doc.summary || '').trim()) return;
+/* 打印、导出 PDF（2026-11-02 用户要求）：课程重点（朗读旁边）和完整字幕（字幕栏上方）各有「打印」「导出 PDF」两个按钮。
+   只印课程名和这一块内容（连同插图），文字黑色、图片原色。sub：标题下面那行小字，html：正文，prepare(box)：给图片填地址，pdf：导出 PDF。
+   打印用 Edge 自带的打印预览（window.print()，铺满窗口、能看预览、选颜色）。用户试过 Windows 自带的小打印窗口（没有预览、
+   看不到颜色选择）后要求换回来；预览开着时点软件右上角的 × 只关预览（print_state → main.on_closing）。导出 PDF 由后台 PrintToPdfAsync 直接存，不弹打印窗口。 */
+async function askPdfPath(sub) {
+  const name = `${(S.doc.title || '猛人学习').replace(/[\\/:*?"<>|]/g, '_')}（${sub}）.pdf`;
+  return (await api('save_dialog', { ext: 'pdf', name })).path;
+}
+async function systemPrint() {  // 打开打印预览，关掉后才返回（界面自测里换成假的）
+  await api('print_state', { on: true }).catch(() => {});  // 预览开着时点软件右上角的 × 只关预览（main.on_closing）
+  await new Promise(resolve => { window.addEventListener('afterprint', resolve, { once: true }); window.print(); });
+  api('print_state', { on: false }).catch(() => {});
+}
+async function printDoc(sub, html, prepare, pdf) {
+  const path = pdf ? await askPdfPath(sub) : null;
+  if (pdf && !path) return;
   $$('#printArea').forEach(el => el.remove());
   const box = document.createElement('div');
   box.id = 'printArea'; box.className = 'md';
-  box.innerHTML = `<h1>${esc(S.doc.title || '课程重点')}</h1><div class="print-sub">课程重点</div>${md(S.doc.summary)}`;
+  box.innerHTML = `<h1>${esc(S.doc.title || sub)}</h1><div class="print-sub">${esc(sub)}</div>${html}`;
   document.body.appendChild(box);
-  hydrateFigures(box);
+  prepare(box);
   const t0 = Date.now();  // 等插图加载好（最多 8 秒），不然打出来是空框
   while (Date.now() - t0 < 8000 && $$('img', box).some(img => !img.getAttribute('src') || !img.complete)) await sleep(100);
   document.body.classList.add('printing');
-  window.addEventListener('afterprint', () => { document.body.classList.remove('printing'); box.remove(); }, { once: true });
-  window.print();
+  try {
+    if (pdf) {
+      toast('正在导出 PDF…', { ms: 2000 });
+      const r = await api('print_pdf', { path });
+      toast(`已导出 PDF：${r.path}`, { ms: 8000, action: { label: '打开 PDF', run: () => api('open_file', { path: r.path }) } });
+    } else await systemPrint();
+  } catch (e) { fail(e); } finally { document.body.classList.remove('printing'); box.remove(); }
+}
+function printSummary(pdf) {
+  if (!S.doc || !(S.doc.summary || '').trim()) return;
+  return printDoc('课程重点', md(S.doc.summary), hydrateFigures, pdf);
+}
+/* 完整字幕：和剪藏的「完整字幕」一样排——[时间] 原文、下一行译文、存疑句标原因，插的截图放在挂的那一句下面（按裁剪、大小） */
+function printSubs(pdf) {
+  if (!S.doc || !S.doc.segments.length) return;
+  const shots = {};
+  (S.doc.sub_shots || []).forEach(x => { const i = findIndex(x.at); (shots[i] = shots[i] || []).push(x); });
+  const figs = i => (shots[i] || []).sort((a, b) => a.t - b.t).map(x =>
+    `<figure class="shot-fig" data-pt="${x.t}" data-crop="${x.crop ? x.crop.join(',') : ''}"${x.w ? ` style="max-width:${x.w}px"` : ''}><img alt=""></figure>`).join('');
+  const html = figs(-1) + S.doc.segments.map((s, i) => {
+    const d = doubtOf(s);
+    return `<div class="print-cue"><span class="print-t">[${fmt(s.start)}]</span> ${esc(s.text)}${d ? ` <span class="print-doubt">〔存疑：${esc(d.reason || '')}〕</span>` : ''}`
+      + `${(s.tr || '').trim() ? `<div class="print-tr">${esc(s.tr)}</div>` : ''}</div>${figs(i)}`;
+  }).join('');
+  return printDoc('完整字幕', html, box => $$('[data-pt]', box).forEach(f => {
+    frameUrl(+f.dataset.pt, false, f.dataset.crop ? f.dataset.crop.split(',').map(Number) : null).then(u => { if (u) f.querySelector('img').src = u; });
+  }), pdf);
 }
 /* 字幕有多少被课程重点的出处时间引用到（粗略估计，用来判断有没有大段漏掉） */
 function refreshCoverage() {
@@ -3204,7 +3259,7 @@ function bind() {
   // 分隔条
   dragger($('#splitter'), 'x', ev => {
     const L = $('#stageMain').getBoundingClientRect();
-    const sideW = S.settings.ai_dock === 'side' && !S.settings.ai_hidden ? $('#aiDockSide').offsetWidth : 0;
+    const sideW = S.settings.ai_dock === 'side' ? $('#aiDockSide').offsetWidth : 0;
     S.settings.split = clamp((ev.clientX - L.left) / (L.width - sideW - 20), 0.2, 0.8);
     applyLayout();
   }, () => savePrefs({ split: +S.settings.split.toFixed(3) }));
@@ -3226,11 +3281,15 @@ function bind() {
   $$('.ai-tabs .tab').forEach(t => t.onclick = () => {
     $$('.ai-tabs .tab').forEach(x => x.classList.toggle('active', x === t));
     $$('.ai-body').forEach(p => p.hidden = p.dataset.pane !== t.dataset.tab);
-    $('#btnPrint').hidden = t.dataset.tab !== 'summary';  // 只打印课程重点
+    $('#btnPrint').hidden = $('#btnPdf').hidden = t.dataset.tab !== 'summary';  // 只打印课程重点
   });
   $('#btnAiDock').onclick = () => savePrefs({ ai_dock: S.settings.ai_dock === 'side' ? 'bottom' : 'side' });
-  $('#btnAiHide').onclick = () => savePrefs({ ai_hidden: true });
-  $('#btnShowAi').onclick = () => savePrefs({ ai_hidden: false });
+  // 视频、字幕、AI 区的「隐藏」和缩成的那一条（点它恢复）
+  document.addEventListener('click', e => {
+    const hide = e.target.closest('[data-pane-hide]'), show = e.target.closest('[data-pane-show]');
+    if (hide) setPane(hide.dataset.paneHide, true);
+    else if (show) setPane(show.dataset.paneShow, false);
+  });
   $('#btnAiMax').onclick = () => {
     const s = S.settings;
     if (s.ai_dock === 'side') {
@@ -3265,6 +3324,8 @@ function bind() {
   $('#setSave').onclick = () => saveSettings(true);
   $('#resetTemplate').onclick = () => { $('#summaryTemplate').value = S.defaultTemplate; };
   $$('[data-dir]').forEach(b => b.onclick = () => api('open_dir', { which: b.dataset.dir }).catch(fail));
+  $('#btnCheckUpdate').onclick = () => checkUpdate(false);
+  $('#btnGoDownload').onclick = () => S.update && api('reveal', { target: S.update.url }).catch(fail);
   $('#aboutHome').onclick = e => { e.preventDefault(); api('reveal', { target: 'https://github.com/longpeng1413/mengren-learning' }).catch(fail); };
   $$('[data-test]').forEach(b => b.onclick = async () => {
     const out = b.parentElement.querySelector('.test-result');
@@ -3313,6 +3374,8 @@ function bind() {
   $('#btnFrames').onclick = () => { if (!S.job) findFrames(false); };
   $('#btnCapture').onclick = () => { if (!S.job) captureFrame(); };
   $('#btnSubShot').onclick = () => { if (!S.job) insertSubShot(); };
+  $('#btnSubPrint').onclick = () => printSubs(false);
+  $('#btnSubPdf').onclick = () => printSubs(true);
   $('#btnDescribe').onclick = () => { if (!S.job) describeFrames((S.doc.frames || []).filter(f => !f.note)); };
   $('#btnRecheck').onclick = () => { if (!S.job) recheckDoubts(false); };
   const fb = $('#framesBox');
@@ -3340,7 +3403,8 @@ function bind() {
     const img = e.target.closest('.shot-fig img'); if (img && img.src) showLightbox(img.src);
   });
   $('#btnSumShot').onclick = () => { if (!S.chatAbort) insertSumShot(); };
-  $('#btnPrint').onclick = printSummary;
+  $('#btnPrint').onclick = () => printSummary(false);
+  $('#btnPdf').onclick = () => printSummary(true);
   bindShotEdit();
   $('#btnReview').onclick = () => { if (!S.job) runReview(); };
   $('#btnTerms').onclick = () => { if (S.job) return; if (S.doc.terms_pending) openTerms(); else findTerms(false); };
@@ -3439,6 +3503,23 @@ function bind() {
 }
 
 /* ---------------------------------------------------------------- 启动 ---- */
+/* 检查更新（2026-11-02 用户：完整的自动升级先不做，有新版本就让用户自己去 GitHub 下载页下载）。
+   auto：打开软件时自动检查（设置 update_auto，每天最多一次，后台记 update_checked）；没有新版本、查不了时都不打扰 */
+async function checkUpdate(auto) {
+  const info = $('#updateInfo');
+  if (!auto) { info.textContent = '正在检查…'; $('#btnCheckUpdate').disabled = true; }
+  try {
+    const r = await api('check_update', { auto: !!auto });
+    S.update = r;
+    $('#btnGoDownload').hidden = !r.newer;
+    $('#updateNotes').hidden = !(r.newer && r.notes);
+    if (r.newer && r.notes) $('#updateNotesBody').innerHTML = md(r.notes);
+    info.textContent = r.newer ? `有新版本 ${r.latest}（${r.date} 发布），你现在用的是 ${r.current || '开发版'}` : `已经是最新版本（${r.current || '开发版'}）`;
+    if (r.newer && auto) toast(`猛人学习有新版本 ${r.latest}，可以去 GitHub 下载`, { ms: 15000, action: { label: '去下载页', run: () => api('reveal', { target: r.url }) } });
+  } catch (e) {
+    if (!auto) info.textContent = e.message;
+  } finally { $('#btnCheckUpdate').disabled = false; }
+}
 (async function init() {
   bind();
   await bridgeReady();
@@ -3450,4 +3531,6 @@ function bind() {
   }).catch(() => {});
   $('#stageMain').hidden = true; $('#empty').hidden = false;
   updateButtons();
+  const today = new Date().toLocaleDateString('sv');  // 2026-11-02 这种写法，和后台记的一样
+  if (S.settings && S.settings.update_auto !== false && S.settings.update_checked !== today) setTimeout(() => checkUpdate(true), 8000);
 })();

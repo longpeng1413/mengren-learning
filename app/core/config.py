@@ -137,6 +137,8 @@ DEFAULTS = {
     'lib_w': 270,
     'ai_dock': 'bottom',
     'ai_hidden': False,
+    'video_hidden': False,  # 课程界面隐藏视频（缩成一条，2026-11-02）
+    'subs_hidden': False,  # 课程界面隐藏字幕栏
     'ai_w': 440,
     'video_h': 0.55,
     'follow': True,
@@ -156,6 +158,8 @@ DEFAULTS = {
     'book_rules_file': '',
     'auto_review': True,
     'close_to_tray': True,  # 点右上角 × 时收到右下角托盘，不退出
+    'update_auto': True,  # 打开软件时自动检查更新（每天最多一次，2026-11-02）
+    'update_checked': '',  # 上次自动检查更新的日期
     'recent': [],
 }
 

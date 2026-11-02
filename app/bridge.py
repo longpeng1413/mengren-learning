@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -26,6 +27,7 @@ class Api:
     def __init__(self):
         self._window = None
         self._quit = threading.Event()
+        self._printing = False  # 打印预览开着（2026-11-02）：这时点右上角 × 只关掉打印预览（main.on_closing）
         self._version = ''
         self._bundled = None
 
@@ -91,8 +93,8 @@ class Api:
 
     def do_save_dialog(self, b):
         import webview
-        ext = 'srt' if b.get('ext') == 'srt' else 'txt'
-        types = ('文本文件 (*.txt)',) if ext == 'txt' else ('字幕文件 (*.srt)',)
+        ext = b.get('ext') if b.get('ext') in ('srt', 'pdf') else 'txt'
+        types = {'txt': ('文本文件 (*.txt)',), 'srt': ('字幕文件 (*.srt)',), 'pdf': ('PDF 文件 (*.pdf)',)}[ext]
         r = self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename=b.get('name') or '', file_types=types)
         if not r:
             return {'path': None}
@@ -904,6 +906,41 @@ class Api:
                 'cache_dir': str(config.CACHE_DIR), 'storage_root': str(config.STORAGE_ROOT),
                 'storage_custom': s.get('storage_dir') or '', 'storage_default': str(config.default_storage_root()), **cache.info()}
 
+    RELEASES = 'https://github.com/longpeng1413/mengren-learning/releases'
+
+    def do_check_update(self, b):
+        """检查更新（2026-11-02 用户：完整的自动升级先不做，有新版本就让用户自己去 GitHub 下载页下载）。
+        问 GitHub 接口最新发布的版本；直接连不上、又在「网络代理」里填了代理时，再走代理试一次。
+        auto：打开软件时的自动检查，记下日期，一天只查一次。界面自测（--fake-ai）不联网，返回假的新版本。"""
+        import requests
+        if '--fake-ai' in sys.argv:
+            return {'current': self._version, 'latest': '99.0.0', 'newer': True, 'url': self.RELEASES + '/latest',
+                    'notes': '## 99.0.0\n\n- 测试用的更新说明', 'date': '2099-01-01'}
+        s = config.load()
+        data, err = None, None
+        for px in [None] + ([{'http': s['proxy'], 'https': s['proxy']}] if s.get('proxy') else []):
+            try:
+                r = requests.get('https://api.github.com/repos/longpeng1413/mengren-learning/releases/latest', timeout=(8, 20), proxies=px,
+                                 headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'mengren-learning/' + (self._version or 'dev')})
+                if r.status_code == 200:
+                    data = r.json()
+                    break
+                err = f'GitHub 返回 HTTP {r.status_code}'
+            except requests.RequestException as e:
+                err = e
+        if b.get('auto'):
+            config.update({'update_checked': time.strftime('%Y-%m-%d')})
+        if data is None:
+            log.info('检查更新失败：%s', err)
+            raise ConnectionError('连不上 GitHub，检查不了更新。可以稍后再试，或者在「设置 → 网络代理」里填上代理地址再试')
+        latest = str(data.get('tag_name') or '').lstrip('vV')
+
+        def ver(v):
+            return tuple(int(x) for x in re.findall(r'\d+', v or '')[:4])
+        return {'current': self._version, 'latest': latest, 'newer': ver(latest) > ver(self._version),
+                'url': data.get('html_url') or self.RELEASES + '/latest', 'notes': str(data.get('body') or '')[:6000],
+                'date': str(data.get('published_at') or '')[:10]}
+
     def do_set_storage(self, b):
         """更改缓存和日志的位置（空 = 软件所在文件夹），重启后生效。"""
         path = str(b.get('path') or '').strip()
@@ -1008,6 +1045,64 @@ class Api:
         target = {'log': LOG_DIR, 'data': config.DATA_DIR, 'cache': config.CACHE_DIR}.get(b.get('which'), LOG_DIR)
         target.mkdir(parents=True, exist_ok=True)
         os.startfile(str(target))
+        return {}
+
+    # ------------------------------------------------------------ 打印 ----
+    def _on_ui(self, fn):
+        """在窗口的界面线程上执行（浏览器内核的东西只能在那里碰）。"""
+        from System import Func, Type
+        box = {}
+
+        def run():
+            try:
+                box['r'] = fn()
+            except Exception as e:  # noqa: BLE001
+                box['e'] = e
+        self._window.native.Invoke(Func[Type](run))
+        if 'e' in box:
+            raise box['e']
+        return box.get('r')
+
+    def do_print_pdf(self, b):
+        """「导出 PDF」按钮（2026-11-02 用户：打印窗口里不知道「打印机」那栏能选另存为 PDF，要单独一个按钮）：
+        界面已经把要印的内容放进 #printArea、body 加了 printing，这里用 WebView2 的 PrintToPdfAsync 按打印的样子直接存，不弹打印窗口。"""
+        path = str(b.get('path') or '')
+        if not path.lower().endswith('.pdf'):
+            raise ValueError('PDF 保存位置不对')
+        task = self._on_ui(lambda: self._window.native.browser.webview.CoreWebView2.PrintToPdfAsync(path, None))
+        t0 = time.time()
+        while not task.IsCompleted:
+            if time.time() - t0 > 180:
+                raise TimeoutError('保存 PDF 超过 3 分钟还没完成')
+            time.sleep(0.1)
+        if task.IsFaulted or not task.Result or not os.path.isfile(path):
+            raise OSError('保存 PDF 失败（文件可能正被别的程序打开）')
+        log.info('打印内容存成 PDF：%s（%d KB）', path, os.path.getsize(path) // 1024)
+        return {'path': path, 'size': os.path.getsize(path)}
+
+    def do_print_state(self, b):
+        """界面打开 / 关掉打印预览时告诉后台（2026-11-02），点右上角 × 时好知道该关的是打印预览（main.on_closing）。"""
+        self._printing = bool(b.get('on'))
+        return {}
+
+    def close_print_preview(self):
+        """打印预览开着时点了右上角 ×：给浏览器内核发一个 Esc 关掉打印预览（实测 Esc 能关），软件不退出、不收进托盘。"""
+        def esc():
+            from System.Windows.Forms import SendKeys
+            self._window.native.browser.webview.Focus()
+            SendKeys.SendWait('{ESC}')
+        try:
+            self._on_ui(esc)
+            log.info('打印预览开着时点了 ×：只关掉打印预览')
+        except Exception:
+            log.exception('关打印预览出错')
+        self._printing = False
+
+    def do_open_file(self, b):
+        """用系统默认程序打开刚存的 PDF。"""
+        path = str(b.get('path') or '')
+        if path.lower().endswith('.pdf') and os.path.isfile(path):
+            os.startfile(path)
         return {}
 
     def do_quit(self, b):

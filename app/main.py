@@ -19,7 +19,7 @@ from webview.dom import _dnd_state  # noqa: E402
 
 from bridge import Api  # noqa: E402
 
-VERSION = '1.8.14'
+VERSION = '1.8.15'
 
 
 _instance = None  # 保持互斥锁的句柄，进程退出时自动释放
@@ -252,6 +252,9 @@ def main():
         if closing['done']:
             return True
         if closing['started']:
+            return False
+        if not force and api._printing:  # 打印预览开着（2026-11-02 用户：预览铺满窗口，想关它时常点到这个 ×）：只关掉打印预览
+            threading.Thread(target=api.close_print_preview, daemon=True, name='close-print').start()
             return False
         if not force and tray.icon and close_to_tray():
             threading.Thread(target=to_tray, daemon=True, name='to-tray').start()
