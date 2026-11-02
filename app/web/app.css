@@ -480,6 +480,10 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .sub-shot.sized img { max-height: none; }
 /* 打印课程重点（2026-11-02）：平时不显示；打印时只印它，白底黑字 */
 #printArea { display: none; }
+/* 打印的页眉页码（2026-11-02）：页码印在页眉右边，左边日期、中间课程名，由 printDoc 打印时现场写进 #printPage（见 app.js）。
+   用户实测：页眉印得出来，印在底部的页码被打印机切掉了（底部印不到的那一条比顶部宽），所以下边距放小、上边距稍大，上下空白差不多。
+   底部放一个空的区域：打印预览里勾了「页眉和页脚」也不会再印出文件地址。这里是没走 printDoc 时的保底 */
+@page { margin: 18mm 14mm 12mm; @bottom-center { content: ""; } }
 @media print {
   html, body.printing { height: auto !important; overflow: visible !important; background: #fff !important; display: block !important; }
   body.printing > *:not(#printArea) { display: none !important; }

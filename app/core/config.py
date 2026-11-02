@@ -143,6 +143,8 @@ DEFAULTS = {
     'video_h': 0.55,
     'follow': True,
     'show_tr': True,
+    'print_ts_summary': False,  # 打印 / 导出 PDF 课程重点时带不带出处时间（2026-11-02：软件里点时间能跳转，纸上没用，默认不带）
+    'print_ts_subs': True,  # 打印 / 导出 PDF 字幕时带不带每句的时间（默认带）
     'tts_engine': 'edge',  # 朗读：edge 在线 / baidu 百度 / system 系统声音（2026-10-21）
     'tts_voice': 'zh-CN-XiaoxiaoNeural',
     'tts_voice_en': 'en-US-AriaNeural',  # 英文句子用的 Edge 声音（2026-10-29，外文书朗读原文）

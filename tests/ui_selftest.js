@@ -101,11 +101,14 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     const cue3 = document.querySelectorAll('.cue')[3];
     cue3.querySelector('.src').dispatchEvent(new MouseEvent('click', { bubbles: true }));
     ok('点字幕跳到对应时间', await until(() => Math.abs(v.currentTime - S.doc.segments[3].start) < 0.3), v.currentTime);
-    const src0 = document.querySelectorAll('.cue')[0].querySelector('.src');
+    const src0 = document.querySelectorAll('.cue')[0].querySelector('.src'), orig0 = src0.textContent;
     src0.focus(); document.getSelection().selectAllChildren(src0);
     document.execCommand('insertText', false, '改过的第一句');
     src0.blur();
-    if (src0.textContent !== '改过的第一句') {  // 测试窗口不在最前面时模拟打字进不去（2026-11-02 几次偶发失败）：直接写进去，按编辑时同样的顺序触发事件
+    // 测试窗口不在最前面时（2026-11-02 几次偶发失败）：打字可能进不去，或者字进去了、「开始编辑」的事件却没触发（软件不知道原文）。
+    // 软件没记下这次修改时，放回原文，按编辑时同样的顺序触发事件再改一次
+    if (!(S.doc.fixes || []).some(f => f.after === '改过的第一句' && f.by === 'manual')) {
+      src0.textContent = orig0;
       src0.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
       src0.textContent = '改过的第一句';
       src0.dispatchEvent(new InputEvent('input', { bubbles: true }));
@@ -342,13 +345,25 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     $('#summaryBox .fig-tools [data-sf="del"]').click();
     window.confirm = keepConfirm2;
     ok('删除课程重点里的截图', !S.doc.summary.includes('00:33]]') && S.doc.sum_shots.join() === '25' && document.querySelectorAll('#summaryBox .shot-fig').length === 1, S.doc.summary);
-    // 打印（2026-11-02）：打开 Windows 的打印窗口（后台 print_ui，测试里换成假的 systemPrint，记下那时要印的内容）
+    // 打印（2026-11-02）：打开打印预览（window.print，测试里换成假的 systemPrint，记下那时要印的内容）
     let printed = null; const keepSys = window.systemPrint;
-    window.systemPrint = async () => { const pa = $('#printArea'); printed = { cls: document.body.classList.contains('printing'), html: pa ? pa.innerHTML : '', imgs: pa ? [...pa.querySelectorAll('img')].filter(im => im.complete && im.naturalWidth > 0).length : 0, hidden: pa && getComputedStyle(pa).display === 'none' }; };
+    window.systemPrint = async () => { const pa = $('#printArea'); printed = { page: ($('#printPage') || {}).textContent || '', cls: document.body.classList.contains('printing'), html: pa ? pa.innerHTML : '', imgs: pa ? [...pa.querySelectorAll('img')].filter(im => im.complete && im.naturalWidth > 0).length : 0, hidden: pa && getComputedStyle(pa).display === 'none' }; };
     $('#btnPrint').click();
-    ok('打印：直接打开打印窗口；只印课程名和课程重点，插图加载好了，没有上移下移按钮', await until(() => printed) && printed.cls && printed.html.includes(S.doc.title)
-      && printed.html.includes('要点丙') && printed.imgs === 1 && !printed.html.includes('上移') && printed.hidden, printed);
-    ok('打印窗口关掉后恢复原样', await until(() => !document.body.classList.contains('printing') && !$('#printArea')));
+    ok('打印：只印课程名和课程重点，插图加载好了，没有上移下移按钮；默认不带出处时间', await until(() => printed) && printed.cls && printed.html.includes(S.doc.title)
+      && printed.html.includes('要点丙') && printed.imgs === 1 && !printed.html.includes('上移') && printed.hidden && !printed.html.includes('[00:30]'), printed);
+    ok('页码印在页眉右边，左边日期、中间课程名；底部留空（不印文件地址）；上边距大、下边距小（2026-11-02）', printed.page.includes('@top-right')
+      && printed.page.includes('counter(page)') && printed.page.includes(S.doc.title.slice(0, 10)) && /@top-left \{ content: "\d{4}\/\d/.test(printed.page)
+      && printed.page.includes('@bottom-center { content: ""; }') && printed.page.includes('margin: 18mm 14mm 12mm'), printed.page);
+    ok('打印窗口关掉后恢复原样（打印内容和页眉都收掉）', await until(() => !document.body.classList.contains('printing') && !$('#printArea') && !$('#printPage')));
+    // 打印时带不带时间（2026-11-02）：课程重点默认不带，打开「带时间」就带；只去方括号 / 括号里的时间，正文里的 9:30 和插图不动
+    ok('去掉出处时间的规则', stripTs('- 甲 [03:57]–[04:14]\n- 乙（[01:02]）说\n- 丙（03:57、05:10）。\n- 9:30 开盘 [00:05]\n![[画面 03:57]]')
+      === '- 甲\n- 乙说\n- 丙。\n- 9:30 开盘\n![[画面 03:57]]');
+    ok('课程重点的「带时间」开关在打印按钮旁边，默认关', !$('#optPrintTsSumWrap').hidden && !$('#optPrintTsSum').checked);
+    $('#optPrintTsSum').click(); printed = null;
+    $('#btnPrint').click();
+    ok('打开「带时间」：打印带出处时间，开关记住了', await until(() => printed) && printed.html.includes('[00:30]') && S.settings.print_ts_summary === true, printed && printed.html.slice(-200));
+    await until(() => !$('#printArea'));
+    $('#optPrintTsSum').click();
     // 字幕栏「打印」：和剪藏的「完整字幕」一样排，插的截图在挂的那一句下面
     const psegs = S.doc.segments;
     S.doc.sub_shots = [{ t: 10, at: psegs[1].start, w: 300, crop: [0, 0, 0.5, 0.5] }];
@@ -366,6 +381,13 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       && printed2.html.includes(S.doc.title) && printed2.cues.length === psegs.length && printed2.cues[0].startsWith(`[${fmt(psegs[0].start)}]`)
       && printed2.cues[2].includes('第三句的译文') && printed2.cues[3].includes('〔存疑：听不清〕') && printed2.figAfter === printed2.cues[1]
       && printed2.w === '300px' && printed2.img === 1, printed2);
+    await until(() => !$('#printArea'));
+    ok('字幕的「带时间」开关默认开', $('#optPrintTsSubs').checked);
+    $('#optPrintTsSubs').click(); printed2 = null;
+    $('#btnSubPrint').click();
+    ok('字幕关掉「带时间」：每句前面不印时间', await until(() => printed2) && !printed2.html.includes('class="print-t"') && printed2.cues[0].startsWith(psegs[0].text)
+      && S.settings.print_ts_subs === false, printed2 && printed2.cues.slice(0, 2));
+    $('#optPrintTsSubs').click();
     window.systemPrint = keepSys;
     await until(() => !$('#printArea'));
     // 导出 PDF（2026-11-02，单独的按钮）：不弹打印窗口，后台按打印的样子直接存（测试存在测试数据的缓存文件夹，run_ui_test 全部通过后整个删掉）

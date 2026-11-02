@@ -159,6 +159,8 @@ function applyLook() {
   $('#bkTxTheme').value = s.theme;
   $('#optFollow').checked = !!s.follow;
   $('#optTr').checked = !!s.show_tr;
+  $('#optPrintTsSum').checked = !!s.print_ts_summary;
+  $('#optPrintTsSubs').checked = s.print_ts_subs !== false;
   $('#optOverlay').checked = !!s.overlay;
   $('#cues').classList.toggle('hide-tr', !s.show_tr);
   $('#overlay').hidden = !s.overlay;
@@ -2599,17 +2601,43 @@ async function printDoc(sub, html, prepare, pdf) {
   const t0 = Date.now();  // 等插图加载好（最多 8 秒），不然打出来是空框
   while (Date.now() - t0 < 8000 && $$('img', box).some(img => !img.getAttribute('src') || !img.complete)) await sleep(100);
   document.body.classList.add('printing');
+  const page = document.createElement('style');  // 页眉：左边日期，中间课程名（太长截短，免得挤成两行），右边「第 n / n 页」
+  page.id = 'printPage';
+  const cssStr = t => '"' + String(t).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]+/g, ' ') + '"';
+  const d = new Date(), title = S.doc.title || sub;
+  const when = `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const head = 'font-size: 8pt; color: #555;';
+  page.textContent = `@page { margin: 18mm 14mm 12mm;
+    @top-left { content: ${cssStr(when)}; ${head} }
+    @top-center { content: ${cssStr(title.length > 30 ? title.slice(0, 29) + '…' : title)}; ${head} }
+    @top-right { content: "第 " counter(page) " / " counter(pages) " 页"; ${head} }
+    @bottom-center { content: ""; } }`;
+  document.head.appendChild(page);
   try {
     if (pdf) {
       toast('正在导出 PDF…', { ms: 2000 });
       const r = await api('print_pdf', { path });
       toast(`已导出 PDF：${r.path}`, { ms: 8000, action: { label: '打开 PDF', run: () => api('open_file', { path: r.path }) } });
     } else await systemPrint();
-  } catch (e) { fail(e); } finally { document.body.classList.remove('printing'); box.remove(); }
+  } catch (e) { fail(e); } finally { document.body.classList.remove('printing'); box.remove(); page.remove(); }
 }
 function printSummary(pdf) {
   if (!S.doc || !(S.doc.summary || '').trim()) return;
-  return printDoc('课程重点', md(S.doc.summary), hydrateFigures, pdf);
+  return printDoc('课程重点', md(S.settings.print_ts_summary ? S.doc.summary : stripTs(S.doc.summary)), hydrateFigures, pdf);
+}
+/* 打印课程重点时去掉出处时间（2026-11-02 用户：软件里点时间能跳转，印在纸上没用；「带时间」开关可以留着）。
+   只去方括号里的时间 [03:57]、[03:57–04:14]，连着的几个（[03:57]–[04:14]、[01:02]、[03:04]），和括号里只有时间的（（[03:57]）、（03:57））；
+   正文里没加括号的「9:30 开盘」不动；插图那一行（![[画面 03:57]]）、代码块不动 */
+const TS_T = String.raw`\d{1,2}:\d{2}(?::\d{2})?`;
+const TS_ONE = String.raw`\[${TS_T}(?:\s*[-–—~～]\s*${TS_T})?\]`;
+const TS_RUN = String.raw`${TS_ONE}(?:\s*[-–—~～至到、,，]\s*${TS_ONE})*`;
+const TS_STRIP = new RegExp(String.raw`[（(]\s*(?:${TS_RUN}|${TS_T}(?:\s*[-–—~～、,，]\s*${TS_T})*)\s*[）)]|[ \t]*${TS_RUN}`, 'g');
+function stripTs(text) {
+  let fence = false;
+  return String(text || '').split('\n').map(l => {
+    if (/^\s*(```|~~~)/.test(l)) { fence = !fence; return l; }
+    return fence || FIG_LINE.test(l) ? l : l.replace(TS_STRIP, '').replace(/[ \t]+$/, '');
+  }).join('\n');
 }
 /* 完整字幕：和剪藏的「完整字幕」一样排——[时间] 原文、下一行译文、存疑句标原因，插的截图放在挂的那一句下面（按裁剪、大小） */
 function printSubs(pdf) {
@@ -2620,7 +2648,7 @@ function printSubs(pdf) {
     `<figure class="shot-fig" data-pt="${x.t}" data-crop="${x.crop ? x.crop.join(',') : ''}"${x.w ? ` style="max-width:${x.w}px"` : ''}><img alt=""></figure>`).join('');
   const html = figs(-1) + S.doc.segments.map((s, i) => {
     const d = doubtOf(s);
-    return `<div class="print-cue"><span class="print-t">[${fmt(s.start)}]</span> ${esc(s.text)}${d ? ` <span class="print-doubt">〔存疑：${esc(d.reason || '')}〕</span>` : ''}`
+    return `<div class="print-cue">${S.settings.print_ts_subs !== false ? `<span class="print-t">[${fmt(s.start)}]</span> ` : ''}${esc(s.text)}${d ? ` <span class="print-doubt">〔存疑：${esc(d.reason || '')}〕</span>` : ''}`
       + `${(s.tr || '').trim() ? `<div class="print-tr">${esc(s.tr)}</div>` : ''}</div>${figs(i)}`;
   }).join('');
   return printDoc('完整字幕', html, box => $$('[data-pt]', box).forEach(f => {
@@ -3196,6 +3224,8 @@ function bind() {
   $('#speed').onchange = () => v.playbackRate = +$('#speed').value;
   $('#optFollow').onchange = e => savePrefs({ follow: e.target.checked });
   $('#optTr').onchange = e => savePrefs({ show_tr: e.target.checked });
+  $('#optPrintTsSum').onchange = e => savePrefs({ print_ts_summary: e.target.checked });
+  $('#optPrintTsSubs').onchange = e => savePrefs({ print_ts_subs: e.target.checked });
   $('#optOverlay').onchange = e => { savePrefs({ overlay: e.target.checked }); updateActive(true); };
   $('#optLoop').onchange = e => { S.loopIdx = e.target.checked ? (S.active >= 0 ? S.active : null) : null; updateLoopHint(); };
   $('#loopHint').onclick = () => { $('#optLoop').checked = false; S.loopIdx = null; updateLoopHint(); };
@@ -3281,7 +3311,7 @@ function bind() {
   $$('.ai-tabs .tab').forEach(t => t.onclick = () => {
     $$('.ai-tabs .tab').forEach(x => x.classList.toggle('active', x === t));
     $$('.ai-body').forEach(p => p.hidden = p.dataset.pane !== t.dataset.tab);
-    $('#btnPrint').hidden = $('#btnPdf').hidden = t.dataset.tab !== 'summary';  // 只打印课程重点
+    $('#btnPrint').hidden = $('#btnPdf').hidden = $('#optPrintTsSumWrap').hidden = t.dataset.tab !== 'summary';  // 只打印课程重点
   });
   $('#btnAiDock').onclick = () => savePrefs({ ai_dock: S.settings.ai_dock === 'side' ? 'bottom' : 'side' });
   // 视频、字幕、AI 区的「隐藏」和缩成的那一条（点它恢复）
