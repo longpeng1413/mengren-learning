@@ -890,6 +890,24 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     $('#btnCheckUpdate').click();
     ok('检查更新：有新版本时显示版本号、「去下载页」和更新说明', await until(() => $('#updateInfo').textContent.includes('有新版本 99.0.0'))
       && !$('#btnGoDownload').hidden && !$('#updateNotes').hidden && $('#updateNotesBody').textContent.includes('测试用的更新说明'), $('#updateInfo').textContent);
+    // 软件内更新（2026-11-03）：「下载并更新」→ 显示下载进度、能停 → 问一句再换（界面自测里假装下载、假装换好，不退出）
+    ok('软件内更新：有新版本时显示「下载并更新」', !$('#btnUpdateNow').hidden && $('#btnUpdateNow').title);
+    {
+      const keepC = window.confirm; let asked = '';
+      window.confirm = m => { asked = m; return true; };
+      $('#btnUpdateNow').click();
+      const sawProgress = await until(() => /正在下载新版本 .* MB/.test($('#updateInfo').textContent) && !$('#btnUpdateStop').hidden, 4000);
+      const done = await until(() => $('#updateInfo').textContent.includes('假装换好了'), 8000);
+      window.confirm = keepC;
+      ok('软件内更新：下载时显示进度和「停止」，下载好后先问一句再换', sawProgress && done && asked.includes('先保存、退出') && $('#btnUpdateStop').hidden, [$('#updateInfo').textContent, asked]);
+      window.confirm = () => true;
+      $('#btnUpdateNow').hidden = false;
+      $('#btnUpdateNow').click();
+      await until(() => !$('#btnUpdateStop').hidden, 3000);
+      $('#btnUpdateStop').click();
+      ok('软件内更新：点「停止」停下下载', await until(() => $('#updateInfo').textContent.includes('已停止下载'), 5000) && !$('#btnUpdateNow').hidden, $('#updateInfo').textContent);
+      window.confirm = keepC;
+    }
     ok('设置：ChatGPT 账号登录',document.querySelector('#codexBox').textContent.includes('用 ChatGPT 账号登录'));
     showSection('teachers');
     ok('设置：老师列表', document.querySelectorAll('#teacherList button').length === 2);

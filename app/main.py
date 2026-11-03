@@ -19,7 +19,7 @@ from webview.dom import _dnd_state  # noqa: E402
 
 from bridge import Api  # noqa: E402
 
-VERSION = '1.9.0'
+VERSION = '1.10.0'
 
 
 _instance = None  # 保持互斥锁的句柄，进程退出时自动释放
@@ -114,6 +114,8 @@ def main():
         log.info('收到 --quit：%s', '已通知正在运行的猛人学习退出' if os.name == 'nt' and request_quit() else '猛人学习没有在运行')
         return
     log.info('==== 猛人学习 %s 启动（%s）====', VERSION, 'exe' if getattr(sys, 'frozen', False) else '源码')
+    from core import update
+    update.startup()  # 软件内更新：读上次更新的结果、告诉替换脚本新版本打开了、清掉更新临时文件
     from core import appdata
     selftest = '--selftest' in ' '.join(sys.argv)
     # 由其他打包应用（例如 Claude 桌面版）打开时，写设置会被 Windows 转存到那个应用的私有文件夹，
@@ -286,6 +288,7 @@ def main():
         threading.Thread(target=finish, daemon=True, name='closing').start()
         return False
 
+    api._exit_for_update = lambda: on_closing(force=True)  # 软件内更新：替换脚本启动后保存、退出
     window.events.loaded += on_loaded
     window.events.closing += on_closing
     storage = config.CACHE_DIR / 'webview'  # 浏览器内核的缓存，也放进缓存文件夹

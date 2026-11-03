@@ -1634,6 +1634,205 @@ finally:
     _rq.get, api._version = _keep_get, _keep_ver
     config.update({'proxy': ''})
 
+# 软件内更新（2026-11-03，照猛人快传的办法）：选附件、核对校验值、下载解压、替换脚本按真实方式启动
+from core import jobs, update  # noqa: E402
+import hashlib  # noqa: E402
+import io  # noqa: E402
+import zipfile as _zf  # noqa: E402
+
+_rel = {'tag_name': 'v1.10.0', 'assets': [
+    {'name': 'mengren-learning-1.10.0-windows-with-ffmpeg.zip', 'browser_download_url': 'https://x/full.zip', 'size': 100, 'digest': 'sha256:' + 'a' * 64},
+    {'name': 'mengren-learning-1.10.0-windows-update.zip', 'browser_download_url': 'https://x/upd.zip', 'size': 30, 'digest': 'sha256:' + 'B' * 64},
+    {'name': 'SHA256SUMS-1.10.0.txt', 'browser_download_url': 'https://x/sums.txt'}]}
+a_up = update.pick_asset(_rel, '1.10.0')
+check('更新：优先下载不带 ffmpeg 的更新包，读出 GitHub 自带的校验值', a_up['name'].endswith('-windows-update.zip') and a_up['digest'] == 'b' * 64, a_up)
+_rel['assets'].pop(1)
+check('更新：没有更新包时用完整包', update.pick_asset(_rel, '1.10.0')['name'].endswith('with-ffmpeg.zip'))
+check('更新：找到校验值清单', update._sums_asset(_rel, '1.10.0') == 'https://x/sums.txt')
+check('更新：校验值清单的格式', update.parse_sums(('C' * 64) + '  a.zip\n' + ('d' * 64) + ' *b.zip\n坏的一行') == {'a.zip': 'c' * 64, 'b.zip': 'd' * 64})
+_errs = []
+for _d, _s in (('a' * 64, 'b' * 64), (None, None)):
+    try:
+        update.expected_sha(_d, _s)
+    except update.UpdateError as e:
+        _errs.append(str(e))
+check('更新：两份校验值不一致、一份都没有时都停下', len(_errs) == 2 and '不一致' in _errs[0] and '没有' in _errs[1], _errs)
+check('更新：只有一份校验值时用那一份', update.expected_sha(None, 'c' * 64) == 'c' * 64)
+check('更新：从源码运行时不能自动更新', update.can_update() == (False, '从源码运行时不能自动更新'))
+check('更新：替换脚本只有英文字符（PowerShell 5.1 按系统编码读）', all(ord(c) < 128 for c in update.PS_SCRIPT))
+
+# 下载、核对、解压：用假的下载，软件文件夹换成临时文件夹
+UPD = TMP / "更新 测试's 文件夹"
+shutil.rmtree(UPD, ignore_errors=True)
+(UPD / 'app' / '_internal').mkdir(parents=True)
+_buf = io.BytesIO()
+with _zf.ZipFile(_buf, 'w') as z:
+    z.writestr('猛人学习/猛人学习.exe', 'new exe')
+    z.writestr('猛人学习/_internal/new.txt', 'new')
+    z.writestr('猛人学习/ffmpeg/ffmpeg.exe', 'ffmpeg')
+    z.writestr('猛人学习/缓存（可随时删除）/x.txt', 'x')
+_zip = _buf.getvalue()
+_good = hashlib.sha256(_zip).hexdigest()
+
+
+class _Stream:
+    status_code, url = 200, 'https://objects.githubusercontent.com/x'
+
+    def __init__(self, data):
+        self.data, self.headers = data, {'Content-Length': str(len(data))}
+
+    def iter_content(self, n):
+        for i in range(0, len(self.data), 7):
+            yield self.data[i:i + 7]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+_keep_wd, _keep_can = update.work_dir, update.can_update
+update.work_dir = lambda: UPD / 'app' / update.WORK_NAME
+update.can_update = lambda: (True, '')
+_keep_appdir = config.app_dir
+config.app_dir = lambda: UPD / 'app'
+_rq.get = lambda url, **kw: _Stream(_zip)
+try:
+    _job = jobs.Job('update')
+    _info = {'current': '1.9.2', 'latest': '1.10.0', 'asset': {'name': 'u.zip', 'url': 'https://x/u.zip', 'size': len(_zip), 'digest': _good}}
+    _plan = update.prepare(_info, _job)
+    _root = Path(_plan['staging'])
+    check('更新：下载、核对、解压好；ffmpeg、缓存文件夹不换；压缩包用完删掉', (_root / '猛人学习.exe').read_text() == 'new exe'
+          and (_root / '_internal' / 'new.txt').exists() and not (_root / 'ffmpeg').exists() and not (_root / config.CACHE_NAME).exists()
+          and not list(update.work_dir().glob('*.zip*')) and _job.progress > 0.9, (_plan, list(_root.iterdir())))
+    _info['asset']['digest'] = 'e' * 64
+    try:
+        update.prepare(_info, jobs.Job('update')); _e = ''
+    except update.UpdateError as e:
+        _e = str(e)
+    check('更新：校验不对就停下，下载的文件删掉', '校验不对' in _e and not list(update.work_dir().glob('*.part')), _e)
+    _j = jobs.Job('update'); _j.cancel.set(); _info['asset']['digest'] = _good
+    try:
+        update.prepare(_info, _j); _e = ''
+    except update.UpdateError as e:
+        _e = str(e)
+    check('更新：点「停止」就停下', '已停止' in _e and not list(update.work_dir().glob('*.part')), _e)
+finally:
+    _rq.get, update.can_update, config.app_dir = _keep_get, _keep_can, _keep_appdir
+
+
+def _apply(target, staging, work, exe='猛人学习.exe', restart=False, pid=None, retries=None, launch_wait=120):
+    """按软件真实的启动方式（中转 PowerShell + 已启动标记）跑替换脚本，等它做完。"""
+    plan = {'staging': str(staging), 'target': str(target), 'work': str(work), 'exe': exe, 'version': '1.10.0'}
+    if retries:
+        _real = update.PS_SCRIPT
+        update.PS_SCRIPT = _real.replace('[int]$Retries = 40', f'[int]$Retries = {retries}')
+    try:
+        update.launch(plan, pid=pid if pid is not None else 0, restart=restart, launch_wait=launch_wait)
+    finally:
+        if retries:
+            update.PS_SCRIPT = _real
+    end = time.time() + 90
+    while (Path(work) / 'apply_started.txt').exists() and time.time() < end:
+        time.sleep(0.3)
+    return json.loads((Path(work) / 'update_result.json').read_text(encoding='utf-8'))
+
+
+if os.name == 'nt':
+    T = UPD / 'app'
+    (T / '猛人学习.exe').write_text('old exe', encoding='utf-8')
+    (T / '_internal' / 'stale.txt').write_text('old', encoding='utf-8')
+    (T / 'ffmpeg').mkdir(); (T / 'ffmpeg' / 'ffmpeg.exe').write_text('ffmpeg', encoding='utf-8')
+    (T / config.LOG_NAME).mkdir(); (T / config.LOG_NAME / 'app.log').write_text('log', encoding='utf-8')
+    _sleeper = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(2)'])
+    r_up = _apply(T, _root, update.work_dir(), pid=_sleeper.pid)
+    check('更新：等软件退出后换上新版本（路径带中文、空格、单引号）；旧版本多出来的文件没了；ffmpeg、日志不动',
+          r_up['ok'] and _sleeper.poll() is not None and (T / '猛人学习.exe').read_text() == 'new exe' and (T / '_internal' / 'new.txt').exists()
+          and not (T / '_internal' / 'stale.txt').exists() and (T / 'ffmpeg' / 'ffmpeg.exe').exists() and (T / config.LOG_NAME / 'app.log').exists()
+          and (update.work_dir() / 'backup' / '_internal' / 'stale.txt').exists(), r_up)
+
+    # 复制中途失败：锁住旧版本里的一个文件，整个 _internal 挪不动 → 已经换掉的（a.txt）退回旧的
+    (_root / 'a.txt').write_text('new a', encoding='utf-8')
+    (T / 'a.txt').write_text('old a', encoding='utf-8')
+    _lockf = open(T / '_internal' / 'new.txt', 'rb')
+    try:
+        r_up = _apply(T, _root, update.work_dir(), retries=2)
+    finally:
+        _lockf.close()
+    check('更新：中途失败时全部退回旧版本，结果记成失败', not r_up['ok'] and r_up['code'] == 'apply_failed' and (T / 'a.txt').read_text() == 'old a'
+          and (T / '猛人学习.exe').read_text() == 'new exe' and (T / '_internal' / 'new.txt').exists(), r_up)
+
+    # 换完打开新版本：新版本写了 launched.txt 就算成功；新版本一打开就出错退出时退回旧版本再打开
+    R = TMP / 'upd-restart'
+    shutil.rmtree(R, ignore_errors=True)
+    for sub in ('app', 'new', 'work'):
+        (R / sub).mkdir(parents=True)
+    (R / 'app' / 'run.cmd').write_text(f'@echo old> "{R / "old-ran.txt"}"\r\n', encoding='ascii')
+    (R / 'new' / 'run.cmd').write_text(f'@echo new> "{R / "work" / "launched.txt"}"\r\n', encoding='ascii')
+    r_up = _apply(R / 'app', R / 'new', R / 'work', exe='run.cmd', restart=True)
+    check('更新：换完自动打开新版本，新版本报到了就算成功', r_up['ok'] and 'launched.txt' in (R / 'app' / 'run.cmd').read_text()
+          and not (R / 'old-ran.txt').exists(), r_up)
+    (R / 'app' / 'run.cmd').write_text(f'@echo old> "{R / "old-ran.txt"}"\r\n', encoding='ascii')
+    (R / 'new' / 'run.cmd').write_text('@exit /b 3\r\n', encoding='ascii')
+    r_up = _apply(R / 'app', R / 'new', R / 'work', exe='run.cmd', restart=True)
+    for _ in range(20):
+        if (R / 'old-ran.txt').exists():
+            break
+        time.sleep(0.3)
+    check('更新：新版本打不开时自动退回旧版本、再打开旧版本', not r_up['ok'] and r_up['code'] == 'new_version_failed'
+          and 'old-ran' in (R / 'app' / 'run.cmd').read_text() and (R / 'old-ran.txt').exists(), r_up)
+    shutil.rmtree(R, ignore_errors=True)
+
+# 启动时：读出上次更新的结果（只给一次），告诉替换脚本新版本打开了，再清掉更新临时文件
+update.work_dir().mkdir(parents=True, exist_ok=True)
+(update.work_dir() / 'update_result.json').write_text(json.dumps({'ok': False, 'code': 'new_version_failed', 'version': '1.10.0', 'message': 'x'}), encoding='utf-8')
+(update.work_dir() / 'apply_started.txt').write_text('999999', encoding='utf-8')  # 进程已经不在了：异常退出留下的
+update.startup()
+_lr = update.last_result()
+check('更新：启动时读出上次的结果，用中文说清楚，只给一次', _lr and not _lr['ok'] and '退回' in _lr['text'] and update.last_result() is None, _lr)
+for _ in range(30):
+    if not update.work_dir().exists():
+        break
+    time.sleep(0.2)
+check('更新：启动后清掉更新临时文件（包括异常退出留下的）', not update.work_dir().exists())
+update.work_dir = _keep_wd
+shutil.rmtree(UPD, ignore_errors=True)
+
+# 发布包里的「创建桌面快捷方式.cmd」（2026-11-03）：路径带中文、空格时也能建好；还在压缩包里、放错文件夹时说清楚
+if os.name == 'nt':
+    import importlib.util as _iu
+    _spec = _iu.spec_from_file_location('release', ROOT / 'release.py')
+    release = _iu.module_from_spec(_spec); _spec.loader.exec_module(release)
+    _app = config.APP_NAME
+    _cmd = release.shortcut_cmd(_app)
+    check('快捷方式 cmd：CRLF 换行、先切到 UTF-8 代码页', b'\r\nchcp 65001 >nul\r\n' in _cmd and b'\n' not in _cmd.replace(b'\r\n', b''))
+
+    def _run_shortcut(folder, desk):
+        folder.mkdir(parents=True, exist_ok=True); desk.mkdir(parents=True, exist_ok=True)
+        (folder / release.SHORTCUT_NAME).write_bytes(_cmd)
+        r = subprocess.run(['cmd', '/c', str(folder / release.SHORTCUT_NAME)], capture_output=True, stdin=subprocess.DEVNULL,
+                           env={**os.environ, 'SHORTCUT_TEST_DIR': str(desk)}, timeout=60)
+        return r.stdout.decode('utf-8', 'replace')
+
+    SC = TMP / '快捷 方式测试' / _app
+    (SC.parent / 'desk').mkdir(parents=True, exist_ok=True)
+    SC.mkdir(parents=True, exist_ok=True)
+    shutil.copy(sys.executable, SC / f'{_app}.exe')
+    _out = _run_shortcut(SC, SC.parent / 'desk')
+    _lnk = SC.parent / 'desk' / f'{_app}.lnk'
+    _target = ''
+    if _lnk.exists():
+        _target = subprocess.run(['powershell', '-NoProfile', '-Command',
+                                  f"[Console]::OutputEncoding=[Text.Encoding]::UTF8; (New-Object -ComObject WScript.Shell).CreateShortcut('{_lnk}').TargetPath"],
+                                 capture_output=True, timeout=30).stdout.decode('utf-8', 'replace').strip()
+    check('快捷方式 cmd：路径带中文、空格时在桌面建好快捷方式，指向软件', _target == str(SC / f'{_app}.exe') and '已经在桌面建好快捷方式' in _out, (_target, _out))
+    _out = _run_shortcut(TMP / '快捷 方式测试' / '别的文件夹', SC.parent / 'desk2')
+    check('快捷方式 cmd：文件夹里没有软件时说清楚、不建快捷方式', f'没找到 {_app}.exe' in _out and not (SC.parent / 'desk2' / f'{_app}.lnk').exists(), _out)
+    _out = _run_shortcut(TMP / 'Temp1_mengren-x.zip' / _app, SC.parent / 'desk3')
+    check('快捷方式 cmd：还在压缩包里没解压时提示先解压', '请先把压缩包解压' in _out and not (SC.parent / 'desk3' / f'{_app}.lnk').exists(), _out)
+    shutil.rmtree(TMP / '快捷 方式测试', ignore_errors=True); shutil.rmtree(TMP / 'Temp1_mengren-x.zip', ignore_errors=True)
+
 # 代码里没有写错的变量名（pyflakes）
 import importlib.util  # noqa: E402
 if importlib.util.find_spec('pyflakes'):

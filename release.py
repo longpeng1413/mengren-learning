@@ -3,10 +3,13 @@
     .venv\\Scripts\\python release.py --src dist-next      # 用 dist-next 里刚打包好的
     .venv\\Scripts\\python release.py --personal 设置.json --out 桌面\\xx.zip   # 再打一个带个人设置的包（含密钥，别上传）
 
-- mengren-learning-版本-windows-with-ffmpeg.zip：附带 ffmpeg，解压就能用（发布只用这一个包）；
+- mengren-learning-版本-windows-with-ffmpeg.zip：附带 ffmpeg，解压就能用（给第一次下载的人）；
+- mengren-learning-版本-windows-update.zip：软件内更新用的更新包，不带 ffmpeg 和说明（2026-11-03，app/core/update.py 按这个名字找）；
+- SHA256SUMS-版本.txt：两个包的校验值，软件内更新下载后核对。三个文件名都不能改，改了以前装的版本就找不到更新；
 - 个人包：附带 ffmpeg 和导出的设置（软件第一次启动时自动导入）。
 软件文件夹里的「缓存」「日志」不打进去。"""
 import argparse
+import hashlib
 import os
 import re
 import shutil
@@ -21,7 +24,7 @@ README = """猛人学习 {ver}
 
 【怎么用】
 1. 把整个「猛人学习」文件夹放到任意位置（不要放在 C:\\Program Files 这类需要管理员权限的地方）。
-2. 双击「猛人学习.exe」。可以在桌面建一个快捷方式（右键 猛人学习.exe → 发送到 → 桌面快捷方式）。
+2. 双击「创建桌面快捷方式.cmd」，桌面上就有猛人学习的图标了（以后挪了文件夹，再双击一次就行）；也可以直接双击「猛人学习.exe」。
 3. 第一次使用：点右上角的「？」看使用说明；点齿轮打开「设置」填写 AI 服务（或用 ChatGPT 账号登录）。
 {ffmpeg}{personal}
 【需要】Windows 10 / 11（64 位）。Windows 10 打不开时，先安装微软的 WebView2 运行时：
@@ -47,6 +50,26 @@ PERSONAL_NOTE = """
 """
 
 
+# 解压后的文件夹里放一个「创建桌面快捷方式.cmd」（2026-11-03 用户要求），双击在桌面建快捷方式。
+# 存成 UTF-8、CRLF 换行；第二行切到 UTF-8 代码页，后面的中文提示和中文路径才不乱码。
+# 桌面位置问系统（桌面挪到 OneDrive、别的盘也对）；还在压缩包里没解压时提示先解压（不然快捷方式指向临时文件夹）。
+# SHORTCUT_TEST_DIR 只给测试用：换成别的文件夹，不碰真的桌面。
+SHORTCUT_NAME = '创建桌面快捷方式.cmd'
+SHORTCUT_CMD = r"""@echo off
+chcp 65001 >nul
+set "APPDIR=%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$d = $env:APPDIR.TrimEnd('\'); $exe = Join-Path $d '__APP__.exe'; if ($d -match '\\Temp\d*_[^\\]*\.zip') { Write-Host '请先把压缩包解压到一个固定的文件夹（不要放在 C:\Program Files 里），再双击解压出来的这个文件。'; exit 1 }; if (-not (Test-Path -LiteralPath $exe)) { Write-Host '没找到 __APP__.exe，请把这个文件放在「__APP__」文件夹里再双击。'; exit 1 }; $desk = $env:SHORTCUT_TEST_DIR; if (-not $desk) { $desk = [Environment]::GetFolderPath('Desktop') }; $lnk = Join-Path $desk '__APP__.lnk'; $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk); $s.TargetPath = $exe; $s.WorkingDirectory = $d; $s.IconLocation = $exe + ',0'; $s.Description = '__APP__'; $s.Save(); Write-Host ('已经在桌面建好快捷方式：' + $lnk); Write-Host '以后双击桌面上的「__APP__」就能打开。'"
+if errorlevel 1 (echo. & echo 没有建好快捷方式，原因见上面。)
+echo.
+echo 按任意键关闭这个窗口……
+pause >nul
+"""
+
+
+def shortcut_cmd(app='猛人学习') -> bytes:
+    return SHORTCUT_CMD.replace('__APP__', app).replace('\r\n', '\n').replace('\n', '\r\n').encode('utf-8')
+
+
 def version():
     m = re.search(r"^VERSION = '([^']+)'", (ROOT / 'app' / 'main.py').read_text(encoding='utf-8'), re.M)
     return m.group(1)
@@ -69,7 +92,7 @@ def ffmpeg_files():
     return files
 
 
-def make_zip(src: Path, dest: Path, ver, with_ffmpeg=False, settings: Path = None):
+def make_zip(src: Path, dest: Path, ver, with_ffmpeg=False, settings: Path = None, readme=True):
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix('.part')
     with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
@@ -85,10 +108,12 @@ def make_zip(src: Path, dest: Path, ver, with_ffmpeg=False, settings: Path = Non
                 z.write(p, Path('猛人学习') / 'ffmpeg' / name)
         if settings:
             z.write(settings, Path('猛人学习') / '猛人学习设置.json')
-        z.writestr(str(Path('猛人学习') / '使用前请看.txt'),
-                   README.format(ver=ver, ffmpeg=FFMPEG_NOTE if with_ffmpeg else
-                                 '\n【ffmpeg】需要另外安装：在「终端」里运行 winget install Gyan.FFmpeg\n',
-                                 personal=PERSONAL_NOTE if settings else '').replace('\n', '\r\n').encode('utf-8-sig'))
+        if readme:
+            z.writestr(str(Path('猛人学习') / SHORTCUT_NAME), shortcut_cmd())
+            z.writestr(str(Path('猛人学习') / '使用前请看.txt'),
+                       README.format(ver=ver, ffmpeg=FFMPEG_NOTE if with_ffmpeg else
+                                     '\n【ffmpeg】需要另外安装：在「终端」里运行 winget install Gyan.FFmpeg\n',
+                                     personal=PERSONAL_NOTE if settings else '').replace('\n', '\r\n').encode('utf-8-sig'))
     os.replace(tmp, dest)
     print(f'{dest}  {dest.stat().st_size / 1024 / 1024:.1f} MB')
     return dest
@@ -109,10 +134,23 @@ def main():
         make_zip(src, out, ver, with_ffmpeg=True, settings=Path(a.personal))
         return
     rel = ROOT / 'release'
-    for old in rel.glob('mengren-learning-*.zip'):
+    for old in list(rel.glob('mengren-learning-*.zip')) + list(rel.glob('SHA256SUMS-*.txt')):
         old.unlink()
-    # 用户 2026-10 要求：发布包一律附带 ffmpeg，别人下载解压就能用（不再单独发不带 ffmpeg 的包）
-    make_zip(src, rel / f'mengren-learning-{ver}-windows-with-ffmpeg.zip', ver, with_ffmpeg=True)
+    # 用户 2026-10 要求：给人下载的包一律附带 ffmpeg，解压就能用（不再单独发不带 ffmpeg 的完整包）；
+    # 2026-11-03 加软件内更新：另发一个不带 ffmpeg 的更新包，只给软件自己下载用
+    full = make_zip(src, rel / f'mengren-learning-{ver}-windows-with-ffmpeg.zip', ver, with_ffmpeg=True)
+    upd = make_zip(src, rel / f'mengren-learning-{ver}-windows-update.zip', ver, readme=False)
+    sums = rel / f'SHA256SUMS-{ver}.txt'
+    sums.write_text(''.join(f'{sha256(f)}  {f.name}\n' for f in (full, upd)), encoding='ascii', newline='\n')
+    print(sums)
+
+
+def sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1 << 20), b''):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 if __name__ == '__main__':

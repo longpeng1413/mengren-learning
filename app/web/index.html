@@ -844,7 +844,7 @@
         <h3>设置</h3>
         <p class="muted">右上角的齿轮打开。</p>
         <dl class="help-dl">
-          <dt>关于与数据</dt><dd>版本、开源地址；检查更新（有新版本时点「去下载页」到 GitHub 下载，换上新的「猛人学习」文件夹即可，设置和字幕不受影响；可以打开软件时每天自动检查一次）；点右上角 × 时收到右下角还是直接退出；导出 / 导入设置（换电脑用，可以带密钥和 ChatGPT 登录）；缓存和日志放在哪里；打开日志、设置文件夹；清空缓存。</dd>
+          <dt>关于与数据</dt><dd>版本、开源地址；检查更新（有新版本时点「下载并更新」，软件自己下载、保存退出、换上新版本再打开，新版本打不开会自动退回；下载不了时点「去下载页」到 GitHub 手动下载；可以打开软件时每天自动检查一次）；点右上角 × 时收到右下角还是直接退出；导出 / 导入设置（换电脑用，可以带密钥和 ChatGPT 登录）；缓存和日志放在哪里；打开日志、设置文件夹；清空缓存。</dd>
           <dt>外观</dt><dd>主题（墨黑、帝王紫、深灰、浅色）和强调色。顶栏的月亮按钮也能切换主题。</dd>
           <dt>老师与术语表</dt><dd>见<a class="help-go" data-go="teacher">老师与术语表</a>。</dd>
           <dt>任务用哪个 AI</dt><dd>课程重点和对话、AI 校对、翻译、画面识别可以分别选不同的服务。书籍整理用「课程重点和对话」选的那个。画面识别要能看图：ChatGPT 账号、Claude、Gemini、OpenAI 都可以；DeepSeek 不能看图。</dd>
@@ -1243,12 +1243,14 @@
         <div class="label strong">检查更新</div>
         <div class="field update-row">
           <button type="button" class="btn small" id="btnCheckUpdate">检查更新</button>
-          <button type="button" class="btn small primary" id="btnGoDownload" hidden title="在浏览器里打开 GitHub 的下载页面">去下载页</button>
+          <button type="button" class="btn small primary" id="btnUpdateNow" hidden title="下载新版本，换好后自动重新打开">下载并更新</button>
+          <button type="button" class="btn small" id="btnUpdateStop" hidden title="停止下载">停止</button>
+          <button type="button" class="btn small" id="btnGoDownload" hidden title="在浏览器里打开 GitHub 的下载页面">去下载页</button>
           <span class="muted small-text" id="updateInfo"></span>
         </div>
         <details class="update-notes" id="updateNotes" hidden><summary>这个版本更新了什么</summary><div class="md" id="updateNotesBody"></div></details>
         <div class="field"><label class="check"><input type="checkbox" data-k="update_auto"> 打开软件时自动检查（每天最多一次），有新版本时提示</label></div>
-        <p class="hint">有新版本时点「去下载页」，在浏览器里打开 GitHub 的下载页面，下载 <code>mengren-learning-版本号-windows-with-ffmpeg.zip</code>。更新方法：先退出猛人学习（右下角图标右键「退出」），把解压出来的「猛人学习」文件夹替换旧的。设置、老师、媒体库、字幕都不在这个文件夹里，替换不会丢。GitHub 在国内有时很慢或打不开，可以多试几次。</p>
+        <p class="hint">有新版本时点「下载并更新」：软件从 GitHub 下载新版本（约 30 MB，不含 ffmpeg），核对无误后先保存、退出，换上新版本再自动打开；新版本打不开时会自动退回原来的版本。设置、老师、媒体库、字幕、缓存和日志都不受影响。GitHub 在国内有时很慢或连不上：开着代理软件时会自动走代理，也可以在「网络代理」里填地址；实在不行点「去下载页」手动下载 <code>mengren-learning-版本号-windows-with-ffmpeg.zip</code>，先退出猛人学习（右下角图标右键「退出」），用解压出来的「猛人学习」文件夹替换旧的。</p>
 
         <div class="label strong">点右上角 × 时</div>
         <div class="field"><label class="check"><input type="checkbox" data-k="close_to_tray"> 收到屏幕右下角（任务栏通知区域），软件继续运行；单击那里的图标打开，右键「退出」才真正退出。不勾选就是点 × 直接退出。</label></div>

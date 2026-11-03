@@ -3724,6 +3724,8 @@ function bind() {
   $$('[data-dir]').forEach(b => b.onclick = () => api('open_dir', { which: b.dataset.dir }).catch(fail));
   $('#btnCheckUpdate').onclick = () => checkUpdate(false);
   $('#btnGoDownload').onclick = () => S.update && api('reveal', { target: S.update.url }).catch(fail);
+  $('#btnUpdateNow').onclick = () => startUpdate();
+  $('#btnUpdateStop').onclick = () => S.updateJob && api('update_cancel', { id: S.updateJob }).catch(fail);
   $('#aboutHome').onclick = e => { e.preventDefault(); api('reveal', { target: 'https://github.com/longpeng1413/mengren-learning' }).catch(fail); };
   $$('[data-test]').forEach(b => b.onclick = async () => {
     const out = b.parentElement.querySelector('.test-result');
@@ -3908,22 +3910,60 @@ function bind() {
 }
 
 /* ---------------------------------------------------------------- 启动 ---- */
-/* 检查更新（2026-11-02 用户：完整的自动升级先不做，有新版本就让用户自己去 GitHub 下载页下载）。
-   auto：打开软件时自动检查（设置 update_auto，每天最多一次，后台记 update_checked）；没有新版本、查不了时都不打扰 */
+/* 检查更新（2026-11-02）和软件内更新（2026-11-03，照猛人快传的办法：从 GitHub 下载、核对、自动换上新版本再打开，后台在 core/update.py）。
+   auto：打开软件时自动检查（设置 update_auto，每天最多一次，后台记 update_checked）；没有新版本、查不了时都不打扰。
+   不能直接更新（从源码运行、文件夹不能写、发布页没有更新包）时只给「去下载页」 */
 async function checkUpdate(auto) {
   const info = $('#updateInfo');
+  if (S.updateJob) return;
   if (!auto) { info.textContent = '正在检查…'; $('#btnCheckUpdate').disabled = true; }
   try {
     const r = await api('check_update', { auto: !!auto });
     S.update = r;
+    $('#btnUpdateNow').hidden = !(r.newer && r.can_auto);
     $('#btnGoDownload').hidden = !r.newer;
     $('#updateNotes').hidden = !(r.newer && r.notes);
     if (r.newer && r.notes) $('#updateNotesBody').innerHTML = md(r.notes);
-    info.textContent = r.newer ? `有新版本 ${r.latest}（${r.date} 发布），你现在用的是 ${r.current || '开发版'}` : `已经是最新版本（${r.current || '开发版'}）`;
-    if (r.newer && auto) toast(`猛人学习有新版本 ${r.latest}，可以去 GitHub 下载`, { ms: 15000, action: { label: '去下载页', run: () => api('reveal', { target: r.url }) } });
+    info.textContent = r.newer ? `有新版本 ${r.latest}（${r.date} 发布），你现在用的是 ${r.current || '开发版'}` + (r.can_auto ? '' : `。${r.why}`) : `已经是最新版本（${r.current || '开发版'}）`;
+    if (r.newer && auto) toast(`猛人学习有新版本 ${r.latest}`, { ms: 15000, action: r.can_auto ? { label: '下载并更新', run: () => { openSettings('about'); startUpdate(); } } : { label: '去下载页', run: () => api('reveal', { target: r.url }) } });
   } catch (e) {
     if (!auto) info.textContent = e.message;
   } finally { $('#btnCheckUpdate').disabled = false; }
+}
+async function startUpdate() {
+  const r = S.update;
+  if (!r || !r.newer || S.updateJob) return;
+  const info = $('#updateInfo');
+  const btns = on => { $('#btnUpdateNow').hidden = on; $('#btnCheckUpdate').disabled = on; $('#btnUpdateStop').hidden = !on; };
+  let job;
+  try {
+    const { job: id } = await api('update_download', {});
+    S.updateJob = id; btns(true);
+    info.textContent = '正在连接 GitHub…';
+    for (;;) {
+      job = (await api('job', { id })).job;
+      if (job.status !== 'running') break;
+      info.textContent = (job.message || '正在下载新版本…') + (job.progress > 0 ? `（${Math.round(job.progress * 100)}%）` : '');
+      await sleep(500);
+    }
+  } catch (e) { job = { status: 'error', error: e.message }; }
+  S.updateJob = null; btns(false);
+  if (job.status !== 'done') {
+    info.textContent = job.status === 'cancelled' || /已停止/.test(job.error || '') ? '已停止下载' : (job.error || '下载没成功');
+    $('#btnUpdateNow').hidden = false;
+    return;
+  }
+  info.textContent = `新版本 ${r.latest} 已经下载好、核对无误`;
+  const busy = S.job || S.detached.size || S.bg.some(x => BG_ACTIVE.has(x.status));
+  if (!confirm(`新版本 ${r.latest} 已经下载好。\n\n换新版本时猛人学习会先保存、退出，换好后自动重新打开（大约十几秒）。` + (busy ? '\n正在进行的整理会停下，已经做完的步骤都保存了，之后可以接着整理。' : '') + '\n\n现在就换吗？（选「取消」可以等会儿再点「下载并更新」）')) {
+    $('#btnUpdateNow').hidden = false;
+    return;
+  }
+  info.textContent = '正在换新版本，猛人学习马上会关闭，换好后自动打开…';
+  try {
+    const a = await api('update_apply', {});
+    if (a.fake) info.textContent = '（界面自测：假装换好了新版本）';
+  } catch (e) { info.textContent = e.message; $('#btnUpdateNow').hidden = false; }
 }
 (async function init() {
   bind();
@@ -3936,6 +3976,9 @@ async function checkUpdate(auto) {
   }).catch(() => {});
   $('#stageMain').hidden = true; $('#empty').hidden = false;
   updateButtons();
+  api('update_result').then(({ result: u }) => {  // 上次软件内更新的结果
+    if (u) toast(u.ok ? `已经更新到新版本 ${u.version}` : `${u.text}${u.detail ? '（' + u.detail + '）' : ''}`, { ms: 10000, error: !u.ok });
+  }).catch(() => {});
   const today = new Date().toLocaleDateString('sv');  // 2026-11-02 这种写法，和后台记的一样
   if (S.settings && S.settings.update_auto !== false && S.settings.update_checked !== today) setTimeout(() => checkUpdate(true), 8000);
 })();

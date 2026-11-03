@@ -30,6 +30,9 @@ class Api:
         self._printing = False  # 打印预览开着（2026-11-02）：这时点右上角 × 只关掉打印预览（main.on_closing）
         self._version = ''
         self._bundled = None
+        self._update = None  # 检查更新查到的新版本信息（下载要用）
+        self._update_plan = None  # 下载、解压好的新版本，等用户点「换新版本」
+        self._exit_for_update = None  # main.py 设：保存后退出（和托盘「退出」一样）
 
     # pywebview 会把 Api 的公开方法暴露给界面；统一从 call 进来，出错时返回 {'ok': False, 'error': …}
     def call(self, name, body=None):
@@ -906,40 +909,70 @@ class Api:
                 'cache_dir': str(config.CACHE_DIR), 'storage_root': str(config.STORAGE_ROOT),
                 'storage_custom': s.get('storage_dir') or '', 'storage_default': str(config.default_storage_root()), **cache.info()}
 
-    RELEASES = 'https://github.com/longpeng1413/mengren-learning/releases'
-
     def do_check_update(self, b):
-        """检查更新（2026-11-02 用户：完整的自动升级先不做，有新版本就让用户自己去 GitHub 下载页下载）。
-        问 GitHub 接口最新发布的版本；直接连不上、又在「网络代理」里填了代理时，再走代理试一次。
-        auto：打开软件时的自动检查，记下日期，一天只查一次。界面自测（--fake-ai）不联网，返回假的新版本。"""
-        import requests
+        """检查更新：问 GitHub 最新正式版（core/update.py）。先按系统代理，连不上、又在「网络代理」里填了地址时再走那个。
+        auto：打开软件时的自动检查，记下日期，一天只查一次。can_auto：能不能在软件里直接更新（不能时 why 说原因）。
+        界面自测（--fake-ai）不联网，返回假的新版本。"""
+        from core import update
+        current = update.test_version() or self._version
         if '--fake-ai' in sys.argv:
-            return {'current': self._version, 'latest': '99.0.0', 'newer': True, 'url': self.RELEASES + '/latest',
-                    'notes': '## 99.0.0\n\n- 测试用的更新说明', 'date': '2099-01-01'}
-        s = config.load()
-        data, err = None, None
-        for px in [None] + ([{'http': s['proxy'], 'https': s['proxy']}] if s.get('proxy') else []):
-            try:
-                r = requests.get('https://api.github.com/repos/longpeng1413/mengren-learning/releases/latest', timeout=(8, 20), proxies=px,
-                                 headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'mengren-learning/' + (self._version or 'dev')})
-                if r.status_code == 200:
-                    data = r.json()
-                    break
-                err = f'GitHub 返回 HTTP {r.status_code}'
-            except requests.RequestException as e:
-                err = e
-        if b.get('auto'):
-            config.update({'update_checked': time.strftime('%Y-%m-%d')})
-        if data is None:
-            log.info('检查更新失败：%s', err)
-            raise ConnectionError('连不上 GitHub，检查不了更新。可以稍后再试，或者在「设置 → 网络代理」里填上代理地址再试')
-        latest = str(data.get('tag_name') or '').lstrip('vV')
+            r = {'current': current, 'latest': '99.0.0', 'newer': True, 'url': update.RELEASES + '/latest',
+                 'notes': '## 99.0.0\n\n- 测试用的更新说明', 'date': '2099-01-01', 'asset': {'name': 'fake.zip', 'size': 33 * 1048576}}
+        else:
+            if b.get('auto'):
+                config.update({'update_checked': time.strftime('%Y-%m-%d')})
+            r = update.fetch_latest(current, config.load().get('proxy') or None)
+        self._update = r
+        ok, why = (True, '') if '--fake-ai' in sys.argv else update.can_update()
+        if r.get('newer') and not r.get('asset'):
+            ok, why = False, '发布页上没有找到更新包，请去下载页手动下载'
+        return {k: r.get(k) for k in ('current', 'latest', 'newer', 'url', 'notes', 'date')} | {
+            'size': (r.get('asset') or {}).get('size') or 0, 'can_auto': ok, 'why': why}
 
-        def ver(v):
-            return tuple(int(x) for x in re.findall(r'\d+', v or '')[:4])
-        return {'current': self._version, 'latest': latest, 'newer': ver(latest) > ver(self._version),
-                'url': data.get('html_url') or self.RELEASES + '/latest', 'notes': str(data.get('body') or '')[:6000],
-                'date': str(data.get('published_at') or '')[:10]}
+    def do_update_download(self, b):
+        """下载并检查新版本（后台任务，界面轮询进度；可以停止）。好了以后界面问用户，再调 update_apply。"""
+        from core import update
+        info = self._update
+        if not (info and info.get('newer')):
+            raise ValueError('请先检查更新')
+        self._update_plan = None
+
+        def run(job):
+            if '--fake-ai' in sys.argv:  # 界面自测：假装下载
+                for i in range(1, 6):
+                    if job.cancel.is_set():
+                        raise update.UpdateError('已停止下载')
+                    job.report(i / 5 * 0.95, f'正在下载新版本 {i * 6.6:.1f} / 33.0 MB')
+                    time.sleep(0.2)
+                self._update_plan = {'fake': True, 'version': info['latest']}
+            else:
+                self._update_plan = update.prepare(info, job, config.load().get('proxy') or None)
+            return {'version': info['latest']}
+        return {'job': jobs.start('update', run).id}
+
+    def do_update_cancel(self, b):
+        job = jobs.get(b.get('id'))
+        if job:
+            job.cancel.set()
+        return {}
+
+    def do_update_apply(self, b):
+        """换新版本：拉起替换脚本，看到它启动了再保存、退出（脚本等软件退出后换文件、重新打开）。"""
+        from core import update
+        plan = self._update_plan
+        if not plan:
+            raise ValueError('新版本还没下载好')
+        if plan.get('fake'):
+            return {'fake': True}
+        update.launch(plan)
+        if self._exit_for_update:
+            threading.Timer(0.3, self._exit_for_update).start()  # 先让这次调用返回给界面
+        return {}
+
+    def do_update_result(self, b):
+        """上次更新的结果（启动时读的），界面显示一次。"""
+        from core import update
+        return {'result': update.last_result()}
 
     def do_set_storage(self, b):
         """更改缓存和日志的位置（空 = 软件所在文件夹），重启后生效。"""
