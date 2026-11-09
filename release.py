@@ -30,6 +30,8 @@ README = """猛人学习 {ver}
 【需要】Windows 10 / 11（64 位）。Windows 10 打不开时，先安装微软的 WebView2 运行时：
 https://developer.microsoft.com/microsoft-edge/webview2/
 程序没有数字签名，第一次打开时 Windows 或安全软件可能会提示，选择「仍要运行」或加入信任即可。
+双击没反应或提示「Windows 拦住了软件自带的组件」：把解压出来的文件夹删掉，在压缩包上点右键 →「属性」→
+勾选「解除锁定」→「确定」，再重新解压。还打不开时，把「日志（可随时删除）」里的 app.log 发给作者。
 
 【数据放在哪里】
 设置、密钥、老师档案、媒体库：%APPDATA%\\猛人学习\\

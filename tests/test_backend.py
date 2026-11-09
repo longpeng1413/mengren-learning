@@ -1922,6 +1922,27 @@ check('缓存和日志在指定位置，文件夹名写着可随时删除', conf
 r_ = api.call('set_storage', {'path': str(TMP / 'store2')})
 check('更改缓存位置', r_['changed'] and config.load()['storage_dir'] == str(TMP / 'store2'))
 
+# 解压出来的文件带「来自网络」标记（2026-11-09 朋友的电脑双击没反应）
+from core import unblock  # noqa: E402
+ub = TMP / 'unblock' / '猛人学习'
+(ub / '_internal' / 'pythonnet' / 'runtime').mkdir(parents=True)
+(ub / config.CACHE_NAME).mkdir()
+ub_files = [ub / unblock.PROBE, ub / '猛人学习.exe', ub / config.CACHE_NAME / '缓存.jpg']
+for f in ub_files:
+    f.write_bytes(b'x')
+    with open(str(f) + unblock.STREAM, 'w', encoding='utf-8') as fh:
+        fh.write('[ZoneTransfer]\nZoneId=3\n')
+check('认得出「来自网络」标记', all(unblock.marked(f) for f in ub_files))
+r_ub = unblock.clear_app_marks(ub)
+check('启动时去掉软件文件的标记（缓存文件夹不翻）', r_ub['cleared'] == 2 and r_ub['failed'] == 0
+      and not unblock.marked(ub_files[0]) and not unblock.marked(ub_files[1]) and unblock.marked(ub_files[2]), r_ub)
+check('没有标记时只看一个文件就返回', unblock.clear_app_marks(ub)['checked'] == 0)
+check('从源码运行时不去动标记', unblock.clear_app_marks()['checked'] == 0)
+check('打不开的原因说清楚：组件被拦', '解除锁定' in unblock.explain(RuntimeError(
+    r'Failed to resolve Python.Runtime.Loader.Initialize from D:\x\_internal\pythonnet\runtime\Python.Runtime.dll')))
+check('打不开的原因说清楚：缺 WebView2', 'WebView2' in unblock.explain(Exception('WebView2 Runtime not found')))
+check('打包时在 exe 旁边放允许加载的配置', 'loadFromRemoteSources enabled="true"' in (ROOT / 'build.py').read_text(encoding='utf-8'))
+
 print(f'\n全部通过：{passed} 项')
 import logging  # noqa: E402
 logging.shutdown()  # 先关掉日志文件，否则临时文件夹删不干净

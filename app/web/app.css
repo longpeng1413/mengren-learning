@@ -319,7 +319,7 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .cues { flex: 1; overflow-y: auto; min-height: 0; padding: 4px 6px 40vh 0; scroll-behavior: smooth; }
 .cues-inner { max-width: var(--cue-width); }
 /* 字幕里手动插的截图：缩进到和字幕文字对齐，下面一排「上移 / 下移 / 删除」 */
-.sub-shot { margin: 4px 62px 8px 94px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel2); }
+.sub-shot { margin: 4px var(--cue-pr) 8px 94px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel2); }
 .sub-shot img { display: block; width: 100%; max-height: 360px; object-fit: contain; background: #000; cursor: zoom-in; min-height: 60px; }
 .sub-shot-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 12px; color: var(--muted); }
 .sub-shot-bar button { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 6px; padding: 2px 8px; font-size: 12px; cursor: pointer; }
@@ -330,7 +330,7 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .book-fig img { max-width: 100%; max-height: 520px; border-radius: 6px; background: #fff; cursor: zoom-in; min-height: 40px; }
 .book-fig figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .cues-empty { text-align: center; color: var(--muted); margin-top: 18vh; line-height: 2; }
-.cue { position: relative; display: grid; grid-template-columns: 74px 1fr; gap: 4px 12px; padding: var(--cue-gap) 62px var(--cue-gap) 8px; border-radius: 10px; border: 1px solid transparent; transition: background .15s, border-color .15s; }
+.cue { position: relative; display: grid; grid-template-columns: 74px 1fr; gap: 4px 12px; padding: var(--cue-gap) var(--cue-pr) var(--cue-gap) 8px; border-radius: 10px; border: 1px solid transparent; transition: background .15s, border-color .15s; }
 .cue:hover { background: var(--panel); }
 .cue.active { background: var(--accent-weak); border-color: var(--accent-line); }
 .cue.hit .src, .cue.hit .tr { box-shadow: inset 0 -2px 0 var(--accent-line); }
@@ -348,15 +348,22 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .tr[data-ph=""]:empty:not(:focus) { display: none; }  /* 中文课这句没有译文：不留空行，否则开着「译文」时句子之间多出一行高 */
 .src:focus, .tr:focus { background: var(--panel2); box-shadow: 0 0 0 1px var(--accent-line); color: var(--text); }
 .tr:empty::before { content: attr(data-ph); color: var(--line); }
-/* 工具按钮排成一排、上下居中（2026-11-02 用户要求，以前是 2×2 两排），带底色盖住这一句右边一小段字，只在鼠标移上去时出现 */
-.cue-tools { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); display: none; grid-auto-flow: column; grid-auto-columns: 24px; gap: 3px; padding: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+/* 每句右边的工具按钮，上下居中，只在鼠标移上去 / 正在编辑时出现。放在每句右边留出的空白（--cue-pr）里，不挡字：
+   2026-11-09 用户反映一排按钮（111 像素）比空白（62 像素）宽，盖住最后几个字、点不到。现在两种排法，用户在「Aa」里选（cue_tools）：
+   row 一排：按钮缩到 20 像素，空白加宽到 102 像素（每行少约 2 个字）；grid 2×2：空白还是 62 像素，单行的句子方块上下超出一点，只压在别的句子的空白上。
+   改按钮大小、个数时，两种都要重算空白宽度。 */
+:root { --cue-pr: 102px; }
+:root[data-cue-tools="grid"] { --cue-pr: 62px; }
+.cue-tools { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: none; grid-auto-flow: column; grid-auto-columns: 20px; gap: 2px; padding: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+:root[data-cue-tools="grid"] .cue-tools { right: 4px; grid-auto-flow: row; grid-template-columns: repeat(2, 22px); }
 .cue:focus-within { z-index: 2; }
 .cue:hover { z-index: 3; }
 .cue:hover .cue-tools, .cue:focus-within .cue-tools { display: grid; }
 .cues-inner:hover .cue:focus-within:not(:hover) .cue-tools { display: none; } /* 正在编辑的句子，鼠标移到别的句子时先收起它的按钮 */
-.cue-tools button { width: 24px; height: 24px; display: grid; place-items: center; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; color: var(--muted); padding: 0; }
+.cue-tools button { width: 20px; height: 20px; display: grid; place-items: center; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; color: var(--muted); padding: 0; }
 .cue-tools button:hover { color: var(--accent); border-color: var(--accent-line); }
-.cue-tools svg { width: 13px; height: 13px; }
+.cue-tools svg { width: 12px; height: 12px; }
+:root[data-cue-tools="grid"] .cue-tools button { width: 22px; height: 22px; }
 
 /* ---------- 空状态 ---------- */
 .empty-card { width: min(580px, 100%); text-align: center; padding: 42px 36px; border: 1.5px dashed var(--line); border-radius: 18px; background: var(--panel); }

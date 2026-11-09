@@ -11,7 +11,7 @@ const S = {
   active: -1, editing: null, userScrollAt: 0, undo: [], job: null,
   hits: [], hitPos: -1, chatAbort: null, lib: [], resumeAt: 0, resumePending: false, loopIdx: null, frameUrls: {},
 };
-const LAYOUT_KEYS = ['font_size', 'line_height', 'cue_gap', 'cue_width', 'font_family', 'split', 'sidebar', 'lib_w', 'ai_dock', 'ai_hidden', 'ai_w', 'video_h',
+const LAYOUT_KEYS = ['font_size', 'line_height', 'cue_gap', 'cue_width', 'font_family', 'cue_tools', 'split', 'sidebar', 'lib_w', 'ai_dock', 'ai_hidden', 'ai_w', 'video_h',
   'video_hidden', 'subs_hidden'];
 
 /* ---------------------------------------------------------------- 工具 ---- */
@@ -161,6 +161,8 @@ function applyLook() {
   $('#txWidth').textContent = s.cue_width ? s.cue_width : '全宽';
   $('#txFont').value = s.font_family || 'yahei';
   $('#txTheme').value = s.theme;
+  document.documentElement.dataset.cueTools = s.cue_tools === 'grid' ? 'grid' : 'row';  // 每句右边按钮：一排 / 2×2
+  $('#txTools').value = document.documentElement.dataset.cueTools;
   // 书的整理笔记、原文文字版（和字幕分开设）
   root.setProperty('--bk-size', (s.book_font_size || 15) + 'px');
   root.setProperty('--bk-line', s.book_line_height || 1.8);
@@ -3555,6 +3557,7 @@ function bind() {
   });
   $('#txFont').onchange = e => savePrefs({ font_family: e.target.value });
   $('#txTheme').onchange = e => savePrefs({ theme: e.target.value });
+  $('#txTools').onchange = e => savePrefs({ cue_tools: e.target.value });
   $('#menuText').addEventListener('click', e => e.stopPropagation());
   // 书的文字设置：整理笔记、原书两列各有一个「Aa」，打开同一个菜单（挪到点的那个按钮下面）
   $('#bkTxTheme').innerHTML = $('#txTheme').innerHTML;

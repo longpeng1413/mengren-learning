@@ -19,7 +19,7 @@ from webview.dom import _dnd_state  # noqa: E402
 
 from bridge import Api  # noqa: E402
 
-VERSION = '1.10.0'
+VERSION = '1.10.1'
 
 
 _instance = None  # 保持互斥锁的句柄，进程退出时自动释放
@@ -114,6 +114,11 @@ def main():
         log.info('收到 --quit：%s', '已通知正在运行的猛人学习退出' if os.name == 'nt' and request_quit() else '猛人学习没有在运行')
         return
     log.info('==== 猛人学习 %s 启动（%s）====', VERSION, 'exe' if getattr(sys, 'frozen', False) else '源码')
+    from core import unblock
+    try:  # 解压出来的文件带「来自网络」标记时，.NET 不肯加载窗口要用的组件（2026-11-09 朋友的电脑双击没反应）
+        unblock.clear_app_marks()
+    except Exception:
+        log.warning('去掉「来自网络」标记时出错', exc_info=True)
     from core import update
     update.startup()  # 软件内更新：读上次更新的结果、告诉替换脚本新版本打开了、清掉更新临时文件
     from core import appdata
@@ -295,8 +300,9 @@ def main():
     storage.mkdir(parents=True, exist_ok=True)
     try:
         webview.start(gui='edgechromium', private_mode=False, storage_path=str(storage), debug='--debug' in sys.argv)
-    except Exception:
+    except Exception as e:
         log.exception('窗口出错')
+        unblock.show_fail(e)  # 以前只写日志，用户看到的是「双击没反应」
     log.info('==== 退出 ====')
     logging_shutdown()
     os._exit(0)
@@ -308,4 +314,11 @@ def logging_shutdown():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception as exc:  # 打开窗口之前就出错：也弹窗说明，不能一声不吭地退出
+        log.exception('启动出错')
+        from core import unblock as _unblock
+        _unblock.show_fail(exc)
+        logging_shutdown()
+        os._exit(1)

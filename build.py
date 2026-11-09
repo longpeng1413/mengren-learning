@@ -21,5 +21,11 @@ args = [
     str(ROOT / 'app' / 'main.py'),
 ]
 code = subprocess.call(args, cwd=ROOT)
+# exe 旁边放「猛人学习.exe.config」：解压出来的文件带「来自网络」标记时，.NET 照样加载软件自带的组件
+# （不然窗口建不出来、双击没反应，2026-11-09 朋友的电脑；见 app/core/unblock.py）。软件内更新会把它一起换过去。
+EXE_CONFIG = ('<?xml version="1.0" encoding="utf-8"?>\r\n<configuration>\r\n  <runtime>\r\n'
+              '    <loadFromRemoteSources enabled="true"/>\r\n  </runtime>\r\n</configuration>\r\n')
+if code == 0:
+    (ROOT / DIST / '猛人学习' / '猛人学习.exe.config').write_text(EXE_CONFIG, encoding='utf-8', newline='')
 print(f'\n打包完成：{DIST}\\猛人学习\\猛人学习.exe' if code == 0 else '\n打包失败（如果提示「拒绝访问」，请先关闭正在运行的猛人学习）')
 sys.exit(code)

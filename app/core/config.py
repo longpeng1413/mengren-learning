@@ -126,6 +126,7 @@ DEFAULTS = {
     'cue_gap': 9,
     'cue_width': 0,
     'font_family': 'yahei',
+    'cue_tools': 'row',  # 每句右边四个按钮：row 一排（右边空白加宽）/ grid 2×2 方块（空白不加宽）；2026-11-09 用户要能自己选
     # 书的整理笔记、原文文字版的文字设置（2026-10-29 用户要求「像字幕一样能设」；和字幕分开记）
     'book_font_size': 15,
     'book_line_height': 1.8,

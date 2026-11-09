@@ -183,6 +183,20 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('句间距', cs().getPropertyValue('--cue-gap').trim() === '11px');
     ok('字幕栏宽度', S.settings.cue_width > 0 && document.querySelector('.cues-inner').getBoundingClientRect().width <= S.settings.cue_width + 1);
     ok('字体', getComputedStyle(document.querySelector('.src')).fontFamily.includes('KaiTi'));
+    // 每句右边的按钮不挡字（2026-11-09：一排按钮比右边空白宽，盖住最后几个字）；「按钮」下拉框切一排 / 2×2
+    const toolsSel = document.querySelector('#txTools');
+    for (const mode of ['grid', 'row']) {
+      toolsSel.value = mode; toolsSel.dispatchEvent(new Event('change'));
+      const cue = document.querySelector('.cue'), src = cue.querySelector('.src');
+      src.focus();
+      const tb = cue.querySelector('.cue-tools').getBoundingClientRect(), cb = cue.getBoundingClientRect();
+      const textRight = cb.right - parseFloat(getComputedStyle(cue).paddingRight);
+      ok(`按钮排法 ${mode}：按钮在右边空白里，不压字`, document.documentElement.dataset.cueTools === mode && S.settings.cue_tools === mode
+         && tb.width > 0 && tb.left >= textRight - 0.5 && tb.right <= cb.right + 0.5,
+         [mode, tb.left, tb.right, textRight, cb.right]);
+      ok(`按钮排法 ${mode}：形状对`, mode === 'row' ? tb.width > tb.height * 3 : tb.width < tb.height * 1.5, [tb.width, tb.height]);
+      src.blur();
+    }
     savePrefs({ font_size: fs0, line_height: lh0, cue_gap: 9, cue_width: 0, font_family: 'yahei' });
     closeMenus();
 
