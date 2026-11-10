@@ -484,6 +484,19 @@ def _same_media(a, b):
     return bool(a) and norm(a) == norm(b)
 
 
+def note_media(p: Path):
+    """软件剪藏的笔记属性里写的「视频文件」；不是软件剪藏的笔记、读不出来时返回 None。"""
+    try:
+        with open(p, 'r', encoding='utf-8', errors='replace') as f:
+            head = f.read(1500)
+    except OSError:
+        return None
+    if not head.startswith('---') or ('猛人学习' not in head and '猛人字幕' not in head):
+        return None
+    m = re.search(r'(?m)^(?:视频文件|source):\s*"?(.*?)"?\s*$', head)  # 1.7.4 以前的笔记属性是英文
+    return m.group(1) if m else None
+
+
 def find_note(vault: Path, media: str, prefer: Path = None, also=()):
     """找已经剪藏过的笔记（用户可能在 Obsidian 里移动或改了名）：按笔记属性里的「视频文件」找。
     also：这个视频以前的路径（在软件里改过名、移动过文件夹），笔记里写的可能还是旧路径。"""
@@ -495,15 +508,8 @@ def find_note(vault: Path, media: str, prefer: Path = None, also=()):
             if p in seen or '.obsidian' in p.parts or '.trash' in p.parts:
                 continue
             seen.add(p)
-            try:
-                with open(p, 'r', encoding='utf-8', errors='replace') as f:
-                    head = f.read(1500)
-            except OSError:
-                continue
-            if not head.startswith('---') or ('猛人学习' not in head and '猛人字幕' not in head):
-                continue
-            m = re.search(r'(?m)^(?:视频文件|source):\s*"?(.*?)"?\s*$', head)  # 1.7.4 以前的笔记属性是英文
-            if m and any(_same_media(m.group(1), x) for x in medias):
+            m = note_media(p)
+            if m and any(_same_media(m, x) for x in medias):
                 return p
     return None
 
@@ -849,6 +855,14 @@ def place_figures(summary, frames_list, note_dir: Path, title, shot, edits=None)
     return _FIG.sub(repl, summary)
 
 
+def _other_lesson(p: Path, doc) -> bool:
+    """上次记下的笔记属性里写的是别的视频（2026-11-10：剪藏记录曾经记到了别的课上，结果一直覆盖别人的笔记）。
+    没写视频文件的（不是软件剪藏的、属性被删了）、写的视频已经不在了（在软件外面改过名）不算别人的，照旧更新。"""
+    m = note_media(p)
+    return (bool(m) and bool(doc.get('media')) and os.path.isfile(m)
+            and not any(_same_media(m, x) for x in [doc['media']] + list(doc.get('media_history') or ())))
+
+
 def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolder=True, name_pattern='{title}', boundary='', shot=None,
          force=False):
     """剪藏到 Obsidian。笔记在上次剪藏后被改过、又没有 force 时，不写，返回 {'conflict': True, …} 让用户确认；
@@ -860,6 +874,10 @@ def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolde
         target_dir = target_dir / safe_name(teacher.get('folder') or teacher.get('display') or teacher.get('name') or '')
     previous = (doc.get('clip') or {}).get('path')
     path = None
+    wrong = bool(previous) and Path(previous).is_file() and _other_lesson(Path(previous), doc)
+    if wrong:  # 记错的剪藏记录：笔记位置、插图文件名都不用
+        doc = dict(doc, clip={})
+        previous = None
     if previous and Path(previous).is_file():
         path = Path(previous)  # 同一个视频再次剪藏时更新原来的笔记
     elif doc.get('media'):

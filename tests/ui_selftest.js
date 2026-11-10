@@ -1327,6 +1327,18 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     await doClip();
     ok('重新剪藏后恢复「已剪藏」', await until(() => libTag().includes('已剪藏') && !libTag().includes('待更新')), libTag());
     ok('剪藏记下笔记文件的指纹（用来判断 Obsidian 里改过没有）', !!S.doc.clip.file_hash, S.doc.clip);
+    {  // 剪藏途中切到了别的课（2026-11-10 出过：记录记到了新开的课上）：记录写回剪藏的那节课，新开的课不沾
+      const realApi2 = window.api, keepPath = S.path, keepDoc = S.doc, other = { segments: [], title: '别的课' };
+      let got = null;
+      window.api = async (n, b) => {
+        const r = await realApi2(n, b);
+        if (n === 'clip') { got = r; S.path = keepPath + '.别的课.mp4'; S.doc = other; }
+        return r;
+      };
+      try { await doClip(); } finally { window.api = realApi2; S.path = keepPath; S.doc = keepDoc; }
+      await reloadDoc();
+      ok('剪藏途中切了课：记录写回剪藏的那节课，新开的课不沾', !other.clip && !!got && S.doc.clip.time === got.time, [other.clip, S.doc.clip, got && got.time]);
+    }
 
     await api('teacher_delete', { id: tr.teacher.id });
 

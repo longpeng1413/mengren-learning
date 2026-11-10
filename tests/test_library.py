@@ -231,6 +231,26 @@ c2 = docs.clip(dv2, str(vault), '猛人学习')
 check('改名后再剪藏：找到挪过地方的原笔记，文件名不变', c2['path'] == str(moved) and not (vault / '猛人学习' / '第三讲（新名字）.md').exists(), c2['path'])
 check('改名后再剪藏：插图沿用原来的名字（不多出一套新图片）', c2['img_base'] == '第三讲')
 
+# 剪藏记录记到了别的课上（2026-11-10：剪藏时切了课，「下」记成了「风险敞口」的笔记）：不能覆盖别人的笔记
+w = C2 / '01、第一讲' / '1、a.mp4'
+dw = docs.new(str(w), {'duration': 40})
+dw.update(segments=[{'start': 0, 'end': 1, 'text': '别的课。', 'tr': ''}], summary='别的重点', reviewed=True)
+dw['clip'] = {'path': c2['path'], 'img_base': c2['img_base'], 'file_hash': c2['file_hash']}  # 记的是「第三讲」的笔记
+before = Path(c2['path']).read_text(encoding='utf-8')
+c3 = docs.clip(dw, str(vault), '猛人学习')
+check('剪藏记录记错了课：不覆盖别的课的笔记，另写自己的', Path(c2['path']).read_text(encoding='utf-8') == before
+      and c3['path'] != c2['path'] and '别的重点' in Path(c3['path']).read_text(encoding='utf-8') and c3['img_base'] != c2['img_base'], c3['path'])
+c4 = docs.clip(dict(dw, clip={'path': c3['path'], 'img_base': c3['img_base'], 'file_hash': c3['file_hash']}), str(vault), '猛人学习')
+check('剪藏记录对的：照常更新原来那篇', c4['path'] == c3['path'])
+gone = docs.new(str(C2 / '外面改了名.mp4'), {'duration': 40})  # 视频在软件外面改了名：笔记里写的旧视频已经不在了，照旧更新原笔记
+gone.update(segments=dw['segments'], summary='改名后的重点', clip={'path': c3['path'], 'img_base': c3['img_base'], 'file_hash': c3['file_hash']})
+Path(c3['path']).write_text(Path(c3['path']).read_text(encoding='utf-8').replace(w.as_posix(), (C2 / '旧名字.mp4').as_posix()), encoding='utf-8')
+c5 = docs.clip(gone, str(vault), '猛人学习', force=True)
+check('笔记里写的视频已经不在了（在软件外面改过名）：照旧更新原笔记', c5['path'] == c3['path'], c5['path'])
+docs.save(str(w), dw)
+r = api.call('clip_record', {'path': str(w), 'clip': {'path': c3['path'], 'time': c3['time']}})
+check('剪藏完已切到别的课：记录写回剪藏的那节课', r['ok'] and docs.load(str(w))['clip']['path'] == c3['path'], r)
+
 # PDF 改名：同名的 Word 参考一起改
 shutil.copy(TM / '测试书籍.pdf', C2 / '资料' / '书.pdf')
 (C2 / '资料' / '书.docx').write_bytes(b'PK')

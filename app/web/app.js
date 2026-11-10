@@ -1123,16 +1123,17 @@ async function bookAiToc() {
 async function bookClip() {
   try {
     await flushSave();
-    let r = await api('book_clip', { doc: S.doc });
+    const path = S.path, doc = S.doc;
+    let r = await api('book_clip', { doc });
     if (r.conflict) {
       if (!confirm(`下面这些笔记上次剪藏后在 Obsidian 里改过：\n${r.changed.join('\n')}\n\n继续剪藏会用软件里的内容更新软件写的那些小节：你在这些小节里直接改的文字会没掉。你自己加的小节、标注（> [!…]）和属性会保留。改过的笔记会先备份到：\n%APPDATA%\\猛人学习\\backups\\笔记\n\n要继续剪藏吗？`)) {
         toast('没有剪藏，Obsidian 里的笔记保持不变');
         return true;
       }
-      r = await api('book_clip', { doc: S.doc, force: true });
+      r = await api('book_clip', { doc, force: true });
     }
-    S.doc.clip = { dir: r.dir, time: r.time, files: r.records }; markDirty(); save();
-    toast(`已剪藏 ${r.files.length} 篇笔记到 Obsidian` + (r.backups ? `，${r.backups} 篇改过的旧笔记已备份` : '')
+    const here = await saveClipRecord(path, doc, { dir: r.dir, time: r.time, files: r.records });
+    toast((here ? '' : `《${doc.title || ''}》`) + `已剪藏 ${r.files.length} 篇笔记到 Obsidian` + (r.backups ? `，${r.backups} 篇改过的旧笔记已备份` : '')
       + (r.moved ? `。有 ${r.moved} 条你写的标注找不到原来那句话，放在了那一节的最后` : ''),
       { action: { label: '在 Obsidian 中打开', run: () => api('reveal', { target: r.uri }) }, ms: 8000 });
     return true;
@@ -2303,20 +2304,29 @@ async function addTerms(fresh) {  // fresh：{name, bind} 新老师的第一节�
 }
 
 /* ------------------------------------------------------------- 剪藏 ---- */
+/* 剪藏要十几秒，期间可能切到了别的课：记录要写回剪藏的那节课（2026-11-10：以前写到了当时开着的课上，
+   「下」记成了「风险敞口」的笔记，之后每次剪藏「下」都把风险敞口那篇整篇换掉、自己那篇一直不更新） */
+async function saveClipRecord(path, doc, clip) {
+  if (S.doc && S.path && S.path.toLowerCase() === String(path || '').toLowerCase()) { S.doc.clip = clip; S.docStale = false; markDirty(); save(); return true; }
+  await api('clip_record', { path, clip });
+  loadLibrary();
+  return false;
+}
 async function doClip() {
   try {
     await flushSave();
-    let r = await api('clip', { doc: S.doc });
+    const path = S.path, doc = S.doc, title = doc.title || '';
+    let r = await api('clip', { path, doc });
     if (r.conflict) {
       const name = r.path.split(/[\\/]/).pop();
       if (!confirm(`「${name}」上次剪藏后在 Obsidian 里改过（最后修改 ${r.modified}）。\n\n继续剪藏会用软件里的内容更新「课程重点」和「完整字幕」：你在这两块里直接改的文字会没掉。你自己加的小节、标注（> [!…]）、属性和状态会保留。旧笔记会先备份到：\n%APPDATA%\\猛人学习\\backups\\笔记\n\n要继续剪藏吗？`)) {
         toast('没有剪藏，Obsidian 里的笔记保持不变');
         return true;
       }
-      r = await api('clip', { doc: S.doc, force: true });
+      r = await api('clip', { path, doc, force: true });
     }
-    S.doc.clip = { path: r.path, time: r.time, hash: r.hash, file_hash: r.file_hash, tags: r.tags, img_base: r.img_base }; S.docStale = false; markDirty(); save();
-    toast((S.doc.reviewed ? '已剪藏到 Obsidian' : '已剪藏到 Obsidian（字幕还没标记为已校对）') + (r.backup ? '。覆盖前的旧笔记已备份' : '') + (r.moved ? `。有 ${r.moved} 条你写的标注找不到原来那句话，放在了那一节的最后` : ''),
+    const here = await saveClipRecord(path, doc, { path: r.path, time: r.time, hash: r.hash, file_hash: r.file_hash, tags: r.tags, img_base: r.img_base });
+    toast((here ? '' : `《${title}》`) + (doc.reviewed ? '已剪藏到 Obsidian' : '已剪藏到 Obsidian（字幕还没标记为已校对）') + (r.backup ? '。覆盖前的旧笔记已备份' : '') + (r.moved ? `。有 ${r.moved} 条你写的标注找不到原来那句话，放在了那一节的最后` : ''),
       { action: { label: '在 Obsidian 中打开', run: () => api('reveal', { target: r.uri }) }, ms: 7000 });
     return true;
   } catch (e) { fail(e); return false; }

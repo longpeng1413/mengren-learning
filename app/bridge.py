@@ -647,6 +647,14 @@ class Api:
         return docs.clip(d, ob.get('vault'), ob.get('folder'), teacher, series, ob.get('teacher_subfolder', True),
                          ob.get('name_pattern') or '{title}', boundary, shot, bool(b.get('force')))
 
+    def do_clip_record(self, b):
+        """剪藏完时已经切到别的课了：剪藏记录写回剪藏的那节课的字幕文件（那节课没开着，不会和界面的保存撞）。"""
+        path, clip = str(b.get('path') or ''), b.get('clip')
+        if not path or not os.path.isfile(path) or not isinstance(clip, dict):
+            raise ValueError('找不到剪藏的那节课，剪藏记录没有保存')
+        workflow._apply(path, lambda doc: doc.__setitem__('clip', clip))
+        return {}
+
     def do_reveal(self, b):
         """在资源管理器里显示文件，或用 Obsidian 打开笔记。"""
         target = str(b.get('target') or '')
