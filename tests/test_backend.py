@@ -1,5 +1,6 @@
 """后台自测（不联网、不需要 API Key）。运行：.venv\\Scripts\\python tests\\test_backend.py
 会把设置和缓存放到临时目录，不影响真实数据。"""
+import copy
 import json
 import os
 import shutil
@@ -933,7 +934,91 @@ login = codex_auth._Login()
 check('ChatGPT 登录网址', 'code_challenge_method=S256' in login.url and 'client_id=app_' in login.url)
 check('拒绝不匹配的回调', login.accept('http://localhost:1455/auth/callback?code=x&state=wrong') and login.error)
 api.call('settings', {'settings': {'chat': 'codex', 'providers': {'codex': {'chat_model': 'x'}}}})
-check('选了 ChatGPT 但没登录时提示', '还没有用 ChatGPT 账号登录' in api.call('chat', {'doc': {}})['error'])
+check('选了 ChatGPT 但没登录时提示', '还没有登录ChatGPT' in api.call('chat', {'doc': {}})['error'])
+
+# 官方「用 ChatGPT 登录」（不真正登录，2026-11-10）
+from core import chatgpt_auth  # noqa: E402
+g = chatgpt_auth._Login(1455)
+check('官方登录：第一次用动态注册，带软件名、本机编号、会员额度权限，回调是 127.0.0.1',
+      'client_id=dynamic_agent_client' in g.url and 'agent_name_hint=' in g.url and 'ext_agent_host_id=urn' in g.url
+      and 'chatgpt.tokens.use.direct' in g.url.replace('%2E', '.').replace('+', ' ') and '127.0.0.1%3A1455' in g.url
+      and 'resource=https' in g.url, g.url)
+hid = config.load()['providers']['chatgpt']['host_id']
+check('官方登录：本机编号记下来，下次还用同一个', hid.startswith('urn:uuid:') and chatgpt_auth.host_id() == hid)
+g2 = chatgpt_auth._Login(1455, 'oaiapp_abc')
+check('官方登录：再登录时用发给软件的应用编号，不再带软件名', 'client_id=oaiapp_abc' in g2.url and 'agent_name_hint' not in g2.url)
+check('官方登录：state 对不上的回调不要', g.accept(f'{g.redirect}?code=x&state=wrong&client_id=oaiapp_1') and g.error and not g.code)
+g = chatgpt_auth._Login(1455)
+check('官方登录：没有应用编号的回调不要', g.accept(f'{g.redirect}?code=x&state={g.state}') and g.error and not g.code)
+g = chatgpt_auth._Login(1455)
+check('官方登录：正常回调收下', g.accept(f'{g.redirect}?code=x&state={g.state}&client_id=oaiapp_1') and g.code == 'x' and g.client_id == 'oaiapp_1')
+g = chatgpt_auth._Login(1455)
+check('官方登录：在授权页取消', g.accept(f'{g.redirect}?error=access_denied&state={g.state}') and '取消' in g.error)
+try:
+    chatgpt_auth._creds({'access_token': 'a', 'refresh_token': 'r', 'scope': 'openid email'}, {}, 'oaiapp_1')
+    no_scope = False
+except chatgpt_auth.AuthError as e:
+    no_scope = '会员额度' in str(e)
+check('官方登录：令牌里没有「使用会员额度」权限时报清楚', no_scope)
+api.call('settings', {'settings': {'chat': 'chatgpt'}})
+check('选了官方登录但没登录时提示', '还没有登录ChatGPT（官方登录）' in api.call('chat', {'doc': {}})['error'])
+
+# 每项 AI 工作单独选服务、模型、思考强度（2026-11-10）
+api.call('settings', {'settings': {'chat': 'codex', 'correct': 'deepseek', 'vision': 'codex', 'translate': 'deepseek',
+                                   'providers': {'codex': {'chat_model': 'gpt-6.1-sol'}, 'deepseek': {'chat_model': 'deepseek-flash'}}}})
+s_t = config.load()
+check('没单独设时沿用原来的大类', config.task_ai(s_t, 'summary') == ('codex', 'gpt-6.1-sol', '')
+      and config.task_ai(s_t, 'correct') == ('deepseek', 'deepseek-flash', '') and config.task_ai(s_t, 'book')[0] == 'codex')
+tasks_t = copy.deepcopy(s_t['ai_tasks'])
+tasks_t['correct'] = {'provider': 'codex', 'model': 'gpt-6.1-terra', 'effort': 'low'}
+tasks_t['summary'] = {'provider': '', 'model': '', 'effort': 'high'}
+tasks_t['translate'] = {'provider': '', 'model': '', 'effort': 'low'}  # DeepSeek 不支持思考强度
+api.call('settings', {'settings': {'ai_tasks': tasks_t}})
+s_t = config.load()
+check('单独设的服务、模型、思考强度生效', config.task_ai(s_t, 'correct') == ('codex', 'gpt-6.1-terra', 'low')
+      and config.task_ai(s_t, 'summary') == ('codex', 'gpt-6.1-sol', 'high'))
+check('不支持思考强度的服务不发', config.task_ai(s_t, 'translate') == ('deepseek', 'deepseek-flash', ''))
+check('保存一项工作不会冲掉别的工作', s_t['ai_tasks']['summary']['effort'] == 'high' and s_t['ai_tasks']['correct']['model'] == 'gpt-6.1-terra')
+s2, n2 = llm.for_task(s_t, 'correct')
+check('for_task：副本换成这项工作的模型和思考强度，原设置不变',
+      n2 == 'codex' and s2['providers']['codex']['chat_model'] == 'gpt-6.1-terra' and s2['providers']['codex']['effort'] == 'low'
+      and s_t['providers']['codex']['chat_model'] == 'gpt-6.1-sol' and 'effort' not in s_t['providers']['codex'])
+check('任务记录里显示模型和思考强度', llm.model_label(s2, n2) == 'ChatGPT（旧登录方式） · gpt-6.1-terra · 思考 low')
+body = llm._responses_body('m', [{'role': 'system', 'content': '规则'}, {'role': 'user', 'content': '你好'}], 'low')
+check('ChatGPT 请求带思考强度、不保存、流式', body['reasoning'] == {'effort': 'low'} and body['store'] is False and body['stream'] is True
+      and body['instructions'] == '规则' and 'reasoning' not in llm._responses_body('m', [{'role': 'user', 'content': 'x'}], ''))
+sink = []
+s2['_usage'] = sink
+s3, n3 = llm.for_task(s2, 'summary')
+llm._record_usage(s3, n3, {'input_tokens': 100, 'output_tokens': 20, 'input_tokens_details': {'cached_tokens': 40},
+                           'output_tokens_details': {'reasoning_tokens': 5}})
+llm._record_usage(s2, n2, {'prompt_tokens': 10, 'completion_tokens': 2})
+tot = llm.usage_sum(sink)
+check('用量：各项工作的副本记进同一个清单，能加总', tot['calls'] == 2 and tot['input'] == 110 and tot['cached'] == 40 and tot['output'] == 22
+      and tot['reasoning'] == 5 and len(tot['models']) == 2, tot)
+check('没有用量记录时为空', llm.usage_sum([]) is None)
+
+# 一次性设置调整（2026-11-10）：校对改 Terra、中文识别默认本机，只做一次
+api.call('settings', {'settings': {'migrations': [], 'correct': 'codex', 'asr_zh': 'doubao', 'ai_tasks': {k: {'provider': '', 'model': '', 'effort': ''} for k in s_t['ai_tasks']}}})
+did = config.migrate()
+s_m = config.load()
+check('一次性调整：ChatGPT 校对改 Terra、中文识别改本机', s_m['ai_tasks']['correct']['model'] == 'gpt-6.1-terra' and s_m['asr_zh'] == 'local'
+      and len(did) == 2 and set(s_m['migrations']) >= {'ai_校对_terra', '识别_本机'}, did)
+api.call('settings', {'settings': {'asr_zh': 'doubao'}})
+check('一次性调整只做一次：用户之后改回去的不再改', config.migrate() == [] and config.load()['asr_zh'] == 'doubao')
+
+# 官方登录成功后，原来用旧登录的工作都换过去
+tasks_t = copy.deepcopy(config.load()['ai_tasks'])
+tasks_t['review'] = {'provider': 'codex', 'model': '', 'effort': ''}
+api.call('settings', {'settings': {'chat': 'codex', 'vision': 'codex', 'correct': 'deepseek', 'ai_tasks': tasks_t,
+                                   'providers': {'chatgpt': {'chat_model': ''}, 'codex': {'chat_model': 'gpt-6.1-sol'}}}})
+n_sw = api._switch_to_chatgpt()
+s_sw = config.load()
+check('官方登录后：用旧登录的工作换成官方登录，模型带过去', n_sw == 3 and s_sw['chat'] == 'chatgpt' and s_sw['vision'] == 'chatgpt'
+      and s_sw['correct'] == 'deepseek' and s_sw['ai_tasks']['review']['provider'] == 'chatgpt'
+      and s_sw['providers']['chatgpt']['chat_model'] == 'gpt-6.1-sol', n_sw)
+api.call('settings', {'settings': {'chat': 'codex', 'vision': 'codex', 'translate': 'deepseek', 'correct': 'deepseek',
+                                   'ai_tasks': {k: {'provider': '', 'model': '', 'effort': ''} for k in s_t['ai_tasks']}}})
 api.call('settings', {'settings': {'translate': 'claude'}})
 tt = run_steps(mp4, ['translate'], any_lang=True, translate_all=True)
 check('Claude 没填密钥时提示', tt['status'] == 'failed' and '还没有填写Claude的 API Key' in stage(tt, 'translate').get('error', ''), tt)
@@ -1921,6 +2006,59 @@ config.DATA_DIR = real_keep
 check('缓存和日志在指定位置，文件夹名写着可随时删除', config.CACHE_DIR == TMP / 'store' / '缓存（可随时删除）' and config.LOG_DIR.name == '日志（可随时删除）')
 r_ = api.call('set_storage', {'path': str(TMP / 'store2')})
 check('更改缓存位置', r_['changed'] and config.load()['storage_dir'] == str(TMP / 'store2'))
+
+# 本机识别（SenseVoice，2026-11-10）
+from core import local_asr  # noqa: E402
+check('本机识别：去掉「呃」和单独的「嗯」，「额度」不动', local_asr.clean('呃，今天讲一下，叫做呃小升初。嗯，额度不够。') == '今天讲一下，叫做小升初。额度不够。',
+      local_asr.clean('呃，今天讲一下，叫做呃小升初。嗯，额度不够。'))
+check('本机识别：数字转换的「十0年」改成「十年」，「二十0」「100」不动', local_asr.clean('读了十0年，二十0，100人') == '读了十年，二十0，100人')
+js = local_asr.join_unfinished([[0, 2, '其实我们聊的就是一个比较。'], [2.3, 5, '清晰的顺序框架。'], [5.1, 6, '其实我好讨厌的。'],
+                                [6.1, 8, '我觉得要清楚。'], [8.1, 9, '所以。'], [12, 13, '要看也要听。']])
+check('本机识别：没说完就打了句号的接回去，以「的」结尾的完整句子不接，隔太久的不接',
+      [x[2] for x in js] == ['其实我们聊的就是一个比较清晰的顺序框架。', '其实我好讨厌的。', '我觉得要清楚。', '所以。', '要看也要听。'], js)
+import numpy as _np  # noqa: E402
+sig = _np.concatenate([_np.ones(local_asr.SR * 12, dtype=_np.float32) * 0.3, _np.zeros(int(local_asr.SR * 0.6), dtype=_np.float32),
+                       _np.ones(local_asr.SR * 20, dtype=_np.float32) * 0.3])
+cp = local_asr.chunks(sig)
+check('本机识别：每段不超过 20 秒，切在最安静的地方，记下切口停顿长度',
+      all(b - a <= 20 * local_asr.SR for a, b, _g in cp) and abs(cp[0][1] / local_asr.SR - 12.3) < 0.2 and cp[0][2] >= 0.4, cp[:2])
+ss = local_asr._sentences(['大', '家', '好。', '今', '天', '讲'], [0, 0.2, 0.4, 1.0, 1.2, 1.4], 10, 12)
+check('本机识别：按句末标点切句，时间用每个字的时间', ss == [[10, 11.0, '大家好。'], [11.0, 12, '今天讲']], ss)
+# 拆分一句时找准时间（2026-11-10）：光标前的字数对上重新识别出的字，识别多了「呃」、认错了字也对得上
+sp_toks = ['大', '家', '好', '，', '呃', '今', '天', '奖', '一', '下', '课', '程', '。']
+sp_ts = [round(0.2 * k, 2) for k in range(len(sp_toks))]
+check('拆分找时间：对上后半句第一个字（识别多了「呃」、认错了字）', local_asr.align_split('大家好，今天讲', '一下课程。', sp_toks, sp_ts) == (1.4, 1.6),
+      local_asr.align_split('大家好，今天讲', '一下课程。', sp_toks, sp_ts))
+check('拆分找时间：光标正好在认错的字前面', local_asr.align_split('大家好，今天', '讲一下课程。', sp_toks, sp_ts) == (1.2, 1.4),
+      local_asr.align_split('大家好，今天', '讲一下课程。', sp_toks, sp_ts))
+check('拆分找时间：光标在最前面 / 识别结果是空的，对不上', local_asr.align_split('', '大家好', sp_toks, sp_ts) is None and local_asr.align_split('大家', '好', [], []) is None)
+_rng = _np.random.default_rng(1)
+sp_sig = _np.concatenate([_rng.uniform(-0.3, 0.3, local_asr.SR * 2), _np.zeros(int(local_asr.SR * 0.6)), _rng.uniform(-0.3, 0.3, local_asr.SR * 2)]).astype(_np.float32)
+qr = local_asr.quiet_runs(sp_sig)
+check('拆分找时间：认得出停顿', len(qr) == 1 and abs(qr[0][0] - 2.0) < 0.05 and abs(qr[0][1] - 2.6) < 0.05, qr)
+import wave as _wave  # noqa: E402
+sp_wav = TMP / 'split_pause.wav'
+with _wave.open(str(sp_wav), 'wb') as _w:
+    _w.setnchannels(1); _w.setsampwidth(2); _w.setframerate(local_asr.SR)
+    _w.writeframes((sp_sig * 32767).astype(_np.int16).tobytes())
+sp_r = local_asr.split_point(str(sp_wav), 0.0, 4.6, '甲乙', '丙丁', 2.9)
+check('拆分找时间：估计的时间附近有停顿，拆在停顿正中间', sp_r['t'] is not None and abs(sp_r['t'] - 2.3) < 0.1, sp_r)
+check('拆分找时间：附近 3 秒内没有停顿就不改', local_asr.split_point(str(sp_wav), 0.0, 1.9, '甲乙', '丙丁', 1.0)['t'] is None)
+real_kc = Path.home() / 'AppData' / 'Roaming' / 'com.personal.lantransfer' / 'lan_transfer' / 'asr_model' / local_asr.FOLDER
+if not local_asr.find_model() and real_kc.is_dir():  # 测试把 APPDATA 指到了临时文件夹；这台电脑上有猛人快传的模型时只读借用
+    local_asr.KUAICHUAN = real_kc
+st = local_asr.status()
+check('本机识别：能说出模型在不在、在哪', set(st) >= {'ready', 'where', 'own_size', 'download_mb'} and st['download_mb'] > 200, st)
+if st['ready']:  # 这台电脑有模型（自己下的，或猛人快传下好的）时，真跑一段 3 秒的音频，确认整条流程能用
+    tone = TMP / 'local_tone.wav'
+    subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=300:duration=3', '-ac', '1', '-ar', '16000',
+                    '-c:a', 'pcm_s16le', str(tone)], check=True)
+    got_cues = local_asr.transcribe(tone, 'zh')
+    check('本机识别：真跑一段音频不出错（纯音没有字）', isinstance(got_cues, list) and local_asr.status()['loaded'])
+    local_asr.release()
+    check('本机识别：用完能放掉内存', not local_asr.status()['loaded'])
+else:
+    print('（这台电脑没有本机识别模型，跳过真跑）')
 
 # 解压出来的文件带「来自网络」标记（2026-11-09 朋友的电脑双击没反应）
 from core import unblock  # noqa: E402

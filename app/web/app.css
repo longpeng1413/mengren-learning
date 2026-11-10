@@ -351,11 +351,15 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 /* 每句右边的工具按钮，上下居中，只在鼠标移上去 / 正在编辑时出现。放在每句右边留出的空白（--cue-pr）里，不挡字：
    2026-11-09 用户反映一排按钮（111 像素）比空白（62 像素）宽，盖住最后几个字、点不到。现在两种排法，用户在「Aa」里选（cue_tools）：
    row 一排：按钮缩到 20 像素，空白加宽到 102 像素（每行少约 2 个字）；grid 2×2：空白还是 62 像素，单行的句子方块上下超出一点，只压在别的句子的空白上。
-   改按钮大小、个数时，两种都要重算空白宽度。 */
-:root { --cue-pr: 102px; }
-:root[data-cue-tools="grid"] { --cue-pr: 62px; }
-.cue-tools { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: none; grid-auto-flow: column; grid-auto-columns: 20px; gap: 2px; padding: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
-:root[data-cue-tools="grid"] .cue-tools { right: 4px; grid-auto-flow: row; grid-template-columns: repeat(2, 22px); }
+   改按钮大小、个数时，两种都要重算空白宽度。
+   「离右边 2」= right 1px + 每句 1 像素的边框（right 从边框里面算起）。
+   2026-11-10 去掉「对齐时间」，剩拆分、合并、删除三个：一排 3×20 + 间距 4 + 内边距 4 + 边框 2 + 离右边 2 = 72，
+   空白也是 72（用户：按钮平时隐藏，只要不遮字，文字尽量往右）；2×2：2×22 + 间距 2 + 内边距 4 + 边框 2 + 离右边 2 = 54，
+   空白也是 54；第三个（删除）放在第二行正中。 */
+:root { --cue-pr: 72px; }
+:root[data-cue-tools="grid"] { --cue-pr: 54px; }
+.cue-tools { position: absolute; right: 1px; top: 50%; transform: translateY(-50%); display: none; grid-auto-flow: column; grid-auto-columns: 20px; gap: 2px; padding: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+:root[data-cue-tools="grid"] .cue-tools { right: 1px; grid-auto-flow: row; grid-template-columns: repeat(2, 22px); }
 .cue:focus-within { z-index: 2; }
 .cue:hover { z-index: 3; }
 .cue:hover .cue-tools, .cue:focus-within .cue-tools { display: grid; }
@@ -364,6 +368,7 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .cue-tools button:hover { color: var(--accent); border-color: var(--accent-line); }
 .cue-tools svg { width: 12px; height: 12px; }
 :root[data-cue-tools="grid"] .cue-tools button { width: 22px; height: 22px; }
+:root[data-cue-tools="grid"] .cue-tools button:last-child:nth-child(odd) { grid-column: 1 / -1; justify-self: center; }
 
 /* ---------- 空状态 ---------- */
 .empty-card { width: min(580px, 100%); text-align: center; padding: 42px 36px; border: 1.5px dashed var(--line); border-radius: 18px; background: var(--panel); }
@@ -435,6 +440,14 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .tos { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px 2px; margin-bottom: 14px; }
 .account-box { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; display: flex; align-items: center; gap: 12px; }
 .account-box .who { flex: 1; }
+/* 设置 → 每项 AI 工作：一行一项（工作 / 服务 / 模型 / 思考强度） */
+.ai-tasks { display: grid; gap: 6px; margin: 10px 0 14px; }
+.ai-task { display: grid; grid-template-columns: 170px 190px minmax(0, 1fr) 92px; gap: 8px; align-items: center; }
+.ai-task.head { color: var(--muted); font-size: 12px; }
+.ai-task .at-name { font-size: 13px; line-height: 1.35; }
+.ai-task select, .ai-task input { min-width: 0; width: 100%; }
+.ai-task .key-row { min-width: 0; }
+.ai-task .at-effort:disabled { opacity: .45; }
 .paste-box { border: 1px dashed var(--accent-line); border-radius: 10px; padding: 10px 14px 12px; margin-bottom: 14px; }
 
 .teacher-wrap { display: flex; gap: 14px; }

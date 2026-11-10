@@ -56,6 +56,11 @@ def main():
     (teacher / '03、老师画像（对话用）.md').write_text('# 测试老师画像\n', encoding='utf-8')
 
     env = dict(os.environ, APPDATA=str(TD / 'appdata'), LOCALAPPDATA=str(TD / 'local'), PYTHONIOENCODING='utf-8')
+    # 这台电脑上有猛人快传下好的本机识别模型时借来用（只读），界面自测里点「测试本机识别」真识别一次，
+    # 打包版能确认运行库（onnxruntime.dll）加载的是自带的那份（Windows 11 系统文件夹里有一个旧的）
+    kc = Path(os.environ.get('APPDATA', '')) / 'com.personal.lantransfer' / 'lan_transfer' / 'asr_model' / 'sensevoice-int8-2024-07-17'
+    if (kc / 'model.int8.onnx').is_file():
+        env['MENGREN_ASR_MODEL_DIR'] = str(kc)
     if '--exe' in sys.argv:
         cmd = [str(ROOT / 'dist-next' / '猛人学习' / '猛人学习.exe')]
     else:

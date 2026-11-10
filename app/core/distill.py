@@ -535,8 +535,8 @@ def start(mid, force=False):
     c = conflicts(m, st)
     if c and not force:
         return {'conflict': c}
-    s = config.load()
-    llm.check(s, s['chat'])
+    s, name = llm.for_task(config.load(), 'distill')
+    llm.check(s, name)
     job = jobs.start('distill', lambda j: run(mid, j))
     with _lock:
         _running[mid] = job
@@ -544,8 +544,7 @@ def start(mid, force=False):
 
 
 def run(mid, job):
-    s = config.load()
-    name = s['chat']
+    s, name = llm.for_task(config.load(), 'distill')
     m = mentor.get(mid)
     st = load_state(mid)
     st['done'] = False
@@ -669,7 +668,7 @@ def _bad_note(bad):
 
 
 def _model(s, name):
-    return f'{llm.PROVIDER_NAMES.get(name, name)} · {(s["providers"].get(name) or {}).get("chat_model", "")}'
+    return llm.model_label(s, name)  # s 是 llm.for_task 给的副本，显示的是这项工作实际用的模型
 
 
 def write_files(m, st, texts):

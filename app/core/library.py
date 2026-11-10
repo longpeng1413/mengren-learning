@@ -197,7 +197,7 @@ def _tree(path, lib, positions, budget, top=False, env=None, inherit=''):
     conf = _conf(lib, k)
     own = conf.get('summary') or ''
     node = {'type': 'folder', 'path': path, 'name': Path(path).name or path, 'top': top, 'teacher': conf.get('teacher') or '',
-            'collapsed': bool(conf.get('collapsed')), 'summary': own, 'no_summary': (own or inherit) == 'off',
+            'collapsed': bool(conf.get('collapsed')), 'summary': own, 'no_summary': (own or inherit) == 'off', 'asr': conf.get('asr') or '',
             'missing': not os.path.isdir(path), 'count': 0, 'children': []}
     if node['missing']:
         return node
@@ -317,7 +317,7 @@ def add_folder(path, merge=None):
             conf = lib['dirs'].setdefault(_key(f['path']), {})
             if f.get('teacher'):
                 conf['teacher'] = f['teacher']
-            for name in ('summary', 'rule'):
+            for name in ('summary', 'rule', 'asr'):
                 if f.get(name):
                     conf[name] = f[name]
             conf['collapsed'] = bool(f.get('collapsed'))
@@ -370,7 +370,8 @@ def remove(kind, path):
 
 
 def set_folder(path, **changes):
-    """改一个文件夹的设置：teacher、collapsed、name（只有最上层）、no_summary（True / False：这里的课写不写课程重点）、rule（整理规则）。"""
+    """改一个文件夹的设置：teacher、collapsed、name（只有最上层）、no_summary（True / False：这里的课写不写课程重点）、rule（整理规则）、
+    asr（识别方式：local 本机 / doubao 豆包 / 空 = 沿用上层，2026-11-10）。"""
     lib = load()
     if path == '':  # 以前的「单个文件」一组
         save(lib)
@@ -381,18 +382,18 @@ def set_folder(path, **changes):
         changes['summary'] = '' if want == (_nearest(_summary_binds(lib), path) or 'on') else want
     top = next((f for f in lib['folders'] if _key(f['path']) == k), None)
     if top is not None:
-        for name in ('teacher', 'collapsed', 'name', 'summary', 'rule'):
+        for name in ('teacher', 'collapsed', 'name', 'summary', 'rule', 'asr'):
             if name in changes:
                 top[name] = changes[name]
     else:
         conf = lib['dirs'].setdefault(k, {})
-        for name in ('teacher', 'collapsed', 'summary', 'rule'):
+        for name in ('teacher', 'collapsed', 'summary', 'rule', 'asr'):
             if name in changes:
                 conf[name] = changes[name]
-        for name in ('summary', 'rule'):
+        for name in ('summary', 'rule', 'asr'):
             if not conf.get(name):
                 conf.pop(name, None)
-        if not any(conf.get(x) for x in ('teacher', 'collapsed', 'summary', 'rule')):
+        if not any(conf.get(x) for x in ('teacher', 'collapsed', 'summary', 'rule', 'asr')):
             lib['dirs'].pop(k, None)
     save(lib)
 
@@ -449,17 +450,22 @@ def folder_no_summary(media_path):
     return _nearest(_summary_binds(load()), media_path) == 'off'
 
 
+def folder_asr(media_path):
+    """视频所在文件夹（或最近一层设过的上级）选的识别方式：'local' / 'doubao' / 空（没设，按设置里的默认）。"""
+    return _nearest(_binds(load(), 'asr'), media_path) or ''
+
+
 def folder_rule(media_path):
     """视频所在文件夹（或最近一层设过的上级）的整理规则，没有就是 None。"""
     return _nearest(_binds(load(), 'rule'), media_path) or None
 
 
 def folder_settings(folder):
-    """一个文件夹自己的设置加上沿用上层的：{teacher, no_summary, rule}（「整个文件夹排进后台整理」对话框用）。"""
+    """一个文件夹自己的设置加上沿用上层的：{teacher, no_summary, rule, asr}（「整个文件夹排进后台整理」对话框用）。"""
     lib = load()
     conf = _conf(lib, _key(folder))
     at = lambda name: conf.get(name) or _nearest(_binds(lib, name), folder)  # noqa: E731
-    return {'teacher': at('teacher') or '', 'no_summary': at('summary') == 'off', 'rule': at('rule') or None}
+    return {'teacher': at('teacher') or '', 'no_summary': at('summary') == 'off', 'rule': at('rule') or None, 'asr': at('asr') or ''}
 
 
 def _nearest(binds, media_path):

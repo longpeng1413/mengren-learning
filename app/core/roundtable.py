@@ -354,8 +354,7 @@ def ask(cid, question, summarize=True):
     if running(cid):
         raise RoundError('上一个问题还没讨论完，请等它做完或先停止')
     c = load_round(cid)
-    s = config.load()
-    name = s['chat']
+    s, name = llm.for_task(config.load(), 'mentor')
     llm.check(s, name)
     for p in c['people']:
         _ready(p['mid'])
@@ -389,8 +388,7 @@ def reply(cid, summarize=True):
     first = {x['mid']: x['content'] for x in c['messages'][qi + 1:] if x['role'] == 'teacher' and x.get('round', 1) == 1}
     if len(first) < 2:
         raise RoundError('至少要有两位老师回答过这个问题，才能互相回应')
-    s = config.load()
-    name = s['chat']
+    s, name = llm.for_task(config.load(), 'mentor')
     llm.check(s, name)
     names = '、'.join(p['name'] for p in c['people'])
 
@@ -416,8 +414,7 @@ def reply(cid, summarize=True):
 def summarize(cid):
     c = load_round(cid)
     msgs = _summary_messages(c)
-    s = config.load()
-    name = s['chat']
+    s, name = llm.for_task(config.load(), 'mentor')
     llm.check(s, name)
 
     def run(job):
@@ -513,8 +510,7 @@ def start_topic(topic, mids, folder, note='', tid=None):
         raise RoundError('请选结果放在哪个主题文件夹')
     mids = _check_mids(mids)
     distill._vault()
-    s = config.load()
-    name = s['chat']
+    s, name = llm.for_task(config.load(), 'distill')
     llm.check(s, name)
     t = mentor._load_json(_tpath(tid)) if tid else None
     t = t or {'id': uuid.uuid4().hex[:12], 'created': _now()}

@@ -80,6 +80,11 @@ def cleanup(clear_all=False) -> int:
     """返回释放的字节数。"""
     freed = 0 if clear_all else remove_old_locations()
     clean_marks()
+    try:  # 本机识别模型 7 天没续上的半截下载（模型本身不在缓存里，「清空缓存」也不删它，设置里单独删）
+        from . import local_asr
+        local_asr.cleanup()
+    except Exception:  # noqa: BLE001
+        pass
     now = time.time()
     if not CACHE_DIR.exists():
         return 0

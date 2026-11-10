@@ -91,10 +91,33 @@ def resource_dir() -> Path:
 
 
 # 能做翻译、校对、总结和对话的 AI 服务（顺序即界面里的顺序）
-CHAT_PROVIDERS = ['codex', 'claude', 'gemini', 'deepseek', 'ark', 'siliconflow', 'openai']
+# chatgpt = 官方「用 ChatGPT 登录」（Sign in with ChatGPT，2026-11-10 起推荐）；codex = 旧方式（借 Codex 命令行的登录，留作备用）
+CHAT_PROVIDERS = ['chatgpt', 'codex', 'claude', 'gemini', 'deepseek', 'ark', 'siliconflow', 'openai']
+
+# 每一项 AI 工作单独选服务、模型、思考强度（2026-11-10 用户要求「所有 AI 工作都能自由选模型和推理强度」）。
+# (工作, 界面上的名字, 没单独设服务时沿用的旧设置项)。设置存在 ai_tasks[工作] = {provider, model, effort}，空 = 沿用。
+AI_TASKS = [
+    ('correct', 'AI 校对', 'correct'),
+    ('translate', '翻译（英文课）', 'translate'),
+    ('vision', '看图（找插图、用画面复核存疑句、重画、写图片说明）', 'vision'),
+    ('summary', '课程重点', 'chat'),
+    ('review', '查漏补缺', 'chat'),
+    ('terms', '找新术语', 'chat'),
+    ('chat', '课程里的 AI 对话', 'chat'),
+    ('book', '书籍整理（分章、每章笔记、全书总览）', 'chat'),
+    ('book_chat', '书的 AI 对话', 'chat'),
+    ('mentor', '老师对话、圆桌讨论', 'chat'),
+    ('distill', '老师蒸馏、主题蒸馏', 'chat'),
+]
+TASK_SLOT = {k: slot for k, _n, slot in AI_TASKS}
+# 思考强度：空 = 用模型自己的默认；只有这几家的接口能设（ChatGPT 两种登录发 reasoning.effort，OpenAI 发 reasoning_effort）
+EFFORTS = ['', 'none', 'low', 'medium', 'high', 'xhigh', 'max']
+EFFORT_PROVIDERS = ('chatgpt', 'codex', 'openai')
 
 DEFAULTS = {
     'providers': {
+        # host_id：这台电脑的固定编号（官方登录要求同一台电脑每次登录都用同一个）；oauth 里有 client_id（OpenAI 发给「猛人学习」的应用编号）
+        'chatgpt': {'oauth': {}, 'chat_model': '', 'use_proxy': True, 'host_id': ''},
         'codex': {'oauth': {}, 'chat_model': '', 'use_proxy': True},
         'claude': {'key': '', 'chat_model': 'claude-opus-5-5', 'use_proxy': True},
         'gemini': {'key': '', 'chat_model': 'gemini-flash-latest', 'use_proxy': True},
@@ -112,11 +135,13 @@ DEFAULTS = {
     },
     'proxy': '',
     'asr_en': 'openai',
-    'asr_zh': 'doubao',
+    'asr_zh': 'local',  # 2026-11-10 用户定：默认本机识别（免费，不丢句首的字、断句好），术语多的文件夹（峰级）在媒体库里设成豆包
     'translate': 'deepseek',
     'correct': 'deepseek',
     'chat': 'deepseek',
     'vision': 'codex',
+    'ai_tasks': {k: {'provider': '', 'model': '', 'effort': ''} for k, _n, _s in AI_TASKS},
+    'migrations': [],  # 做过的一次性设置调整（见 migrate()），做过就不再做，用户之后自己改的不会被改回去
     'summary_template': '',
     'auto_correct': True,
     'theme': 'dark',
@@ -166,8 +191,9 @@ DEFAULTS = {
     'recent': [],
 }
 
-PROVIDER_NAMES = {'codex': 'ChatGPT（账号登录）', 'claude': 'Claude', 'gemini': 'Gemini', 'deepseek': 'DeepSeek',
-                  'ark': '豆包大模型（火山方舟）', 'siliconflow': '硅基流动', 'openai': 'OpenAI', 'doubao': '豆包语音（火山引擎）'}
+PROVIDER_NAMES = {'chatgpt': 'ChatGPT（官方登录）', 'codex': 'ChatGPT（旧登录方式）', 'claude': 'Claude', 'gemini': 'Gemini', 'deepseek': 'DeepSeek',
+                  'ark': '豆包大模型（火山方舟）', 'siliconflow': '硅基流动', 'openai': 'OpenAI', 'doubao': '豆包语音（火山引擎）',
+                  'local': '本机识别（免费）'}
 _lock = threading.Lock()
 
 
@@ -284,7 +310,7 @@ def public(settings: dict) -> dict:
     """给界面看的设置：密钥只显示后四位，登录凭证只给账号信息。"""
     out = copy.deepcopy(settings)
     for name, p in out['providers'].items():
-        if name == 'codex':
+        if name in ('codex', 'chatgpt'):
             o = p.pop('oauth', {}) or {}
             p['has_key'] = bool(o.get('refresh'))
             p['account'] = {'email': o.get('email', ''), 'plan': o.get('plan', '')} if o.get('refresh') else None
@@ -360,6 +386,43 @@ def set_oauth(name: str, oauth: dict) -> None:
     s = load()
     s['providers'][name]['oauth'] = oauth or {}
     save(s)
+
+
+def task_ai(settings: dict, task: str):
+    """某一项 AI 工作用哪个服务、哪个模型、什么思考强度 → (服务, 模型, 思考强度)。
+    没单独设服务时沿用旧的四项设置（对话 / 校对 / 看图 / 翻译）；没单独设模型时用那个服务自己选的模型；
+    思考强度只对 EFFORT_PROVIDERS 有效，其他服务一律空（用默认）。"""
+    t = (settings.get('ai_tasks') or {}).get(task) or {}
+    name = t.get('provider') or settings.get(TASK_SLOT.get(task, 'chat')) or ''
+    p = (settings.get('providers') or {}).get(name) or {}
+    model = t.get('model') or p.get('chat_model') or ''
+    effort = t.get('effort') if name in EFFORT_PROVIDERS and t.get('effort') in EFFORTS else ''
+    return name, model, effort
+
+
+def migrate() -> list:
+    """一次性的设置调整，每项只做一次（记在 migrations 里）。返回这次做了哪些（写日志用）。
+    - ai_校对_terra（2026-11-10 实测）：AI 校对用 ChatGPT 的，校对单独改用 GPT-6.1 Terra（效果接近 Sol，用量约一半，整节一批时约 1/6）；
+    - 识别_本机（2026-11-10 用户定）：中文识别默认改成本机识别。"""
+    s = load()
+    done = list(s.get('migrations') or [])
+    patch, did = {}, []
+    if 'ai_校对_terra' not in done:
+        if s.get('correct') in ('codex', 'chatgpt') and not (s['ai_tasks'].get('correct') or {}).get('model'):
+            tasks = copy.deepcopy(s['ai_tasks'])  # update() 拿默认值合并整块，要传完整的，不然别的工作的设置会被冲掉
+            tasks['correct'] = dict(tasks.get('correct') or {}, model='gpt-6.1-terra')
+            patch['ai_tasks'] = tasks
+            did.append('AI 校对改用 gpt-6.1-terra')
+        done.append('ai_校对_terra')
+    if '识别_本机' not in done:
+        if s.get('asr_zh') != 'local':
+            patch['asr_zh'] = 'local'
+            did.append('中文识别默认改成本机识别')
+        done.append('识别_本机')
+    if done != list(s.get('migrations') or []):
+        patch['migrations'] = done
+        update(patch)
+    return did
 
 
 def add_recent(path: str, title: str) -> None:

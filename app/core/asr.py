@@ -75,6 +75,8 @@ def proxies_for(settings, name):
 
 
 def check_ready(settings, name):
+    if name == 'local':  # 本机识别：模型没有时识别前自动准备（找猛人快传的或下载），这里不拦
+        return
     p = settings['providers'][name]
     label = PROVIDER_NAMES[name]
     if name == 'doubao':
@@ -606,6 +608,8 @@ def recognise(media_path, duration, provider, language, settings, cancel, progre
     豆包按 doubao_plan 依次试「账号 × 模型」：额度用完（记下来，以后跳过）或没开通就换下一个，从头重新识别，
     换之前 on_cues(None) 表示前面收到的作废。识别完 progress 的 extra = {'used': 用的哪个, 'notes': [换过的原因]}。"""
     check_ready(settings, provider)
+    if provider == 'local':
+        return recognise_local(media_path, duration, language, settings, cancel, progress, on_cues, teacher, title)
     if provider != 'doubao':
         cues = _recognise_once(media_path, duration, provider, language, settings, cancel, progress, on_cues, teacher, title)
         progress(1.0, '识别完成')
@@ -654,6 +658,37 @@ def recognise(media_path, duration, provider, language, settings, cancel, progre
     if quota:
         raise QuotaError('豆包额度不足或账户欠费：' + '；'.join(notes) + '。充值或买了资源包以后，到「设置 → 豆包语音」点「重新启用」')
     raise AuthError('豆包鉴权失败：' + '；'.join(notes) + '。请检查 API Key，以及在火山引擎控制台「豆包语音 → 开通管理」里开通了这几种模型')
+
+
+def recognise_local(media_path, duration, language, settings, cancel, progress, on_cues, teacher=None, title=''):
+    """本机识别（SenseVoice，见 local_asr）：模型没有时先准备（用猛人快传下好的，或者下载），再提取音频、识别。
+    术语表的「识别完直接替换」（=>!）照样做；热词用不上（SenseVoice 不支持），靠后面的 AI 校对按术语表改。"""
+    from . import local_asr
+    from .llm import apply_fixes
+    _ctx, _prompt, fixes = asr_context(teacher, title, language)
+    try:
+        model = local_asr.find_model()
+        if not model:
+            progress(0.0, '第一次用本机识别，正在下载识别模型（约 230 MB，只下一次）…')
+            model = local_asr.download(lambda f, m=None: progress(0.3 * f, m), cancel, settings.get('proxy') or '')
+        progress(0.3, '正在提取音频…')
+        wav = media.extract_wav(media_path, duration, lambda f: progress(0.3 + 0.05 * f, '正在提取音频…'), cancel)
+        if cancel.is_set():
+            raise Cancelled('已取消')
+
+        def got(cues):
+            for c in cues:
+                c['text'] = apply_fixes(c['text'], fixes) if fixes else c['text']
+            on_cues(cues)
+        cues = local_asr.transcribe(wav, language, cancel, lambda f, m=None: progress(0.35 + 0.65 * f, m), got, model)
+    except local_asr.Cancelled:
+        raise Cancelled('已取消')
+    except local_asr.LocalAsrError as e:
+        raise AsrError(str(e))
+    except ImportError as e:
+        raise AsrError('本机识别的组件没有装好（' + str(e)[:80] + '），请重新安装猛人学习，或先换成豆包识别')
+    progress(1.0, '识别完成', {'used': '本机识别（SenseVoice）'})
+    return cues
 
 
 def _recognise_once(media_path, duration, provider, language, settings, cancel, progress, on_cues, teacher=None, title=''):

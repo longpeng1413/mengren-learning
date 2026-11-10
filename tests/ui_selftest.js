@@ -79,6 +79,19 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ctxM.querySelector('[data-p="0"]').click();
     ok('点「自动」：恢复原来的大小', !subX.w && !subEl().style.maxWidth && !subEl().classList.contains('sized'), subX);
     closeMenus();
+    // 合并、拆分、撤销后列表不跳（2026-11-10 用户：有截图时点合并 / 拆分，字幕跳走）：截图不重新加载，正在操作的那一句留在原处
+    {
+      const img0 = subEl().querySelector('img'), top = i => cueEl(i).getBoundingClientRect().top;
+      const t2 = top(2), n2 = S.doc.segments.length;
+      cueAction('merge', 2);
+      const t2m = top(2), sameImg = subEl().querySelector('img') === img0;
+      cueAction('split', 2);
+      const t2s = top(2);
+      v.pause();
+      undo(); undo();
+      ok('有截图时合并、拆分、撤销：截图不重新加载，这一句在屏幕上的位置不变', sameImg && subEl().querySelector('img') === img0
+        && Math.abs(t2m - t2) < 2 && Math.abs(t2s - t2) < 2 && Math.abs(top(2) - t2) < 2 && S.doc.segments.length === n2, [t2, t2m, t2s, top(2), sameImg]);
+    }
     document.querySelector('#cues .sub-shot [data-ss="crop"]').click();
     await until(() => $('#dlgShotEdit').open);
     ok('再打开裁剪：框是上次的', near(SE.crop, subX.crop));
@@ -151,10 +164,35 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
 
     // 拆分、合并、撤销
     const n0 = S.doc.segments.length;
-    cueAction('split', 1); cueAction('merge', 1); cueAction('del', 7);
+    ok('每句右边只有拆分、合并、删除三个按钮（2026-11-10 去掉了「对齐时间」）',
+      [...document.querySelectorAll('.cue')[1].querySelectorAll('.cue-tools button')].map(b => b.dataset.act).join() === 'split,merge,del');
+    v.pause();
+    cueAction('split', 1);
+    ok('拆分后从拆开的地方开始播放', await until(() => !v.paused) && Math.abs(v.currentTime - S.doc.segments[2].start) < 0.5,
+      [v.paused, v.currentTime, S.doc.segments[2].start]);
+    v.pause();
+    cueAction('merge', 1); cueAction('del', 7);
     ok('拆分合并删除', S.doc.segments.length === n0 - 1);
     undo(); undo(); undo();
     ok('撤销回到原样', S.doc.segments.length === n0);
+
+    // 字幕跟随（2026-11-10）：快到底部（下面不到 3 句）时翻上去，上面留 3 句；画面里还看得到下面 3 句时不动
+    {
+      const keepSegs = S.doc.segments, box = $('#cues');
+      S.doc.segments = Array.from({ length: 120 }, (_, k) => ({ start: k * 0.3, end: k * 0.3 + 0.29, text: `跟随测试第${k}句`, tr: '' }));
+      renderCues(); box.style.scrollBehavior = 'auto'; box.scrollTop = 0; await wait(50);
+      const B = box.getBoundingClientRect();
+      const lastIn = S.doc.segments.findLastIndex((_, k) => cueEl(k).getBoundingClientRect().bottom <= B.bottom);
+      followCue(2); await wait(400);
+      const still = box.scrollTop === 0;
+      followCue(lastIn - 1); await until(async () => { const a = box.scrollTop; await wait(120); return a === box.scrollTop && a > 0; }, 3000);
+      const topIdx = S.doc.segments.findIndex((_, k) => cueEl(k).getBoundingClientRect().top >= B.top - 1);
+      ok('字幕跟随：画面里还看得到下面 3 句时不动；快到底部时翻上去，这句上面留 3 句', still && topIdx === lastIn - 1 - 3, [still, lastIn, topIdx]);
+      const fake = document.createElement('div'); S.editing = fake;
+      ok('字幕跟随：记下的「正在编辑」那一句已经不在页面上了，不算在编辑（以前跟随会一直停住）', !isEditing() && S.editing === null);
+      box.style.scrollBehavior = '';
+      S.doc.segments = keepSegs; renderCues();
+    }
 
     // 文字设置（Aa）
     document.querySelector('#btnText').click();
@@ -194,7 +232,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       ok(`按钮排法 ${mode}：按钮在右边空白里，不压字`, document.documentElement.dataset.cueTools === mode && S.settings.cue_tools === mode
          && tb.width > 0 && tb.left >= textRight - 0.5 && tb.right <= cb.right + 0.5,
          [mode, tb.left, tb.right, textRight, cb.right]);
-      ok(`按钮排法 ${mode}：形状对`, mode === 'row' ? tb.width > tb.height * 3 : tb.width < tb.height * 1.5, [tb.width, tb.height]);
+      ok(`按钮排法 ${mode}：形状对`, mode === 'row' ? tb.width > tb.height * 2.5 : tb.width < tb.height * 1.5, [tb.width, tb.height]);
       src.blur();
     }
     savePrefs({ font_size: fs0, line_height: lh0, cue_gap: 9, cue_width: 0, font_family: 'yahei' });
@@ -526,7 +564,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     // 字幕每句右边的按钮排成一排（2026-11-02）
     const ctools = [...document.querySelectorAll('#cues .cue')[0].querySelectorAll('.cue-tools button')];
     document.querySelectorAll('#cues .cue')[0].querySelector('.cue-tools').style.display = 'grid';
-    ok('字幕每句的四个按钮排成一排', ctools.length === 4 && new Set(ctools.map(b => Math.round(b.getBoundingClientRect().top))).size === 1, ctools.map(b => b.getBoundingClientRect().top));
+    ok('字幕每句的三个按钮排成一排', ctools.length === 3 && new Set(ctools.map(b => Math.round(b.getBoundingClientRect().top))).size === 1, ctools.map(b => b.getBoundingClientRect().top));
     document.querySelectorAll('#cues .cue')[0].querySelector('.cue-tools').style.display = '';
     S.doc.summary = sumKeep; delete S.doc.sum_shots; delete S.doc.fig_edits; renderSummary();
 
@@ -923,6 +961,18 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       window.confirm = keepC;
     }
     ok('设置：ChatGPT 账号登录',document.querySelector('#codexBox').textContent.includes('用 ChatGPT 账号登录'));
+    ok('设置：ChatGPT 官方登录在上面（推荐），旧登录方式在下面（备用）', document.querySelector('#chatgptBox').textContent.includes('用 ChatGPT 账号登录')
+      && document.querySelector('#chatgptBox').compareDocumentPosition(document.querySelector('#codexBox')) & Node.DOCUMENT_POSITION_FOLLOWING
+      && !!document.querySelector('[data-k="providers.chatgpt.chat_model"]') && !!document.querySelector('[data-test="chatgpt"]'));
+    showSection('asr');
+    ok('设置：中文识别可以选本机识别', [...document.querySelectorAll('[data-k="asr_zh"] option')].some(o => o.value === 'local'));
+    ok('设置：显示本机识别模型在不在（测试环境里没有模型：能现在下载）', await until(() => /现在下载|模型已就绪/.test(document.querySelector('#localAsrBox').textContent)),
+      document.querySelector('#localAsrBox').textContent);
+    if (document.querySelector('#localAsrTest')) {  // run_ui_test.py 借到了这台电脑上现成的模型：真识别一次（打包版能确认运行库没问题）
+      document.querySelector('#localAsrTest').click();
+      ok('设置：「测试本机识别」真识别一段测试音，能用', await until(() => /本机识别能用|✗/.test(document.querySelector('#localAsrMsg').textContent), 60000)
+        && document.querySelector('#localAsrMsg').textContent.includes('能用'), document.querySelector('#localAsrMsg').textContent);
+    }
     showSection('teachers');
     ok('设置：老师列表', document.querySelectorAll('#teacherList button').length === 2);
     document.querySelectorAll('#teacherList button')[0].click();
@@ -984,7 +1034,27 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     showSection('obsidian');
     ok('设置：笔记文件名格式', document.querySelector('[data-k="obsidian.name_pattern"]').value === '{title}');
     showSection('tasks');
-    ok('设置：任务分配可选 7 个 AI 服务', document.querySelectorAll('select[data-k="chat"] option').length === 7);
+    // 每项 AI 工作（2026-11-10）：一行一项，选服务、模型、思考强度
+    const atRows = [...document.querySelectorAll('#aiTaskTable .ai-task[data-task]')];
+    ok('设置：每项 AI 工作 11 行，每行能选 8 个服务、模型、思考强度', atRows.length === 11 && atRows[0].querySelectorAll('.at-prov option').length === 8
+      && !!atRows[0].querySelector('.at-model') && atRows[0].querySelectorAll('.at-effort option').length === 7, atRows.length);
+    const rowOf = id => document.querySelector(`#aiTaskTable .ai-task[data-task="${id}"]`);
+    ok('设置：没单独设的沿用原来的大类（校对用 DeepSeek，课程重点用对话那一项）', rowOf('correct').querySelector('.at-prov').value === 'deepseek'
+      && rowOf('summary').querySelector('.at-prov').value === S.settings.chat);
+    ok('设置：DeepSeek 不能设思考强度（灰掉）', rowOf('correct').querySelector('.at-effort').disabled);
+    const rCor = rowOf('correct');
+    rCor.querySelector('.at-prov').value = 'openai'; rCor.querySelector('.at-prov').dispatchEvent(new Event('change'));
+    rCor.querySelector('.at-model').value = 'gpt-test-mini';
+    rCor.querySelector('.at-effort').value = 'low';
+    ok('设置：换成能设思考强度的服务后可以选', !rCor.querySelector('.at-effort').disabled);
+    await saveSettings(false);
+    ok('设置：保存后这项工作用选的服务、模型、思考强度，别的工作不变', taskAi('correct').provider === 'openai' && taskAi('correct').model === 'gpt-test-mini'
+      && taskAi('correct').effort === 'low' && taskAi('summary').provider === S.settings.chat && S.settings.correct === 'openai', [taskAi('correct'), taskAi('summary')]);
+    renderAiTasks();
+    ok('设置：重新打开时带出来', rowOf('correct').querySelector('.at-model').value === 'gpt-test-mini' && rowOf('correct').querySelector('.at-effort').value === 'low');
+    await api('settings', { settings: { correct: 'deepseek', ai_tasks: Object.fromEntries(S.aiTasks.map(t => [t.id, { provider: '', model: '', effort: '' }])) } });
+    await refreshSettingsOnly(); renderAiTasks();
+    ok('设置：还原', taskAi('correct').provider === 'deepseek' && !taskAi('correct').effort);
     showSection('template');
     showSection('about');
     ok('设置：导入导出和存放位置', !!document.querySelector('#btnExportSettings') && await until(() => document.querySelector('#aboutRoot').textContent.length > 3));
@@ -1187,6 +1257,32 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('菜单里显示已经打开（✓）', document.querySelector('#ctxMenu [data-a=nosum]').textContent.includes('✓'));
     document.querySelector('#ctxMenu [data-a=nosum]').click();
     ok('再点一次改回要写', await until(() => S.noSummary === false && !(libNode(nsTop.path) || {}).no_summary));
+    // 文件夹「生成字幕用」（2026-11-10 用户：默认本机识别，峰级这种术语多的文件夹设成豆包）
+    folderMenu(nsTop.path, 20, 20);
+    const asrSel = document.querySelector('#ctxMenu [data-a=asr]');
+    ok('文件夹菜单有「生成字幕用」：沿用 / 本机识别 / 豆包', !!asrSel && asrSel.options.length === 3 && asrSel.value === '');
+    asrSel.value = 'doubao'; asrSel.dispatchEvent(new Event('change'));
+    ok('设成豆包：文件夹名旁边标「豆包」，正开着的课跟着知道', await until(() => S.folderAsr === 'doubao' && (libNode(nsTop.path) || {}).asr === 'doubao')
+      && document.querySelector(`.lib-ghead[data-folder="${CSS.escape(nsTop.path)}"]`).textContent.includes('豆包'));
+    openTranscribe();
+    const zhRadio = document.querySelector('#dlgTranscribe input[name=lang][value=zh]');
+    zhRadio.checked = true; zhRadio.dispatchEvent(new Event('change'));  // 文件夹设置只管中文课（测试视频可能标成了英文）
+    ok('生成字幕对话框：中文课默认按文件夹用豆包，也能临时选本机识别', document.querySelector('#trProvider').value === 'doubao'
+      && [...document.querySelectorAll('#trProvider option')].some(o => o.value === 'local'), [document.querySelector('#trProvider').value, S.doc.lang]);
+    document.querySelector('#trProvider').value = 'local'; document.querySelector('#trProvider').dispatchEvent(new Event('change'));
+    ok('选本机识别：提示不花钱、要 AI 校对，不显示豆包的模型和账号', document.querySelector('#trProviderHint').textContent.includes('不花钱')
+      && document.querySelector('#trDbField').hidden);
+    document.querySelector('#dlgTranscribe').close();
+    openPipeline();
+    const plZh = document.querySelector('input[name=plLang][value=zh]');
+    plZh.checked = true; plZh.dispatchEvent(new Event('change'));
+    ok('一键整理：中文课生成字幕默认也按文件夹用豆包', document.querySelector('#plProvider').value === 'doubao', document.querySelector('#plProvider').value);
+    document.querySelector('#dlgPipeline').close();
+    ok('重新打开这节课：后台也说这个文件夹用豆包', (await api('open', { path: S.path })).folder_asr === 'doubao');
+    folderMenu(nsTop.path, 20, 20);
+    document.querySelector('#ctxMenu [data-a=asr]').value = '';
+    document.querySelector('#ctxMenu [data-a=asr]').dispatchEvent(new Event('change'));
+    ok('改回沿用：按设置里的默认', await until(() => S.folderAsr === '' && !(libNode(nsTop.path) || {}).asr));
     // 整个文件夹排进后台整理（2026-10-28）
     folderMenu(nsTop.path, 20, 20);
     document.querySelector('#ctxMenu [data-a=bgall]').click();

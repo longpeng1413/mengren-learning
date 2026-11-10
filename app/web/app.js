@@ -182,9 +182,18 @@ function applyLook() {
   $('#optOverlay').checked = !!s.overlay;
   $('#cues').classList.toggle('hide-tr', !s.show_tr);
   $('#overlay').hidden = !s.overlay;
-  const cp = s.chat;
-  $('#aiModel').textContent = `${S.providerNames[cp] || cp} · ${(s.providers[cp] || {}).chat_model || '未选模型'}`;
+  const ai = taskAi('summary');
+  $('#aiModel').textContent = `${S.providerNames[ai.provider] || ai.provider} · ${ai.model || '未选模型'}${ai.effort ? ' · 思考 ' + ai.effort : ''}`;
   applyLayout();
+}
+/* 某一项 AI 工作用哪个服务、模型、思考强度（和后台 config.task_ai 同一个规则：没单独设的沿用旧的四大类、服务自己的默认模型） */
+function taskAi(task) {
+  const s = S.settings || {}, t = (s.ai_tasks || {})[task] || {};
+  const meta = (S.aiTasks || []).find(x => x.id === task) || { slot: 'chat' };
+  const provider = t.provider || s[meta.slot] || '';
+  const model = t.model || ((s.providers || {})[provider] || {}).chat_model || '';
+  const effort = (S.effortProviders || []).includes(provider) ? (t.effort || '') : '';
+  return { provider, model, effort };
 }
 
 function applyLayout() {
@@ -240,6 +249,7 @@ async function loadSettings() {
   const d = await api('settings', {});
   S.settings = d.settings; S.doubaoModels = d.doubao_models; S.doubaoOrder = d.doubao_order || []; S.chatProviders = d.chat_providers;
   S.providerNames = d.provider_names; S.teachers = d.teachers; S.defaultTemplate = d.default_template;
+  S.aiTasks = d.ai_tasks || []; S.efforts = d.efforts || ['']; S.effortProviders = d.effort_providers || [];
   applyLook(); renderTeacherSelect();
 }
 const teacherById = id => S.teachers.find(t => t.id === id) || null;
@@ -271,6 +281,23 @@ function libNode(path, nodes = S.lib) {
     if (n.type === 'folder') { const f = libNode(path, n.children); if (f) return f; }
   }
   return null;
+}
+/* 这节课所在文件夹（往上找最近一层设过的）选的识别方式：'local' / 'doubao' / ''（按设置里的默认） */
+function libAsr(path) {
+  let found = '';
+  const walk = nodes => {
+    for (const n of nodes || []) {
+      if (n.type !== 'folder' || !insideDir(path, n.path)) continue;
+      if (n.asr) found = n.asr;  // 越往里层越晚赋值，最后留下最近一层
+      walk(n.children);
+    }
+  };
+  walk(S.lib);
+  return found;
+}
+/* 这节课生成字幕默认用哪个识别服务：英文按设置；中文先看文件夹，再看设置（和后台 workflow.transcribe_provider 一样） */
+function asrDefault(lang) {
+  return lang === 'en' ? S.settings.asr_en : (S.folderAsr || S.settings.asr_zh);
 }
 /* 这节课所在的最里层文件夹是不是「不写课程重点」（后台已经算好了上层沿用） */
 function libNoSummary(path, nodes = S.lib) {
@@ -342,6 +369,7 @@ function folderHTML(n, depth, parent, q, chain) {
       ${t ? `<span class="lib-gteacher" title="这个文件夹的课用这位老师的术语表">${esc(t.name)}</span>` : ''}
       ${n.summary === 'off' ? '<span class="lib-gteacher" title="这个文件夹的课不写课程重点">不写重点</span>'
     : n.summary === 'on' ? '<span class="lib-gteacher" title="上层设了不写课程重点，这个文件夹单独设成要写">写重点</span>' : ''}
+      ${n.asr ? `<span class="lib-gteacher" title="这个文件夹的中文课用${n.asr === 'doubao' ? '豆包语音' : '本机识别'}生成字幕">${n.asr === 'doubao' ? '豆包' : '本机识别'}</span>` : ''}
       <span class="lib-gcount" title="${libKind() === 'book' ? '这里面的书和文档' : '这里面的视频和音频'}">${kindCount(n)}</span>
       <button class="lib-more" data-more="${esc(n.path)}" title="更多">⋯</button>
     </div>
@@ -414,6 +442,9 @@ function folderMenu(path, x, y) {
   const n = libNode(path); if (!n) return;
   showCtx(x, y, `<div class="menu-label">这个文件夹的老师 / 术语表</div>
     <select data-a="teacher">${teacherOptions(n.teacher, n.top ? '不指定' : '不指定（沿用上一层）')}</select>
+    <div class="menu-label">生成字幕用（这里的中文课）</div>
+    <select data-a="asr">${[['', n.top ? '按设置里的默认' : '沿用上一层'], ['local', '本机识别（免费）'], ['doubao', '豆包语音（术语多的课）']]
+      .map(([v, t]) => `<option value="${v}" ${v === (n.asr || '') ? 'selected' : ''}>${t}</option>`).join('')}</select>
     <button class="menu-item" data-a="bgall" title="定好整理规则，把这个文件夹里没整理完的课排进后台整理">整个文件夹排进后台整理…</button>
     <button class="menu-item" data-a="nosum" title="这里的课只识别、校对，不写课程重点（下层沿用）">${n.no_summary ? '✓ ' : ''}这里的课不写课程重点</button>
     <button class="menu-item" data-a="rename">重命名…</button>
@@ -426,6 +457,14 @@ function folderMenu(path, x, y) {
       n.teacher = e.target.value; m.hidden = true;
       await api('library_set', { path: n.path, teacher: n.teacher }); renderLibrary();
       toast(n.teacher ? '已设置：这个文件夹和它下面没单独绑定的文件夹，里面的课都用这位老师的术语表' : (n.top ? '已取消绑定' : '已取消绑定，沿用上一层文件夹的设置'));
+    };
+    $('[data-a=asr]', m).onchange = async e => {
+      m.hidden = true;
+      try { await loadLibrary((await api('library_set', { path: n.path, asr: e.target.value, refresh: true })).groups); } catch (err) { fail(err); return; }
+      if (S.path && insideDir(S.path, n.path)) S.folderAsr = libAsr(S.path);
+      const v = e.target.value;
+      toast(v ? `「${n.name}」里的中文课以后用${v === 'doubao' ? '豆包语音' : '本机识别'}生成字幕（下层文件夹没单独设的也一样）`
+        : `「${n.name}」恢复成${n.top ? '设置里的默认识别方式' : '沿用上一层的识别方式'}`, { ms: 6000 });
     };
     $('[data-a=bgall]', m).onclick = () => { m.hidden = true; openFolderBg(n); };
     $('[data-a=nosum]', m).onclick = async () => {
@@ -487,10 +526,14 @@ async function openFolderBg(n) {
   for (const [el, v] of [[$('#fbDbModel'), rule.doubao_model], [$('#fbDbAcct'), rule.doubao_account]]) {
     if (v && [...el.options].some(o => o.value === v)) el.value = v;
   }
+  $('#fbProvider').value = info.asr || '';
+  $('#fbProvider').dataset.was = info.asr || '';
   const syncDb = () => {  // 要生成字幕、而且用豆包时，才显示「豆包用哪种模型」
     const l = $('input[name=fbLang]:checked').value;
-    $('#fbDbField').hidden = !$('#fbAsr').checked || (l === 'en' ? S.settings.asr_en : S.settings.asr_zh) !== 'doubao';
+    const prov = l === 'en' ? S.settings.asr_en : ($('#fbProvider').value || S.settings.asr_zh);
+    $('#fbDbField').hidden = !$('#fbAsr').checked || prov !== 'doubao';
   };
+  $('#fbProvider').onchange = syncDb;
   $('#fbAsr').onchange = syncDb;
   $$('input[name=fbLang]').forEach(r => r.onchange = syncDb);
   syncDb();
@@ -510,8 +553,9 @@ async function startFolderBg(n) {
   const inside = S.path && insideDir(S.path, n.path);
   try {
     if (inside) await flushSave();
-    const r = await api('bg_add_folder', { path: n.path, steps, lang: $('input[name=fbLang]:checked').value, teacher: $('#fbTeacher').value,
-      doubao_model: $('#fbDbModel').value, doubao_account: $('#fbDbAcct').value });
+    const asrNow = $('#fbProvider').value, asrWas = $('#fbProvider').dataset.was || '';
+    const r = await api('bg_add_folder', Object.assign({ path: n.path, steps, lang: $('input[name=fbLang]:checked').value, teacher: $('#fbTeacher').value,
+      doubao_model: $('#fbDbModel').value, doubao_account: $('#fbDbAcct').value }, asrNow !== asrWas ? { asr: asrNow } : {}));  // 改了才记，沿用上层的不写死
     applyBg(r.items); pollBg();
     await loadLibrary();
     if (inside) S.noSummary = libNoSummary(S.path);
@@ -665,6 +709,7 @@ window.openPath = async function (path) {
     S.docStale = libFiles().some(it => it.stale && it.path.toLowerCase() === d.path.toLowerCase());
     S.lastSaved = d.doc.updated || null; S.rev = d.doc.rev || 0; S.summaryChanges = d.summary_changes || 0; S.pending = d.pending || [];
     S.noSummary = !!d.no_summary;
+    S.folderAsr = d.folder_asr || '';
     $('#btnUndo').disabled = true;
     $('#empty').hidden = true; $('#stageMain').hidden = false;
     $('#fileTitle').textContent = d.doc.title; $('#fileTitle').title = d.path; document.title = `${d.doc.title} - 猛人学习`;
@@ -1208,7 +1253,6 @@ function savePosition(force) {
 
 /* ------------------------------------------------------------- 字幕列表 ---- */
 const ICONS = {
-  align: '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/></svg>',
   split: '<svg viewBox="0 0 24 24"><path d="M4 12h16M12 4v4m0 8v4"/></svg>',
   merge: '<svg viewBox="0 0 24 24"><path d="M7 4v6a5 5 0 0 0 10 0V4M12 15v5"/></svg>',
   del: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
@@ -1230,16 +1274,16 @@ function cueHTML(seg, i) {
   </div>`;
 }
 // 每句右边的小工具（说明窗口的按钮表也用这一份）
-const cueToolsHTML = () => `<button data-act="align" title="开始时间设为当前播放位置">${ICONS.align}</button>`
-  + `<button data-act="split" title="在光标处拆成两句">${ICONS.split}</button>`
+const cueToolsHTML = () => `<button data-act="split" title="在光标处拆成两句，并从拆开处播放">${ICONS.split}</button>`
   + `<button data-act="merge" title="与下一句合并">${ICONS.merge}</button>`
   + `<button data-act="del" title="删除这一句">${ICONS.del}</button>`;
 function renderCues() {
   const box = $('#cues');
   const segs = S.doc ? S.doc.segments : [];
+  const oldShots = [...$$('.sub-shot', box)];  // 截图元素留着接着用（见 placeSubShots）
   box.innerHTML = segs.length ? `<div class="cues-inner">${segs.map(cueHTML).join('')}</div>`
     : `<div class="cues-empty">这个文件还没有字幕。<br>点上方的「生成字幕」或「一键整理」开始。</div>`;
-  placeSubShots();
+  placeSubShots(oldShots);
   S.active = -1;
   $('#cueCount').textContent = segs.length ? `${segs.length} 句` : '';
   updateDoubtBtn();
@@ -1255,27 +1299,49 @@ function cueEl(i) { return $(`.cue[data-i="${i}"]`, $('#cues')); }
 /* ---------- 字幕里手动插的截图（2026-10-30 用户要求）：S.doc.sub_shots = [{t: 截图时间, at: 挂在哪一句后面（那一句的开始时间）}]。
    位置按 at 找「开始时间不晚于它的最后一句」（findIndex），句子删了、拆了也找得到；上移 / 下移就是换挂到上一句 / 下一句
    （语音识别断句不准时，图会落在不对的句子后面）。剪藏时 doc.sub_shot_images 插进「完整字幕」对应的位置。 ---------- */
-function placeSubShots() {
+/* old：重画字幕前取下来的截图元素。已经显示着的截图原样挪到新位置、不重新加载：
+   重新加载的那一下图片高度是 0，整列字幕会跟着上下跳（2026-11-10 用户：合并、拆分后字幕跳走） */
+function placeSubShots(old) {
   const inner = $('.cues-inner', $('#cues'));
   if (!inner) return;
-  $$('.sub-shot', inner).forEach(el => el.remove());
+  const pool = new Map();
+  [...(old || $$('.sub-shot', inner))].forEach(el => { el.remove(); if (el.dataset.key && !pool.has(el.dataset.key)) pool.set(el.dataset.key, el); });
   const shots = (S.doc && S.doc.sub_shots) || [];
   shots.map((x, k) => ({ x, k, i: findIndex(x.at) })).sort((a, b) => a.i - b.i || a.x.t - b.x.t).forEach(({ x, k, i }) => {
-    const html = `<div class="sub-shot${x.w ? ' sized' : ''}" data-sk="${k}"${x.w ? ` style="max-width:${x.w + 2}px"` : ''}>
+    const key = `${S.path}|${x.t}|${x.crop ? x.crop.join(',') : ''}`;  // 带上课程路径：换课时不会拿上一节课同一时间的图
+    let el = pool.get(key);
+    if (el) pool.delete(key);
+    else {
+      const tpl = document.createElement('template');
+      tpl.innerHTML = `<div class="sub-shot" data-key="${esc(key)}">
       <img alt="" title="点击看大图">
       <div class="sub-shot-bar"><a class="tslink" data-t="${x.t}">[${fmt(x.t)}]</a> 截图
         <span class="grow"></span>
         <button data-ss="up" title="挪到上一句后面">↑ 上移</button><button data-ss="down" title="挪到下一句后面">↓ 下移</button><button data-ss="crop" title="裁剪">✂ 裁剪</button><button data-ss="size" title="调整大小">⇲ 大小</button><button data-ss="del" title="删掉这张截图">删除</button></div>
     </div>`;
+      el = tpl.content.firstElementChild;
+      const img = $('img', el);
+      frameUrl(x.t, false, x.crop).then(u => { if (u && img) img.src = u; });
+    }
+    el.dataset.sk = k;
+    el.classList.toggle('sized', !!x.w); el.style.maxWidth = x.w ? `${x.w + 2}px` : '';
     const cue = cueEl(i);
     if (cue) {  // 挂在第 i 句后面：同一句后面有几张时，按插入顺序往后排
       let after = cue;
       while (after.nextElementSibling && after.nextElementSibling.classList.contains('sub-shot')) after = after.nextElementSibling;
-      after.insertAdjacentHTML('afterend', html);
-    } else inner.insertAdjacentHTML('afterbegin', html);  // 挂在第一句前面
-    const img = $(`.sub-shot[data-sk="${k}"] img`, inner);
-    frameUrl(x.t, false, x.crop).then(u => { if (u && img) img.src = u; });
+      after.after(el);
+    } else inner.prepend(el);  // 挂在第一句前面
   });
+}
+/* 改动字幕后重画，正在操作的那一句（第 i 句）留在屏幕上原来的位置，列表不跳 */
+function keepCueInPlace(i, fn) {
+  const box = $('#cues'), a = cueEl(i), top0 = a ? a.getBoundingClientRect().top : null, st0 = box.scrollTop;
+  fn();
+  const segs = S.doc.segments, el = cueEl(Math.min(i, segs.length - 1));
+  box.style.scrollBehavior = 'auto';  // 字幕栏平时是平滑滚动，这里要一下子放回去
+  if (el && top0 != null) box.scrollTop += el.getBoundingClientRect().top - top0;
+  else box.scrollTop = st0;
+  box.style.scrollBehavior = '';
 }
 function insertSubShot() {
   const v = $('#video');
@@ -1328,7 +1394,7 @@ function updateActive(force) {
     if (el) {
       el.classList.add('active');
       const recentlyScrolled = Date.now() - S.userScrollAt < 2500;
-      if (S.settings.follow && !S.editing && !recentlyScrolled && !v.paused) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (S.settings.follow && !isEditing() && !recentlyScrolled && !v.paused) followCue(i);
     }
   }
   updateLoopHint();
@@ -1337,6 +1403,25 @@ function updateActive(force) {
     const show = seg && t <= seg.end + 0.6;
     $('#overlay').innerHTML = show ? esc(seg.text) + (S.settings.show_tr && seg.tr ? `<span class="o-tr">${esc(seg.tr)}</span>` : '') : '';
   }
+}
+/* 真的在编辑某一句：记下的那一句还在页面上、光标也在它里面。字幕重画时正在编辑的那一句被换掉，浏览器不发「离开」的通知，
+   S.editing 会一直留着，以前跟随就永远停了（2026-11-10 用户：播放到后面了字幕还卡在原处） */
+function isEditing() {
+  const el = S.editing;
+  if (el && el.isConnected && document.activeElement === el) return true;
+  S.editing = null;
+  return false;
+}
+/* 字幕跟随（2026-11-10 用户要求，以前每换一句就滚到正中间）：正在播放的这句下面只剩不到 3 句（或者已经在画面外）时，
+   一下翻上去，让它上面留 3 句，接着往下播；画面里还看得到下面 3 句时不动 */
+const FOLLOW_KEEP = 3;
+function followCue(i) {
+  const box = $('#cues'), el = cueEl(i); if (!el) return;
+  const B = box.getBoundingClientRect(), r = el.getBoundingClientRect();
+  const below = cueEl(Math.min(i + FOLLOW_KEEP, S.doc.segments.length - 1)) || el;
+  if (r.top >= B.top && below.getBoundingClientRect().bottom <= B.bottom) return;
+  const top = cueEl(Math.max(0, i - FOLLOW_KEEP)) || el;
+  box.scrollTo({ top: box.scrollTop + top.getBoundingClientRect().top - B.top - 4, behavior: 'smooth' });
 }
 // 单句循环开着时，开关旁边写明在循环哪一句，点一下关掉
 function updateLoopHint() {
@@ -1405,9 +1490,11 @@ function snapshot() {
 }
 function undo() {
   if (!S.undo.length) return;
+  const box = $('#cues'), top = box.getBoundingClientRect().top;  // 屏幕上最上面那一句留在原处
+  const first = [...$$('.cue', box)].find(el => el.getBoundingClientRect().bottom > top);
   S.doc.segments = JSON.parse(S.undo.pop());
   $('#btnUndo').disabled = !S.undo.length;
-  renderCues(); markDirty(); toast('已撤销');
+  keepCueInPlace(first ? +first.dataset.i : -1, renderCues); markDirty(); toast('已撤销');
 }
 function caretOffset(el) {
   const sel = getSelection();
@@ -1419,21 +1506,16 @@ function caretOffset(el) {
 let lastCaret = { i: -1, field: 'src', pos: null };
 function cueAction(act, i) {
   const segs = S.doc.segments, seg = segs[i]; if (!seg) return;
-  const v = $('#video');
-  if (act === 'align') {
-    snapshot();
-    const t = +v.currentTime.toFixed(2);
-    seg.start = t;
-    if (segs[i - 1]) segs[i - 1].end = Math.min(segs[i - 1].end, t);
-    if (seg.end < t) seg.end = segs[i + 1] ? segs[i + 1].start : t + 2;
-    segs.sort((a, b) => a.start - b.start);
-  } else if (act === 'split') {
+  let split = null;
+  if (act === 'split') {
     const pos = lastCaret.i === i && lastCaret.field === 'src' && lastCaret.pos != null ? lastCaret.pos : null;
     const text = seg.text;
     const at = pos != null && pos > 0 && pos < text.length ? pos : Math.round(text.length / 2);
     snapshot();
     const mid = +(seg.start + (seg.end - seg.start) * at / Math.max(1, text.length)).toFixed(2);
-    segs.splice(i + 1, 0, { start: mid, end: seg.end, text: text.slice(at).trim(), tr: '' });
+    const part2 = { start: mid, end: seg.end, text: text.slice(at).trim(), tr: '' };
+    split = { part1: seg, part2, mid, req: { start: seg.start, end: seg.end, before: text.slice(0, at), after: text.slice(at), guess: mid } };
+    segs.splice(i + 1, 0, part2);
     seg.text = text.slice(0, at).trim(); seg.end = mid;
   } else if (act === 'merge') {
     const next = segs[i + 1]; if (!next) return toast('这已经是最后一句了');
@@ -1447,8 +1529,29 @@ function cueAction(act, i) {
     snapshot();
     segs.splice(i, 1);
   }
-  renderCues(); markDirty();
-  const el = cueEl(Math.min(i, segs.length - 1)); if (el) el.scrollIntoView({ block: 'nearest' });
+  keepCueInPlace(i, renderCues); markDirty();
+  if (split) snapSplit(i, split);
+}
+/* 拆分后：先按字数估的时间拆开（界面马上有反应），后台用本机识别重听这一句、找准后半句第一个字前面的停顿，
+   把两句的分界挪过去，再从那里开始播放，马上听得出拆得准不准（2026-11-10 用户：拆完下一句开头还是上一句的「方方面面的」）。
+   找的时候这两句被改过、撤销过，就不动它们。 */
+async function snapSplit(i, sp) {
+  const v = $('#video'), doc = S.doc, path = S.path;
+  v.pause();
+  let t = null;
+  try {
+    const r = await Promise.race([api('split_time', { path, lang: doc.lang || 'zh', ...sp.req }), sleep(15000).then(() => ({}))]);
+    t = r && typeof r.t === 'number' ? r.t : null;
+  } catch (e) { logToFile('warn', '拆分时找准时间失败：' + (e.message || e)); }
+  const segs = S.doc === doc ? doc.segments : [];
+  const still = segs[i] === sp.part1 && segs[i + 1] === sp.part2 && sp.part2.start === sp.mid && sp.part1.end === sp.mid;
+  if (!still) return;
+  if (t != null && Math.abs(t - sp.mid) >= 0.05) {
+    sp.part1.end = sp.part2.start = t;
+    keepCueInPlace(i, renderCues); markDirty();
+  }
+  S.userScrollAt = Date.now();
+  seek(sp.part2.start, true);
 }
 
 /* ---------------------------------------------------------------- 保存 ---- */
@@ -1635,6 +1738,15 @@ function renderDoc() {
   $('#optReviewed').checked = !!S.doc.reviewed;
 }
 /* 一步的结果：失败时提示原因、返回 null；跳过时返回 {skipped: 原因}；完成时返回这一步的结果 */
+/* 一次整理里 AI 用了多少（各步的 usage 加起来；只有 ChatGPT、OpenAI、DeepSeek 会返回用量），给完成提示用 */
+function usageText(task) {
+  const us = ((task || {}).stages || []).map(s => s.usage).filter(Boolean);
+  if (!us.length) return '';
+  const sum = k => us.reduce((a, u) => a + (u[k] || 0), 0);
+  const w = n => n >= 10000 ? (n / 10000).toFixed(1) + ' 万' : String(n);
+  const cached = sum('cached');
+  return `（AI 用量：${sum('calls')} 次，输入 ${w(sum('input'))}${cached ? `（其中缓存 ${w(cached)}）` : ''}、输出 ${w(sum('output'))} 词元）`;
+}
 function stepResult(res, name) {
   if (res.status === 'cancelled') return null;  // runJob 已经提示「已取消」
   if (res.status !== 'done' || !res.task) { fail(new Error(res.error || '没有完成')); return null; }
@@ -1696,8 +1808,9 @@ function reviewToast(x) {
 }
 
 /* ------------------------------------------------------------ 生成字幕 ---- */
-const PROVIDER_LABEL = { doubao: '豆包', siliconflow: '硅基流动', openai: 'OpenAI' };
+const PROVIDER_LABEL = { local: '本机识别', doubao: '豆包', siliconflow: '硅基流动', openai: 'OpenAI' };
 function providerHint(p) {
+  if (p === 'local') return '在这台电脑上识别，不联网、不花钱（第一次用会下载约 230 MB 的模型）。不认识专用术语，识别完建议让 AI 按术语表校对。';
   const s = S.settings.providers[p];
   const model = p === 'doubao' ? (S.doubaoOrder.map(k => S.doubaoModels[k].short).join(' → ') + '（自动，用完换下一个）') : s.asr_model;
   const terms = { doubao: '术语会作为热词传给豆包。', openai: '术语会作为提示词传给 Whisper。', siliconflow: '硅基流动读不了术语表，建议识别后用 AI 校对。' }[p];
@@ -1744,7 +1857,7 @@ function openTranscribe() {
   $$('input[name=lang]', dlg).forEach(r => r.checked = r.value === lang);
   const setProv = () => {
     const l = $('input[name=lang]:checked', dlg).value;
-    $('#trProvider').value = l === 'en' ? S.settings.asr_en : S.settings.asr_zh;
+    $('#trProvider').value = asrDefault(l);
     $('#trProviderHint').textContent = providerHint($('#trProvider').value);
     $('#trDbField').hidden = $('#trProvider').value !== 'doubao';
   };
@@ -1855,7 +1968,7 @@ function openTranslate() {
   const missing = segs.filter(s => s.text.trim() && !s.tr.trim()).length;
   const dlg = $('#dlgTranslate');
   $('#tlInfo').innerHTML = (S.doc.lang === 'zh' ? '这是中文字幕，一般不需要翻译。<br>' : '') +
-    `共 ${segs.length} 句，其中 ${missing} 句还没有译文。将使用 <b>${esc(S.providerNames[S.settings.translate])}</b> 翻译。`;
+    `共 ${segs.length} 句，其中 ${missing} 句还没有译文。将使用 <b>${esc(S.providerNames[taskAi('translate').provider])} · ${esc(taskAi('translate').model)}</b> 翻译。`;
   $('#tlMissing').textContent = missing ? `翻译缺少的 ${missing} 句` : '没有缺少的';
   $('#tlMissing').disabled = !missing;
   $('#tlAll').hidden = missing === segs.length;
@@ -1893,11 +2006,14 @@ function openPipeline() {
     $('#plTranslate').disabled = l !== 'en';
     syncDb();
   };
-  const syncDb = () => {  // 要生成字幕、而且用豆包时，才显示「豆包用哪种模型」
-    const l = $('input[name=plLang]:checked').value;
-    $('#plDbField').hidden = !$('#plAsr').checked || (l === 'en' ? S.settings.asr_en : S.settings.asr_zh) !== 'doubao';
+  const syncDb = () => {  // 要生成字幕时才显示「用哪个识别」；用豆包时才显示「豆包用哪种模型」
+    $('#plProvField').hidden = !$('#plAsr').checked;
+    $('#plProviderHint').textContent = providerHint($('#plProvider').value);
+    $('#plDbField').hidden = !$('#plAsr').checked || $('#plProvider').value !== 'doubao';
   };
   fillDbPickers($('#plDbModel'), $('#plDbAcct'));
+  $('#plProvider').value = asrDefault(lang);
+  $('#plProvider').onchange = syncDb;
   $('#plAsr').onchange = syncDb;
   $('#plTeacher').onchange = () => {
     const t = teacherById($('#plTeacher').value);
@@ -1905,7 +2021,7 @@ function openPipeline() {
     termsLabel();
     sync();
   };
-  $$('input[name=plLang]').forEach(r => r.onchange = sync);
+  $$('input[name=plLang]').forEach(r => r.onchange = () => { $('#plProvider').value = asrDefault($('input[name=plLang]:checked').value); sync(); });
   sync();
   $('#plSummary').checked = !S.noSummary;  // 媒体库文件夹设了「不写课程重点」时默认不勾
   $('#plSummaryText').textContent = S.noSummary ? '生成课程重点（这个文件夹设了不写，要写这一节就勾上）' : '生成课程重点';
@@ -1914,12 +2030,12 @@ function openPipeline() {
   termsLabel();
   const vid = !!(S.info && S.info.has_video), nShots = (S.doc.frames || []).length;
   $('#plFrames').disabled = !vid;
-  $('#plFrames').checked = vid && !nShots && providerReady(S.settings.vision);
+  $('#plFrames').checked = vid && !nShots && taskReady('vision');
   $('#plRecheck').disabled = !vid;
-  $('#plRecheck').checked = vid && providerReady(S.settings.vision);
+  $('#plRecheck').checked = vid && taskReady('vision');
   $('#plFramesLabel').textContent = !vid ? '找关键帧（这是音频文件，没有画面）'
     : nShots ? `重新挑插图（现在有 ${nShots} 张，会替换自动挑的那些）`
-      : `挑必要的插图${providerReady(S.settings.vision) ? '' : '（还没设置画面识别用的 AI）'}`;
+      : `挑必要的插图${taskReady('vision') ? '' : '（还没设置看图用的 AI）'}`;
   dlg.returnValue = '';
   dlg.showModal();
   dlg.onclose = () => { if (dlg.returnValue === 'ok') runPipeline(); };
@@ -1944,7 +2060,7 @@ async function runPipeline() {
   const clip = $('#plClip').checked;
   if (!steps.includes('transcribe') && !S.doc.segments.length) { toast('没有字幕，一键整理已停止', { error: true }); return; }
   if (steps.length) {  // 交给后台整理队列：可以马上切到别的课继续看、校对（2026-10-17 用户要求）
-    const provider = lang === 'en' ? S.settings.asr_en : S.settings.asr_zh;
+    const provider = steps.includes('transcribe') ? $('#plProvider').value : '';
     try {
       await flushSave();
       await bgAdd({ path: S.path, steps, lang, provider, allow_no_teacher: true, new_glossary: !S.doc.teacher,
@@ -2058,7 +2174,7 @@ async function bgFinished(b) {
   const later = [];
   if (!open && want.clip) later.push('剪藏');
   if (!open && want.terms && pendingTerms) later.push('勾选新术语');
-  toast(`《${b.title}》后台整理完了${used ? `（字幕用的是 ${used}）` : ''}。${later.length ? `打开这节课后再${later.join('、')}。` : ''}建议检查一遍字幕，打开「已校对」后再剪藏。${warn}`, { ms: 10000 });
+  toast(`《${b.title}》后台整理完了${used ? `（字幕用的是 ${used}）` : ''}。${later.length ? `打开这节课后再${later.join('、')}。` : ''}建议检查一遍字幕，打开「已校对」后再剪藏。${warn}${usageText(t)}`, { ms: 10000 });
   if (open && want.clip && !(await doClip())) toast('「剪藏」没有完成', { error: true });
   if (open && want.terms && S.doc.terms_pending) await openTerms();
 }
@@ -2444,7 +2560,7 @@ async function captureFrame() {
   if (S.settings.ai_hidden) savePrefs({ ai_hidden: false });
   $$('.ai-tabs .tab')[2].click();
   renderFrames(); markDirty();
-  if (providerReady(S.settings.vision)) await describeFrames([f]);
+  if (taskReady('vision')) await describeFrames([f]);
   else toast('已截取。还没设置「画面识别」用的 AI，可以自己在下面写一句说明', { ms: 6000 });
 }
 /* 用画面复核存疑句：AI 校对后还拿不准的句子，截下说话时的画面再核对一次 */
@@ -3123,6 +3239,7 @@ function setPath(obj, path, val) {
   o[ks[ks.length - 1]] = val;
 }
 function providerReady(name) { const p = S.settings.providers[name] || {}; return !!p.has_key && !!p.chat_model; }
+function taskReady(task) { const a = taskAi(task); return !!(S.settings.providers[a.provider] || {}).has_key && !!a.model; }
 function fillProviderSelects() {
   $$('.provider-select').forEach(sel => {
     const cur = getPath(S.settings, sel.dataset.k);
@@ -3131,7 +3248,7 @@ function fillProviderSelects() {
 }
 function markNav() {
   const P = S.settings.providers;
-  const ready = { codex: P.codex.has_key, claude: P.claude.has_key, gemini: P.gemini.has_key, deepseek: P.deepseek.has_key, ark: P.ark.has_key,
+  const ready = { codex: P.codex.has_key || (P.chatgpt || {}).has_key, claude: P.claude.has_key, gemini: P.gemini.has_key, deepseek: P.deepseek.has_key, ark: P.ark.has_key,
     siliconflow: P.siliconflow.has_key, openai: P.openai.has_key, doubao: P.doubao.has_key, teachers: S.teachers.length > 0 };
   $$('#settingsNav button').forEach(b => {
     const st = b.querySelector('.state'); if (st) st.remove();
@@ -3160,6 +3277,8 @@ function openSettings(section) {
   $$('input[name=dbAuth]').forEach(r => r.checked = r.value === (p.app_id && !p.key ? 'old' : 'new'));
   refreshDoubaoFields(); renderDoubaoAccounts();
   renderCodexBox(); $('#codexPaste').hidden = true;
+  renderChatgptBox(); $('#chatgptPaste').hidden = true;
+  renderAiTasks(); renderLocalAsr();
   renderTeacherList(S.teachers[0] && S.teachers[0].id);
   $$('.test-result', dlg).forEach(el => { el.textContent = ''; el.className = 'test-result'; });
   markNav();
@@ -3269,7 +3388,134 @@ function collectSettings() {
   if ($('input[name=dbAcct]:checked')) setPath(patch, 'providers.doubao.pick_account', $('input[name=dbAcct]:checked').value);
   setPath(patch, 'providers.doubao.more_keys', $$('#dbMore .db-acct').map(r => ({
     id: r.dataset.id, name: $('.db-name', r).value.trim(), key: $('.db-key', r).value.trim() })).filter(a => a.id || a.key));
+  // 每项 AI 工作：整块交回（后台拿默认值合并整块，少交一项会被冲掉）；旧的四大类跟着对应的那一项走，老代码读到的也一致
+  const tasks = {};
+  $$('#aiTaskTable .ai-task[data-task]').forEach(r => {
+    tasks[r.dataset.task] ={ provider: $('.at-prov', r).value, model: $('.at-model', r).value.trim(), effort: $('.at-effort', r).value };
+  });
+  if (Object.keys(tasks).length) {
+    patch.ai_tasks = tasks;
+    for (const [slot, task] of [['chat', 'summary'], ['correct', 'correct'], ['vision', 'vision'], ['translate', 'translate']]) {
+      if (tasks[task] && tasks[task].provider) patch[slot] = tasks[task].provider;
+    }
+  }
   return patch;
+}
+
+/* 每项 AI 工作（2026-11-10 用户：所有 AI 工作都能自由选模型和思考强度）：一行一项，服务 / 模型 / 思考强度 */
+const EFFORT_NAMES = { '': '默认', none: '不思考', low: '低', medium: '中', high: '高', xhigh: '很高', max: '最高' };
+function renderAiTasks() {
+  const s = S.settings;
+  $('#aiTaskTable').innerHTML = `<div class="ai-task head"><span>工作</span><span>服务</span><span>模型（留空 = 用服务的默认模型）</span><span>思考强度</span></div>` +
+    S.aiTasks.map(t => {
+      const own = (s.ai_tasks || {})[t.id] || {};
+      const prov = own.provider || s[t.slot] || '';
+      return `<div class="ai-task" data-task="${t.id}"><span class="at-name">${esc(t.name)}</span>
+        <select class="at-prov">${S.chatProviders.map(p => `<option value="${p}" ${p === prov ? 'selected' : ''}>${esc(S.providerNames[p])}${(s.providers[p] || {}).has_key ? '' : '（未设置）'}</option>`).join('')}</select>
+        <span class="key-row"><input class="at-model" list="dl-at-${t.id}" value="${esc(own.model || '')}"><datalist id="dl-at-${t.id}"></datalist>
+          <button class="btn small at-list" title="向这个服务取模型列表">列表</button></span>
+        <select class="at-effort">${S.efforts.map(e => `<option value="${e}" ${e === (own.effort || '') ? 'selected' : ''}>${EFFORT_NAMES[e] || e}</option>`).join('')}</select></div>`;
+    }).join('');
+  $$('#aiTaskTable .ai-task[data-task]').forEach(r => {
+    const sync = () => {
+      const p = $('.at-prov', r).value, eff = $('.at-effort', r);
+      $('.at-model', r).placeholder = (s.providers[p] || {}).chat_model ? `默认：${s.providers[p].chat_model}` : '这个服务还没选默认模型';
+      eff.disabled = !S.effortProviders.includes(p);
+      eff.title = eff.disabled ? '这个服务不能设思考强度，按它自己的默认' : '思考越多越费额度，不一定更准';
+      if (eff.disabled) eff.value = '';
+    };
+    sync();
+    $('.at-prov', r).onchange = () => { $('.at-model', r).value = ''; sync(); };  // 换了服务，原来的模型名多半不能用
+    $('.at-list', r).onclick = async () => {
+      const p = $('.at-prov', r).value;
+      try {
+        const { models } = await api('models', { provider: p });
+        $(`#dl-at-${r.dataset.task}`).innerHTML = models.map(m => `<option value="${esc(m.id)}">${esc(m.name !== m.id ? m.name : '')}</option>`).join('');
+        toast(`取到 ${models.length} 个模型，点模型框选择`);
+        $('.at-model', r).focus();
+      } catch (e) { fail(e); }
+    };
+  });
+}
+
+/* 官方「用 ChatGPT 登录」（2026-11-10） */
+let chatgptPoll = null;
+function renderChatgptBox() {
+  const acc = (S.settings.providers.chatgpt || {}).account;
+  $('#chatgptBox').innerHTML = acc
+    ? `<div class="who">✓ 已登录：<b>${esc(acc.email || 'ChatGPT 账号')}</b>${acc.plan ? `（${esc(acc.plan)}）` : ''}</div><button class="btn small" id="chatgptLogout">退出登录</button>`
+    : `<div class="who muted">还没有登录</div><button class="btn small primary" id="chatgptLogin">用 ChatGPT 账号登录</button>`;
+  const lo = $('#chatgptLogout'), li = $('#chatgptLogin');
+  if (lo) lo.onclick = async () => { await api('chatgpt_logout'); await refreshSettingsOnly(); renderChatgptBox(); renderAiTasks(); toast('已退出官方登录'); };
+  if (li) li.onclick = chatgptLogin;
+}
+async function chatgptLogin() {
+  try {
+    await api('chatgpt_login');
+    $('#chatgptPaste').hidden = false; $('#chatgptUrl').value = '';
+    clearInterval(chatgptPoll);
+    const t0 = Date.now();
+    chatgptPoll = setInterval(async () => {
+      if (!$('#dlgSettings').open || Date.now() - t0 > 600000) { clearInterval(chatgptPoll); return; }
+      try { const r = await api('chatgpt_finish', {}); if (r.status === 'done') chatgptDone(r); } catch (e) { clearInterval(chatgptPoll); fail(e); }
+    }, 2000);
+  } catch (e) { fail(e); }
+}
+async function chatgptDone(r) {
+  clearInterval(chatgptPoll);
+  $('#chatgptPaste').hidden = true;
+  await refreshSettingsOnly(); renderChatgptBox(); renderAiTasks();
+  toast(`ChatGPT 官方登录成功：${r.email || ''}` + (r.switched ? `，原来用旧登录的 ${r.switched} 项工作已经换过来` : ''));
+  const input = $('[data-k="providers.chatgpt.chat_model"]');
+  if (!input.value) {
+    try {
+      const { models } = await api('models', { provider: 'chatgpt' });
+      fillDatalist('chatgpt', models);
+      if (models[0]) { input.value = models[0].id; await saveSettings(false); toast('已选择默认模型 ' + models[0].id + '，可以修改'); }
+    } catch (e) { fail(e); }
+  }
+}
+
+/* 本机识别模型：在哪、多大、下载、删除 */
+async function renderLocalAsr() {
+  const box = $('#localAsrBox');
+  box.innerHTML = '<div class="who muted">正在检查本机识别模型…</div>';
+  let st;
+  try { st = await api('local_asr_status'); } catch (e) { box.innerHTML = `<div class="who muted">${esc(e.message || e)}</div>`; return; }
+  if (st.ready) {
+    box.innerHTML = `<div class="who">✓ 模型已就绪：${st.where === 'kuaichuan' ? '用的是猛人快传下好的那份（不重复下载）' : `已下载（${mb(st.own_size)}）`}
+      <div class="hint">${esc(st.path)}</div><div class="hint" id="localAsrMsg"></div></div>
+      <button class="btn small" id="localAsrTest" title="用一段 2 秒的测试音真识别一次">测试本机识别</button>
+      ${st.where === 'own' ? '<button class="btn small" id="localAsrDel">删除模型</button>' : ''}`;
+  } else {
+    box.innerHTML = `<div class="who muted">还没有模型（约 ${st.download_mb} MB，只下一次；第一次用本机识别时也会自动下载）</div><button class="btn small primary" id="localAsrGet">现在下载</button>`;
+  }
+  const del = $('#localAsrDel'), get = $('#localAsrGet'), tst = $('#localAsrTest');
+  if (tst) tst.onclick = async () => {
+    tst.disabled = true; $('#localAsrMsg').textContent = '正在测试…';
+    try { const r = await api('local_asr_test'); $('#localAsrMsg').textContent = `✓ 本机识别能用（识别 2 秒测试音用了 ${r.seconds} 秒）`; }
+    catch (e) { $('#localAsrMsg').textContent = '✗ ' + (e.message || e); }
+    tst.disabled = false;
+  };
+  if (del) del.onclick = async () => {
+    if (!confirm('删除本机识别模型？以后用本机识别时会重新下载。')) return;
+    try { await api('local_asr_delete'); toast('已删除本机识别模型'); renderLocalAsr(); } catch (e) { fail(e); }
+  };
+  if (get) get.onclick = async () => {
+    get.disabled = true;
+    try {
+      const { job } = await api('local_asr_download');
+      for (;;) {
+        await sleep(1000);
+        const j = (await api('job', { id: job, since: 0 })).job;
+        get.textContent = j.message ? j.message.replace('正在下载本机识别模型 ', '') : '下载中…';
+        if (j.status === 'error') throw new Error(j.error);
+        if (j.status === 'cancelled') break;
+        if (j.status === 'done') { toast(j.result && j.result.cancelled ? '已停止下载，下次接着下' : '本机识别模型下载好了'); break; }
+      }
+    } catch (e) { fail(e); }
+    renderLocalAsr();
+  };
 }
 async function saveSettings(close = true) {
   try {
@@ -3647,7 +3893,7 @@ function bind() {
       S.editing = null;
     }
   });
-  document.addEventListener('selectionchange', () => { const el = S.editing; if (el) el._caret = caretOffset(el); });
+  document.addEventListener('selectionchange', () => { const el = S.editing; if (el && el.isConnected) el._caret = caretOffset(el); });
   box.addEventListener('keydown', e => {
     if (!e.target.matches('.src, .tr')) return;
     if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); e.target.blur(); }
@@ -3757,6 +4003,10 @@ function bind() {
   });
   $('#codexDone').onclick = async () => {
     try { const r = await api('codex_finish', { url: $('#codexUrl').value }); if (r.status === 'done') codexDone(r); else toast('还没有拿到登录结果'); }
+    catch (e) { fail(e); }
+  };
+  $('#chatgptDone').onclick = async () => {
+    try { const r = await api('chatgpt_finish', { url: $('#chatgptUrl').value }); if (r.status === 'done') chatgptDone(r); else toast('还没有拿到授权结果'); }
     catch (e) { fail(e); }
   };
   $('#teacherList').onclick = async e => {

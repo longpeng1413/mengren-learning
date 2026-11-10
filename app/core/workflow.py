@@ -268,19 +268,20 @@ def doubt_of(d, seg):
 
 
 def vision_provider(s, need=True):
-    """「画面识别」用哪个 AI（要能看图）。need=False 时没设好返回空字符串。界面的 bridge._vision 也用这个。"""
-    name = s.get('vision') or ''
+    """「看图」用哪个 AI（要能看图，设置里 ai_tasks.vision，没单独设时沿用 vision）。need=False 时没设好返回空字符串。
+    界面的 bridge._vision 也用这个。真正调用时用 llm.for_task(s, 'vision') 拿模型和思考强度。"""
+    s2, name = llm.for_task(s, 'vision')
     if name and name in config.CHAT_PROVIDERS:
         try:
             if name in llm.VISION_NOTE:
-                raise llm.LlmError(llm.VISION_NOTE[name] + '，请到「设置 → 任务用哪个 AI」给「画面识别」换一个能看图的服务')
-            llm.check(s, name)
+                raise llm.LlmError(llm.VISION_NOTE[name] + '，请到「设置 → 每项 AI 工作」给「看图」换一个能看图的服务')
+            llm.check(s2, name)
             return name
         except llm.LlmError:
             if need:
                 raise
     if need:
-        raise llm.LlmError('还没有设置「画面识别」用哪个 AI，请到「设置 → 任务用哪个 AI」选择')
+        raise llm.LlmError('还没有设置「看图」用哪个 AI，请到「设置 → 每项 AI 工作」选择')
     return ''
 
 
@@ -293,8 +294,8 @@ def _vision_check(s):
 
 
 def _model_of(s, name):
-    p = s['providers'].get(name) or {}
-    return f'{config.PROVIDER_NAMES.get(name, name)} · {p.get("chat_model") or ""}'.rstrip(' ·')
+    """「服务 · 模型 · 思考强度」。s 要用 llm.for_task 给的副本，才是这项工作选的模型。"""
+    return llm.model_label(s, name)
 
 
 # ------------------------------------------------------------- 各个步骤 ----
@@ -558,15 +559,34 @@ class Ctx:
             raise WorkError('cancelled', '已取消')
 
 
+def transcribe_provider(path, lang, s, opts=None):
+    """这节课用哪个识别服务：这次手动选的（provider）→ 命令行 --model local → 所在文件夹设的识别方式（只管中文课，
+    2026-11-10 用户：默认本机识别，峰级这种术语多的文件夹设成豆包）→ 设置里的默认（asr_zh / asr_en）。"""
+    opts = opts or {}
+    if opts.get('provider'):
+        return opts['provider']
+    if opts.get('model') == 'local':
+        return 'local'
+    if opts.get('model') == 'cloud':  # 命令行指明用云端：设置里默认是本机时换成豆包
+        default = s['asr_en'] if lang == 'en' else s['asr_zh']
+        return 'doubao' if default == 'local' else default
+    if lang != 'en':
+        try:
+            folder = library.folder_asr(path)
+        except Exception:  # noqa: BLE001  媒体库读不出时按默认
+            folder = ''
+        if folder in ('local', 'doubao'):
+            return folder
+    return s['asr_en'] if lang == 'en' else s['asr_zh']
+
+
 def st_transcribe(ctx):
     d = ctx.doc()
-    if (ctx.opts.get('model') or 'cloud') == 'local':
-        raise WorkError('not_supported', '本地模型识别还没有接入，现在只能用云端识别（model=cloud）')
     f = ctx.skip_check('transcribe', d)
     s = ctx.settings
     lang = f.lang(d)
-    provider = ctx.opts.get('provider') or (s['asr_en'] if lang == 'en' else s['asr_zh'])
-    if provider not in ('openai', 'siliconflow', 'doubao'):
+    provider = transcribe_provider(ctx.path, lang, s, ctx.opts)
+    if provider not in ('openai', 'siliconflow', 'doubao', 'local'):
         raise WorkError('config', '未知的识别服务：' + str(provider))
     pick = ctx.opts.get('doubao_model')  # 这次用哪种豆包模型（'auto' = 自动换）；没给就按设置
     if provider == 'doubao' and pick:
@@ -585,7 +605,7 @@ def st_transcribe(ctx):
     info = media.probe(ctx.path)
     teacher = ctx.teacher(d)
     # 豆包：按账号 × 模型自动换（选定了一种模型时只用这一种）（asr.doubao_plan），用的是哪个识别完才知道
-    model = '' if provider == 'doubao' else s['providers'][provider].get('asr_model')
+    model = '' if provider == 'doubao' else 'SenseVoice' if provider == 'local' else s['providers'][provider].get('asr_model')
     ctx.task.stage('transcribe').update(model=f'{provider} · {model or "自动"}', params={'lang': lang, 'provider': provider})
     cues, used = [], {}
 
@@ -639,8 +659,7 @@ def st_correct(ctx):
     _need_segments(d)
     ctx.skip_check('correct', d)
     teacher = ctx.teacher(d)
-    s = ctx.settings
-    name = s['correct']
+    s, name = llm.for_task(ctx.settings, 'correct')
     llm.check(s, name)
     ctx.task.stage('correct').update(model=_model_of(s, name))
     segs = d['segments']
@@ -688,7 +707,7 @@ def st_frames(ctx):
     _need_segments(d)
     name = ctx.skip_check('frames', d).vision()[0]
     info = media.probe(ctx.path)
-    s = ctx.settings
+    s, _vn = llm.for_task(ctx.settings, 'vision')
     ctx.task.stage('frames').update(model=_model_of(s, name))
     try:
         got = frames.extract(s, name, ctx.path, float(d.get('duration') or info['duration'] or 0), d['segments'], ctx.cancel, ctx.progress)
@@ -713,7 +732,7 @@ def st_recheck(ctx):
         if str(e) == NO_DOUBTS:  # 记下「复核过」，以后不再算没做完
             _apply(ctx.path, lambda doc: _steps(doc).__setitem__('recheck', tasks.now()))
         raise
-    s = ctx.settings
+    s, _vn = llm.for_task(ctx.settings, 'vision')
     segs = d['segments']
     idx = [i for i, x in enumerate(segs) if doubt_of(d, x)]
     ctx.task.stage('recheck').update(model=_model_of(s, name))
@@ -761,8 +780,7 @@ def st_translate(ctx):
     segs = d['segments']
     every = ctx.force or ctx.opts.get('translate_all')  # 全部重新翻译；否则只翻还没有译文的
     todo = [(i, x['text']) for i, x in enumerate(segs) if x['text'].strip() and (every or not str(x.get('tr') or '').strip())]
-    s = ctx.settings
-    name = s['translate']
+    s, name = llm.for_task(ctx.settings, 'translate')
     llm.check(s, name)
     ctx.task.stage('translate').update(model=_model_of(s, name))
     sent = {i: (segs[i]['start'], segs[i]['text']) for i, _ in todo}
@@ -791,8 +809,7 @@ def st_summary(ctx):
     d = ctx.doc()
     _need_segments(d)
     ctx.skip_check('summary', d)
-    s = ctx.settings
-    name = s['chat']
+    s, name = llm.for_task(ctx.settings, 'summary')
     llm.check(s, name)
     ctx.task.stage('summary').update(model=_model_of(s, name))
     teacher = ctx.teacher(d)
@@ -826,8 +843,7 @@ def st_review(ctx):
     d = ctx.doc()
     summary = (d.get('summary') or '').strip()
     ctx.skip_check('review', d)
-    s = ctx.settings
-    name = s['chat']
+    s, name = llm.for_task(ctx.settings, 'review')
     llm.check(s, name)
     ctx.task.stage('review').update(model=_model_of(s, name))
     ctx.progress(0.05, 'AI 正在对照字幕查漏…')
@@ -850,8 +866,7 @@ def st_terms(ctx):
     _need_segments(d)
     ctx.skip_check('terms', d)
     teacher = ctx.teacher(d)
-    s = ctx.settings
-    name = s['chat']
+    s, name = llm.for_task(ctx.settings, 'terms')
     llm.check(s, name)
     ctx.task.stage('terms').update(model=_model_of(s, name))
     ctx.progress(0.05, 'AI 正在找这节课的新术语…')
@@ -874,8 +889,7 @@ def st_chapters(ctx):
     d = ctx.doc()
     ctx.skip_check('chapters', d)
     info = book.read(ctx.path)
-    s = ctx.settings
-    name = s['chat']
+    s, name = llm.for_task(ctx.settings, 'book')
     llm.check(s, name)
     ctx.task.stage('chapters').update(model=_model_of(s, name))
     ctx.progress(0.1, 'AI 正在读目录…')  # 没认出章节时，等于在软件里点「AI 读目录分章」
@@ -906,8 +920,7 @@ def st_organize(ctx):
     ctx.skip_check('organize', d)
     if not todo:
         raise _Skip('没有要整理的章节')
-    s = ctx.settings
-    name = s['chat']
+    s, name = llm.for_task(ctx.settings, 'book')
     llm.check(s, name)
     vision = name not in llm.VISION_NOTE
     ctx.task.stage('organize').update(model=_model_of(s, name), params={'chapters': len(todo), 'vision': vision})
@@ -956,8 +969,7 @@ def st_overview(ctx):
     if not all((c.get('md') or '').strip() for c in chs) and not ctx.opts.get('allow_partial'):  # 界面里用户可以先写
         raise WorkError('no_subtitles', '还有章节没整理完，整理完才写全书总览', True)
     ctx.skip_check('overview', d)
-    s = ctx.settings
-    name = s['chat']
+    s, name = llm.for_task(ctx.settings, 'book')
     llm.check(s, name)
     ctx.task.stage('overview').update(model=_model_of(s, name))
     ctx.progress(0.1, 'AI 正在写全书总览…')
@@ -993,7 +1005,7 @@ def stages_for(path, steps=None, skip=None):
 GUI_OPTIONS = ('allow_no_teacher', 'any_lang', 'translate_all', 'chapters', 'allow_partial', 'doubao_model', 'doubao_account', 'new_glossary')
 
 
-def process(target, steps=None, skip=None, redo=(), lang=None, provider=None, model='cloud',
+def process(target, steps=None, skip=None, redo=(), lang=None, provider=None, model='auto',
             on_progress=None, cancel=None, caller='cli', on_items=None, check_library=True, **more):
     """整理一节课（或一本书）。返回任务记录（dict）。不抛出异常：失败写在记录里。
     redo：这几步已经做过也重做（其余做过的照样跳过）。
@@ -1014,7 +1026,7 @@ def process(target, steps=None, skip=None, redo=(), lang=None, provider=None, mo
         return _failed_lookup(target, e)
     forced = tuple(x for x in (redo or ()) if x in stages)
     opts = {'steps': stages, 'redo': list(forced), 'lang': lang, 'provider': provider,
-            'model': model or 'cloud', 'caller': caller, **{k: v for k, v in more.items() if v}}
+            'model': model or 'auto', 'caller': caller, **{k: v for k, v in more.items() if v}}
     task = tasks.Task(kind, path, video_id(path), Path(path).stem, dict(opts), stages, LABELS)
     if cancel is not None:
         task.cancel = cancel
@@ -1071,15 +1083,26 @@ def _run_stage(ctx, name):
     task = ctx.task
     st = task.start_stage(name)
     tries = 0
+    usage = []  # 这一步所有 AI 回答的用量（含重试），llm.for_task 给的设置副本共用这个清单
+
+    def note_usage():
+        total = llm.usage_sum(usage)
+        if total:
+            st['usage'] = total
+            log.info('「%s」用量：%s 次，输入 %s（缓存 %s），输出 %s（思考 %s），%s', LABELS[name], total['calls'], total['input'],
+                     total['cached'], total['output'], total['reasoning'], '、'.join(total['models']))
     while True:
+        ctx.settings['_usage'] = usage
         try:
             result = RUNNERS[name](ctx)
+            note_usage()
             task.end_stage(name, COMPLETED, result=result)
             return True, None
         except _Skip as e:
             task.end_stage(name, SKIPPED, reason=str(e))
             return True, None
         except Exception as e:  # noqa: BLE001
+            note_usage()
             err = tasks.error_dict(e)
             if ctx.cancel.is_set() or err['error_code'] == 'cancelled':
                 err = {'error_code': 'cancelled', 'retryable': False, 'message': '已取消'}
@@ -1137,7 +1160,7 @@ def resume(task_id, on_progress=None, cancel=None):
     except WorkError:
         pass
     return process(target, steps=o.get('steps'), lang=o.get('lang'), provider=o.get('provider'),
-                   model=o.get('model') or 'cloud', on_progress=on_progress, cancel=cancel, caller='resume')
+                   model=o.get('model') or 'auto', on_progress=on_progress, cancel=cancel, caller='resume')
 
 
 # ------------------------------------------------------------------ 状态 ----
@@ -1153,7 +1176,7 @@ def brief(task):
         'error_code': err.get('error_code'), 'message': err.get('message') or (task.get('message') if task.get('status') == 'completed' else None),
         'retryable': err.get('retryable'), 'warnings': task.get('warnings') or [], 'seconds': task.get('seconds'),
         'stages': [{k: s.get(k) for k in ('name', 'label', 'status', 'reason', 'error_code', 'error', 'retryable', 'retries', 'model', 'result',
-                                          'started', 'finished')} for s in task.get('stages') or []],
+                                          'usage', 'started', 'finished')} for s in task.get('stages') or []],
         'state': (task.get('outputs') or {}).get('state'),
         'subtitle_file': (task.get('outputs') or {}).get('subtitle_file'),
     }

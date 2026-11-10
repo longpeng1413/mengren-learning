@@ -1,5 +1,6 @@
 """界面与后台之间的桥：界面通过 window.pywebview.api.call(名称, 参数) 调用这里的函数。
 不开本地网络端口（有的电脑上安全软件或代理会干扰 127.0.0.1 连接），视频直接用 file:// 播放。"""
+import copy
 import hashlib
 import os
 import re
@@ -11,7 +12,7 @@ import time
 import uuid
 from pathlib import Path
 
-from core import asr, bgqueue, book, cache, codex_auth, config, distill, doc as docs, frames, glossary, jobs, library, llm, media, mentor, ocr, roundtable, tasks, tts, workflow
+from core import asr, bgqueue, book, cache, chatgpt_auth, codex_auth, config, distill, doc as docs, frames, glossary, jobs, library, llm, local_asr, media, mentor, ocr, roundtable, tasks, tts, workflow
 from core.log import LOG_DIR, log
 
 MEDIA_FILTER = ('音视频和文档 (*.mp4;*.m4v;*.mov;*.mkv;*.webm;*.avi;*.flv;*.ts;*.wmv;*.3gp;*.mpg;*.mpeg;'
@@ -112,7 +113,40 @@ class Api:
         return {'settings': config.public(s), 'provider_names': config.PROVIDER_NAMES, 'chat_providers': config.CHAT_PROVIDERS,
                 'teachers': config.load_teachers(), 'default_template': llm.DEFAULT_TEMPLATE,
                 'doubao_models': {k: {'name': v['name'], 'short': v['short'], 'note': v['note'], 'kind': v['kind']} for k, v in asr.DOUBAO_MODELS.items()},
-                'doubao_order': list(asr.DOUBAO_ORDER)}
+                'doubao_order': list(asr.DOUBAO_ORDER),
+                'ai_tasks': [{'id': k, 'name': n, 'slot': slot} for k, n, slot in config.AI_TASKS],
+                'efforts': config.EFFORTS, 'effort_providers': list(config.EFFORT_PROVIDERS)}
+
+    # ---------------------------------------------------------- 本机识别 ----
+    def do_local_asr_status(self, b):
+        return local_asr.status()
+
+    def do_local_asr_download(self, b):
+        """下载本机识别模型（后台任务，界面轮询进度，可以停；停了下次接着下）。"""
+        proxy = config.load().get('proxy') or ''
+
+        def run(job):
+            try:
+                local_asr.download(job.report, job.cancel, proxy)
+            except local_asr.Cancelled:
+                return {'cancelled': True}
+            except local_asr.LocalAsrError as e:
+                raise ValueError(str(e))
+            return local_asr.status()
+        return {'job': jobs.start('local_asr', run).id}
+
+    def do_local_asr_delete(self, b):
+        local_asr.delete()
+        return local_asr.status()
+
+    def do_local_asr_test(self, b):
+        """「测试本机识别」：用 2 秒测试音真识别一次（引擎、运行库、模型都能用才算过）。"""
+        try:
+            return local_asr.selftest(config.CACHE_DIR / 'audio')
+        except local_asr.LocalAsrError as e:
+            raise ValueError(str(e))
+        except ImportError as e:
+            raise ValueError('本机识别的组件没有装好：' + str(e)[:120])
 
     def do_recent(self, b):
         return {'items': [r for r in config.load().get('recent', []) if os.path.isfile(r.get('path', ''))]}
@@ -135,7 +169,7 @@ class Api:
             d['teacher'] = library.folder_teacher(path)
         out = {'path': path, 'info': info, 'doc': d, 'plan': plan, 'position': config.get_position(path),
                'busy': tasks.busy(docs.media_key(path)), 'summary_changes': docs.summary_changes(d), 'pending': workflow.pending_now(path, d),
-               'no_summary': library.folder_no_summary(path)}
+               'no_summary': library.folder_no_summary(path), 'folder_asr': library.folder_asr(path)}
         cached = media.playable_path(path, info)
         if plan == 'direct':
             out['src'] = file_url(path)
@@ -213,12 +247,12 @@ class Api:
 
     @staticmethod
     def _rule_job(rule):
-        """文件夹的整理规则 → (识别服务, 整理选项)。和一键整理对话框一样：没选老师也做 AI 校对（只改明显的错别字）。"""
-        provider = config.load().get('asr_en' if rule.get('lang') == 'en' else 'asr_zh')
+        """文件夹的整理规则 → (识别服务, 整理选项)。和一键整理对话框一样：没选老师也做 AI 校对（只改明显的错别字）。
+        识别服务不在这里定（返回 None）：交给 workflow.transcribe_provider 按每节课所在的文件夹选（下层文件夹可能单独设了），
+        豆包的模型、账号照样带上，只在这节课实际用豆包时起作用。"""
         opts = {'allow_no_teacher': True}
-        if provider == 'doubao':
-            opts.update({k: rule[k] for k in ('doubao_model', 'doubao_account') if rule.get(k)})
-        return provider, opts
+        opts.update({k: rule[k] for k in ('doubao_model', 'doubao_account') if rule.get(k)})
+        return None, opts
 
     def do_folder_rule(self, b):
         """「整个文件夹排进后台整理」对话框：这个文件夹（含沿用上层）的整理规则、老师、写不写课程重点，里面有几节课。"""
@@ -242,6 +276,8 @@ class Api:
         changes = {'rule': rule, 'no_summary': 'summary' not in steps}
         if 'teacher' in b and (b.get('teacher') or '') != library.folder_settings(folder)['teacher']:
             changes['teacher'] = b.get('teacher') or ''
+        if 'asr' in b and b.get('asr') in ('', 'local', 'doubao'):  # 识别方式记在这个文件夹上（空 = 沿用上层 / 设置）
+            changes['asr'] = b.get('asr') or ''
         library.set_folder(folder, **changes)
         provider, opts = self._rule_job(rule)
         facts_opts = dict(opts, lang=rule['lang'])
@@ -340,8 +376,7 @@ class Api:
         mid, cid, q = b.get('id'), b.get('cid'), str(b.get('question') or '').strip()
         if not q:
             raise ValueError('问题是空的')
-        s = config.load()
-        name = s['chat']
+        s, name = llm.for_task(config.load(), 'mentor')
         llm.check(s, name)
         m = mentor.get(mid)
         chat = mentor.load_chat(mid, cid)
@@ -515,8 +550,7 @@ class Api:
 
     def do_chat(self, b):
         """AI 问答以任务形式逐段产出，界面轮询拼接。（课程重点走 do_steps）"""
-        s = config.load()
-        name = s['chat']
+        s, name = llm.for_task(config.load(), 'chat')
         llm.check(s, name)
         d = b.get('doc') or {}
         teacher = config.get_teacher(d.get('teacher'))
@@ -720,8 +754,7 @@ class Api:
     def do_book_chat(self, b):
         """书的 AI 对话（边写边显示）：scope=chapter 读第 i 篇的原文全文 + 笔记，scope=book 读全部笔记 + 本机挑的相关原文页。
         问答写进书的整理结果 book_chat[key]（由后台写，不走界面保存：后台可能正在整理这本书，界面整份保存会撞）。"""
-        s = config.load()
-        name = s['chat']
+        s, name = llm.for_task(config.load(), 'book_chat')
         llm.check(s, name)
         path = str(b.get('path') or '')
         info = book.read(path)
@@ -758,8 +791,7 @@ class Api:
             info = dict(info, shift=b['shift'])
         if not b.get('ai'):
             return {'chapters': book.detect_chapters(info)}
-        s = config.load()
-        name = s['chat']
+        s, name = llm.for_task(config.load(), 'book')
         llm.check(s, name)
 
         def run(job):
@@ -817,6 +849,17 @@ class Api:
             return {'frames': [{'t': f['t'], 'redraw': f.get('redraw')} for f in out]}
         return {'job': jobs.start('frames', run).id}
 
+    def do_split_time(self, b):
+        """拆分一句时找准时间：本机识别重听这一句，对上后半句第一个字，拆在它前面的停顿里（见 local_asr.split_point）。"""
+        path = b.get('path')
+        if not path or not os.path.isfile(path):
+            return {'t': None, 'how': ''}
+        start, end = float(b.get('start') or 0), float(b.get('end') or 0)
+        if end - start < 0.3:
+            return {'t': None, 'how': ''}
+        return local_asr.split_point(path, start, end, str(b.get('before') or ''), str(b.get('after') or ''),
+                                     float(b.get('guess') or (start + end) / 2), b.get('lang') or 'zh')
+
     def do_frame_url(self, b):
         path = b.get('path')
         if not path or not os.path.isfile(path):
@@ -841,6 +884,45 @@ class Api:
 
     def do_codex_logout(self, b):
         codex_auth.logout()
+        return {}
+
+    # 官方「用 ChatGPT 登录」（2026-11-10 起推荐；上面的 codex_* 是旧方式，留作备用）
+    def do_chatgpt_login(self, b):
+        try:
+            return {'url': chatgpt_auth.start()}
+        except chatgpt_auth.AuthError as e:
+            raise ValueError(str(e))
+
+    def do_chatgpt_finish(self, b):
+        try:
+            r = chatgpt_auth.finish(b.get('url') or '')
+        except chatgpt_auth.AuthError as e:
+            raise ValueError(str(e))
+        if r.get('status') == 'done':
+            r['switched'] = self._switch_to_chatgpt()
+        return r
+
+    def _switch_to_chatgpt(self):
+        """官方登录成功后：原来用旧登录（codex）的工作都换成官方登录，模型照旧（两边是同一批模型）。返回换了几项。"""
+        s = config.load()
+        patch, n = {}, 0
+        for slot in ('chat', 'correct', 'vision', 'translate'):
+            if s.get(slot) == 'codex':
+                patch[slot] = 'chatgpt'
+                n += 1
+        tasks = copy.deepcopy(s['ai_tasks'])
+        for t in tasks.values():
+            if t.get('provider') == 'codex':
+                t['provider'] = 'chatgpt'
+                n += 1
+        patch['ai_tasks'] = tasks
+        if not s['providers']['chatgpt'].get('chat_model') and s['providers']['codex'].get('chat_model'):
+            patch['providers'] = {'chatgpt': {'chat_model': s['providers']['codex']['chat_model']}}
+        config.update(patch)
+        return n
+
+    def do_chatgpt_logout(self, b):
+        chatgpt_auth.logout()
         return {}
 
     # ------------------------------------------------------------ 老师 ----
@@ -892,7 +974,7 @@ class Api:
         return {'groups': library.view()}
 
     def do_library_set(self, b):
-        library.set_folder(b.get('path') or '', **{k: b[k] for k in ('teacher', 'collapsed', 'name', 'no_summary', 'rule') if k in b})
+        library.set_folder(b.get('path') or '', **{k: b[k] for k in ('teacher', 'collapsed', 'name', 'no_summary', 'rule', 'asr') if k in b})
         return {'groups': library.view() if b.get('refresh') else None}
 
     # ------------------------------------------------------------ 日志与退出 ----
@@ -1008,6 +1090,8 @@ class Api:
         s = config.load()
         s.pop('storage_dir', None)
         s.pop('recent', None)
+        # 官方 ChatGPT 登录和这台电脑的编号绑定，续期令牌只能一处用：带到别的电脑会和这台互相作废，所以从不导出，每台电脑自己登录
+        s['providers']['chatgpt'].update(oauth={}, host_id='')
         if not b.get('keys'):
             for name, p in s['providers'].items():
                 for k in config.SECRETS:
@@ -1042,6 +1126,9 @@ class Api:
         new = config._merge(config.DEFAULTS, data['settings'])
         new['storage_dir'] = cur.get('storage_dir', '')  # 位置跟电脑有关，保留这台电脑的
         new['recent'] = cur.get('recent', [])
+        # 官方 ChatGPT 登录和本机编号只属于这台电脑，不导入
+        new['providers']['chatgpt']['oauth'] = cur['providers']['chatgpt'].get('oauth') or {}
+        new['providers']['chatgpt']['host_id'] = cur['providers']['chatgpt'].get('host_id', '')
         for name, p in new['providers'].items():  # 文件里没带密钥时，保留这台电脑上已有的
             for k in list(config.SECRETS) + ['oauth']:
                 if k in p and not p[k] and cur['providers'].get(name, {}).get(k):

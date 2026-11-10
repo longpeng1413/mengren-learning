@@ -374,6 +374,7 @@
     <div class="field">
       <div class="label">识别服务</div>
       <select id="trProvider">
+        <option value="local">本机识别（免费）</option>
         <option value="doubao">豆包语音（火山引擎）</option>
         <option value="siliconflow">硅基流动</option>
         <option value="openai">OpenAI Whisper</option>
@@ -410,6 +411,9 @@
     <div class="field"><div class="label">老师 / 术语表</div><select id="plTeacher"></select></div>
     <div class="field" id="plLangField"><div class="label">视频里说的是</div>
       <div class="seg-choice"><label><input type="radio" name="plLang" value="zh"> 中文</label><label><input type="radio" name="plLang" value="en"> 英文</label></div></div>
+    <div class="field" id="plProvField"><div class="label">生成字幕用</div>
+      <select id="plProvider"><option value="local">本机识别（免费）</option><option value="doubao">豆包语音（火山引擎）</option><option value="siliconflow">硅基流动</option><option value="openai">OpenAI Whisper</option></select>
+      <div class="hint" id="plProviderHint"></div></div>
     <div class="field" id="plDbField"><div class="label">生成字幕：豆包用哪种模型</div><select id="plDbModel"></select>
       <div class="label db-acct-pick">用哪个账号</div><select id="plDbAcct" class="db-acct-pick"></select></div>
     <div class="dialog-btns">
@@ -435,6 +439,8 @@
     <div class="field"><div class="label">老师 / 术语表（绑定到这个文件夹）</div><select id="fbTeacher"></select></div>
     <div class="field"><div class="label">课程里说的是</div>
       <div class="seg-choice"><label><input type="radio" name="fbLang" value="zh"> 中文</label><label><input type="radio" name="fbLang" value="en"> 英文</label></div></div>
+    <div class="field"><div class="label">生成字幕用（中文课；记在这个文件夹上，下层沿用）</div>
+      <select id="fbProvider"><option value="">按上一层 / 设置里的默认</option><option value="local">本机识别（免费）</option><option value="doubao">豆包语音（术语多的课）</option></select></div>
     <div class="field" id="fbDbField"><div class="label">生成字幕：豆包用哪种模型</div><select id="fbDbModel"></select>
       <div class="label db-acct-pick">用哪个账号</div><select id="fbDbAcct" class="db-acct-pick"></select></div>
     <p class="hint">只排还没整理完的课，做过的步骤自动跳过；一次整理一节，可以照常看课、校对。规则记在这个文件夹上（下层文件夹沿用），以后右键单节课「排进后台整理」也按它。
@@ -750,7 +756,7 @@
         </ul>
 
         <h4>「画面」页</h4>
-        <p class="muted">用来给课程重点挑必要的插图：只有光看文字不好理解的地方才插，笔记尽量小。需要能看图的 AI（「设置 → 任务用哪个 AI → 画面识别」）。</p>
+        <p class="muted">用来给课程重点挑必要的插图：只有光看文字不好理解的地方才插，笔记尽量小。需要能看图的 AI（「设置 → 每项 AI 工作 → 看图」）。</p>
         <div class="help-btns" data-from="#aiPanel [data-pane=frames] .ai-foot"></div>
         <ul>
           <li><b>找插图</b>：软件每隔约 15 秒截一张候选画面（避开老师挡住屏幕的那几秒），老师说「大家请看」时也截一张；AI 只留需要看图才好理解的（走势图、K 线标注、老师手画的曲线和结构图），纯文字课件、标题页都不要；每张写一句说明，告诉课程重点该插在哪里。整节课最多插 3 张，剪藏时缩到 960 宽并压缩。</li>
@@ -838,7 +844,7 @@
         <ul>
           <li>每位老师可以有多个对话，都保存在软件里，左栏按时间列出；上面的搜索框能按标题和内容找。「新对话」开一个新的。</li>
           <li>右键对话：改名、删除。右键老师：更新蒸馏 / 继续蒸馏（软件里蒸馏的老师）、重新查找课程（笔记或视频挪了位置后）、在资源管理器中打开老师文件夹、清空全部对话、移除这位老师（只删软件里的记录，Obsidian 里的文件不动）。</li>
-          <li>每次提问，软件会把老师画像、课程蒸馏、观点库和最相关的十几段课程原文一起交给「设置 → 任务用哪个 AI」里「对话」用的 AI（一次大约三万多字），用的是那个 AI 的额度。</li>
+          <li>每次提问，软件会把老师画像、课程蒸馏、观点库和最相关的十几段课程原文一起交给「设置 → 每项 AI 工作」里「老师对话、圆桌讨论」用的 AI（一次大约三万多字），用的是那个 AI 的额度。</li>
         </ul>
       </section>
 
@@ -849,13 +855,13 @@
           <dt>关于与数据</dt><dd>版本、开源地址；检查更新（有新版本时点「下载并更新」，软件自己下载、保存退出、换上新版本再打开，新版本打不开会自动退回；下载不了时点「去下载页」到 GitHub 手动下载；可以打开软件时每天自动检查一次）；点右上角 × 时收到右下角还是直接退出；导出 / 导入设置（换电脑用，可以带密钥和 ChatGPT 登录）；缓存和日志放在哪里；打开日志、设置文件夹；清空缓存。</dd>
           <dt>外观</dt><dd>主题（墨黑、帝王紫、深灰、浅色）和强调色。顶栏的月亮按钮也能切换主题。</dd>
           <dt>老师与术语表</dt><dd>见<a class="help-go" data-go="teacher">老师与术语表</a>。</dd>
-          <dt>任务用哪个 AI</dt><dd>课程重点和对话、AI 校对、翻译、画面识别可以分别选不同的服务。书籍整理用「课程重点和对话」选的那个。画面识别要能看图：ChatGPT 账号、Claude、Gemini、OpenAI 都可以；DeepSeek 不能看图。</dd>
+          <dt>每项 AI 工作</dt><dd>AI 校对、翻译、看图、课程重点、查漏补缺、找新术语、课程对话、书籍整理、书的对话、老师对话和圆桌讨论、老师蒸馏和主题蒸馏，每一项都能单独选<b>服务</b>、<b>模型</b>（留空 = 用那个服务的默认模型，「列表」按钮取能用的模型）和<b>思考强度</b>（只有 ChatGPT、OpenAI 能设；越高越费额度，不一定更准）。2026-11 实测：AI 校对用 gpt-6.1-terra 和 sol 差不多、额度省一半左右，所以默认校对用 terra；课程重点用 terra 会漏写老师自述和原话，用 sol。看图要选能看图的：ChatGPT、Claude、Gemini、OpenAI 都可以，DeepSeek 不能看图。一键整理完成的提示里会写这次 AI 用了多少。</dd>
           <dt>课程重点模板</dt><dd>生成课程重点时发给 AI 的要求，可以改，可以恢复默认；「生成后自动查漏补缺」的开关也在这里。</dd>
           <dt>Obsidian</dt><dd>库的位置；视频笔记存到哪个文件夹、是否按老师分子文件夹、笔记文件名格式；书籍和文档存到哪个文件夹、书的文件夹名格式、关联的书籍整理规范文件。</dd>
-          <dt>识别设置</dt><dd>英文、中文视频分别默认用哪个识别服务；选了老师时识别完是否默认校对。</dd>
+          <dt>识别设置</dt><dd>英文、中文视频分别默认用哪个识别服务（中文默认<b>本机识别</b>）；选了老师时识别完是否默认校对；本机识别模型在哪、占多大，可以提前下载或删除。术语多的文件夹（例如峰级）在媒体库里单独设成豆包：文件夹「⋯」→「生成字幕用」。</dd>
           <dt>豆包语音</dt><dd>只用四种模型，默认按这个顺序自动换：<b>流式识别 2.0</b>（识别最准）→ <b>录音文件识别 1.0 极速版</b>（几秒就好）→ <b>录音文件识别 1.0 标准版</b> → <b>录音文件识别 2.0 标准版</b>。也可以在「设置 → 豆包语音」里固定只用其中一种（生成字幕、一键整理时还能临时换）：固定时只用这一种，出错就停下，不会换到别的模型。注意：资源包或免费额度用完后，豆包可能继续按量扣费，账户欠费后所有模型都用不了，所以要留意用量。都要先在火山引擎控制台「豆包语音 → 开通管理」开通。可以填好几个账号（不同的火山引擎账号，额度各算各的）：每种模型先把所有账号的额度用完，再换下一种；用完的会记下来、以后跳过，充值或买了资源包后在这里点「重新启用」，或点「测试连接」（能用的自动重新启用）。识别到一半换了账号或模型，会从头重新识别这节课。账号 1 支持新版控制台的 API Key 或旧版的 App ID + Access Token。</dd>
           <dt>硅基流动 / OpenAI</dt><dd>API Key、识别模型、对话模型；OpenAI 可以改接口地址（用中转服务时）和是否走代理。</dd>
-          <dt>ChatGPT 账号</dt><dd>用 ChatGPT Plus / Pro / Business 账号登录，用套餐里的额度，不另花 API 费用。浏览器登录完会自动回来；浏览器显示「无法访问此网站」时，把地址栏里的网址复制粘贴回来。</dd>
+          <dt>ChatGPT 账号</dt><dd>用 ChatGPT Plus / Pro / Business 账号登录，用套餐里的额度，不另花 API 费用（Plus 每 5 小时一份额度，网页版、Codex 和各个软件共用）。上面是<b>官方登录</b>（推荐，OpenAI 给第三方软件的正式方式；授权页上点「继续」；每台电脑各登录一次，导出设置时不带它；登录成功后原来用旧登录的工作自动换过来），下面是<b>旧登录方式</b>（备用）。浏览器授权完会自动回来；显示「无法访问此网站」时，把地址栏里的网址复制粘贴回来。</dd>
           <dt>Claude / Gemini / DeepSeek / 豆包大模型</dt><dd>填 API Key、选模型，「获取模型列表」可以列出能用的模型。豆包大模型（火山方舟）和豆包语音是两个不同的服务。</dd>
           <dt>网络代理</dt><dd>填代理地址（比如 Clash Verge 默认 http://127.0.0.1:7897），只给勾选了「通过网络代理连接」的服务用。</dd>
         </dl>
@@ -885,14 +891,15 @@
         <h3>生成字幕和识别服务</h3>
         <ol>
           <li>打开视频，点顶栏的「生成字幕」。</li>
-          <li>选视频里说的是中文还是英文、是哪位老师的课（决定用哪份术语表）、用哪个识别服务。</li>
+          <li>选视频里说的是中文还是英文、是哪位老师的课（决定用哪份术语表）、用哪个识别服务（默认按这节课所在文件夹的设置，没设就按「设置 → 识别设置」）。</li>
           <li>勾选「识别完后让 AI 按术语表校对一遍」可以自动接着校对。</li>
         </ol>
         <ul>
-          <li><b>豆包语音</b>（中文最准）：带逐句时间；术语会作为热词传给豆包。默认按「流式识别 2.0 → 录音文件识别 1.0 极速版 → 录音文件识别 1.0 标准版 → 录音文件识别 2.0 标准版」的顺序自动用，额度用完自动换下一个；也可以固定只用一种、只用某个账号（见<a class="help-go" data-go="settings">设置</a>里的「豆包语音」）。</li>
+          <li><b>本机识别</b>（中文默认，免费）：在这台电脑上识别，不联网、不花钱，18 分钟的课约 25 秒。句子开头不丢字，断句和人工整理的接近；但<b>不认识专用术语</b>（不能用热词），识别完一定要让 AI 按术语表校对（一键整理默认会做）。第一次用时自动下载约 230 MB 的模型（电脑上有猛人快传下好的就直接用）。术语多的课（例如峰级）建议给那个文件夹设成豆包：媒体库里文件夹「⋯」→「生成字幕用」；效果不满意时，也可以对这一节课换成豆包重新生成字幕（原来的字幕会存成历史版本）。</li>
+          <li><b>豆包语音</b>（术语最准）：带逐句时间；术语会作为热词传给豆包。默认按「流式识别 2.0 → 录音文件识别 1.0 极速版 → 录音文件识别 1.0 标准版 → 录音文件识别 2.0 标准版」的顺序自动用，额度用完自动换下一个；也可以固定只用一种、只用某个账号（见<a class="help-go" data-go="settings">设置</a>里的「豆包语音」）。</li>
           <li><b>OpenAI Whisper</b>（英文）：带逐句时间；术语写进提示词。国内要在「设置 → 网络代理」里填代理。</li>
           <li><b>硅基流动</b>：便宜，但只返回文字不返回时间，软件按停顿切段，时间可能差几秒；读不了术语表，靠后面的 AI 校对。</li>
-          <li>软件先用 ffmpeg 从视频里抽出声音（只上传声音，不上传画面），长视频在停顿处切段、几段同时识别，再拼回去。</li>
+          <li>软件先用 ffmpeg 从视频里抽出声音（云端识别只上传声音，不上传画面），长视频在停顿处切段、几段同时识别，再拼回去。</li>
           <li>已经有字幕时重新识别，原来的字幕会自动存成历史版本，可以换回来。</li>
         </ul>
       </section>
@@ -1027,7 +1034,7 @@
       <div class="nav-label">常用</div>
       <button data-sec="look" class="active">外观</button>
       <button data-sec="teachers">老师与术语表</button>
-      <button data-sec="tasks">任务用哪个 AI</button>
+      <button data-sec="tasks">每项 AI 工作</button>
       <button data-sec="template">课程重点模板</button>
       <button data-sec="obsidian">Obsidian</button>
       <div class="nav-label">字幕识别</div>
@@ -1084,13 +1091,11 @@
       </section>
 
       <section data-sec="tasks" hidden>
-        <h3>任务用哪个 AI</h3>
-        <div class="field"><div class="label">课程重点和 AI 对话</div><select data-k="chat" class="provider-select"></select></div>
-        <div class="field"><div class="label">AI 按术语表校对</div><select data-k="correct" class="provider-select"></select></div>
-        <div class="field"><div class="label">翻译</div><select data-k="translate" class="provider-select"></select></div>
-        <div class="field"><div class="label">画面识别（找插图、用画面复核存疑句）</div><select data-k="vision" class="provider-select"></select>
-          <div class="hint">需要能看图的 AI：ChatGPT 账号、Claude、Gemini、OpenAI 都可以；豆包大模型、硅基流动要选带视觉的模型（名字里通常有 vision 或 VL）；DeepSeek 不能看图。</div></div>
-        <p class="hint">标着「未设置」的服务需要先在左边「AI 服务」里填写 API Key 或登录。课程重点建议用能力强的模型（如 Claude、ChatGPT）；校对和翻译量大，用便宜快速的（如 DeepSeek）就够了。</p>
+        <h3>每项 AI 工作</h3>
+        <p class="hint">每项工作可以单独选服务、模型和思考强度。模型留空 = 用那个服务在左边「AI 服务」里选的默认模型；思考强度留「默认」= 用模型自己的默认。</p>
+        <div class="ai-tasks" id="aiTaskTable"></div>
+        <p class="hint">2026-11 实测：AI 校对用 gpt-6.1-terra 效果和 gpt-6.1-sol 差不多，额度只用一半左右；课程重点用 terra 会漏写老师自述和原话，建议用 sol。思考强度越高越费额度，不一定更准；只有 ChatGPT 和 OpenAI 能设，其他服务按它自己的默认。</p>
+        <p class="hint">「看图」要选能看图的：ChatGPT、Claude、Gemini、OpenAI 都可以；豆包大模型、硅基流动要选带视觉的模型（名字里通常有 vision 或 VL）；DeepSeek 不能看图。标着「未设置」的服务要先在左边「AI 服务」里填写 API Key 或登录。</p>
       </section>
 
       <section data-sec="template" hidden>
@@ -1122,8 +1127,12 @@
         <h3>识别设置</h3>
         <div class="field"><div class="label">英文视频用</div>
           <select data-k="asr_en"><option value="openai">OpenAI Whisper</option><option value="doubao">豆包语音</option><option value="siliconflow">硅基流动</option></select></div>
-        <div class="field"><div class="label">中文视频用</div>
-          <select data-k="asr_zh"><option value="doubao">豆包语音</option><option value="siliconflow">硅基流动</option><option value="openai">OpenAI Whisper</option></select></div>
+        <div class="field"><div class="label">中文视频用（默认）</div>
+          <select data-k="asr_zh"><option value="local">本机识别（免费）</option><option value="doubao">豆包语音</option><option value="siliconflow">硅基流动</option><option value="openai">OpenAI Whisper</option></select>
+          <div class="hint">术语多的课（例如峰级）可以在媒体库里给那个文件夹单独设成豆包：文件夹右边「⋯」→「识别方式」。生成字幕、一键整理时也可以临时换。</div></div>
+        <div class="label strong" style="margin-top:16px">本机识别</div>
+        <p class="hint">不联网、不花钱，在这台电脑上识别（SenseVoice 模型）。句子开头不丢字、断句好；但不认识专用术语（不能用热词），识别完一定要让 AI 按术语表校对。18 分钟的课约 25 秒。</p>
+        <div class="account-box" id="localAsrBox"></div>
         <div class="field"><label class="check"><input type="checkbox" data-k="auto_correct"> 选了老师时，识别完默认让 AI 按术语表校对</label></div>
       </section>
 
@@ -1178,8 +1187,20 @@
       </section>
 
       <section data-sec="codex" hidden>
-        <h3>ChatGPT（账号登录，不用 API Key）</h3>
-        <p class="hint">用你的 ChatGPT Plus / Pro / Business 账号登录，调用套餐里的 Codex 额度做总结、对话、校对和翻译，不另外花 API 费用。和乔木剪藏插件用的是同一种登录方式。</p>
+        <h3>ChatGPT 账号（不用 API Key）</h3>
+        <p class="hint">用你的 ChatGPT Plus / Pro / Business 账号登录，用套餐里的额度做校对、课程重点、对话和蒸馏，不另外花 API 费用。和网页版、Codex 用的是同一份额度（Plus 每 5 小时一份，各个软件共用）。</p>
+        <div class="label strong">官方登录（推荐）</div>
+        <p class="hint">OpenAI 给第三方软件的正式登录方式。每台电脑、每个软件各登录一次，互不影响；登录成功后，原来用旧登录方式的工作会自动换过来。授权页上点「继续」就行。</p>
+        <div class="account-box" id="chatgptBox"></div>
+        <div class="paste-box" id="chatgptPaste" hidden>
+          <p class="hint">已在浏览器打开授权页。授权完成后会自动回到这里。如果浏览器显示「无法访问此网站」，请把浏览器地址栏里以 <code>http://127.0.0.1</code> 开头的完整网址复制下来，粘贴到这里：</p>
+          <div class="key-row"><input id="chatgptUrl" placeholder="http://127.0.0.1:1455/auth/callback?code=…"><button class="btn small primary" id="chatgptDone">完成登录</button></div>
+        </div>
+        <div class="field"><div class="label">默认模型（每项工作可以在「每项 AI 工作」里单独选）</div><div class="key-row"><input data-k="providers.chatgpt.chat_model" list="dl-chatgpt" placeholder="登录后点「获取模型列表」"><button class="btn small" data-models="chatgpt">获取模型列表</button></div><datalist id="dl-chatgpt"></datalist></div>
+        <div class="field"><label class="check"><input type="checkbox" data-k="providers.chatgpt.use_proxy"> 通过网络代理连接</label></div>
+        <div class="test-row"><button class="btn small" data-test="chatgpt" data-kind="chat">测试对话</button><span class="test-result"></span></div>
+        <div class="label strong" style="margin-top:22px">旧登录方式（备用）</div>
+        <p class="hint">借用 Codex 命令行的登录（以前一直用的）。官方登录出问题时可以先换回这个。</p>
         <div class="account-box" id="codexBox"></div>
         <div class="paste-box" id="codexPaste" hidden>
           <p class="hint">已在浏览器打开登录页。登录完成后会自动回到这里。如果浏览器显示「无法访问此网站」，请把浏览器地址栏里以 <code>http://localhost:1455/auth/callback</code> 开头的完整网址复制下来，粘贴到这里：</p>

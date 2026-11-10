@@ -1,18 +1,20 @@
 """AI：翻译、术语校对、课程重点和对话。
 支持的服务：
 - OpenAI 兼容接口：OpenAI、DeepSeek、豆包大模型（火山方舟）、硅基流动；
-- ChatGPT 账号登录（Codex 接口）；
+- ChatGPT 官方登录（chatgpt_auth，api.openai.com/v1/responses）；旧登录方式（codex_auth，Codex 接口，备用）；
 - Claude（Anthropic 官方 SDK）；
-- Gemini（Google 的 REST 接口）。"""
+- Gemini（Google 的 REST 接口）。
+每一项 AI 工作用哪个服务、模型、思考强度见 config.AI_TASKS / config.task_ai，调用前用 for_task(settings, 工作) 取。"""
 import difflib
 import json
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
-from . import codex_auth
+from . import chatgpt_auth, codex_auth, config
 from .config import PROVIDER_NAMES
 
 OPENAI_COMPAT = ('openai', 'deepseek', 'ark', 'siliconflow')
@@ -34,9 +36,9 @@ def check(settings, name):
         raise LlmError('未知的 AI 服务：' + str(name))
     p = settings['providers'][name]
     label = PROVIDER_NAMES[name]
-    if name == 'codex':
+    if name in ('codex', 'chatgpt'):
         if not (p.get('oauth') or {}).get('refresh'):
-            raise LlmError('还没有用 ChatGPT 账号登录，请到「设置 → AI 服务 → ChatGPT」登录')
+            raise LlmError(f'还没有登录{label}，请到「设置 → AI 服务 → ChatGPT 账号」登录')
     elif not p.get('key'):
         raise LlmError(f'还没有填写{label}的 API Key，请到「设置 → AI 服务」填写')
     if not p.get('chat_model'):
@@ -54,6 +56,8 @@ def _raise_for(r, name):
         msg = r.text
     msg = str(msg)[:240]
     label = PROVIDER_NAMES[name]
+    if 'subscription_sharing_user_not_eligible' in r.text:
+        raise LlmError(f'{label}：这个账号（或工作区）现在不能在别的软件里用 ChatGPT 会员额度：{msg}')
     if r.status_code in (401, 403):
         raise LlmError(f'{label}鉴权失败：{msg}')
     if r.status_code == 402 or re.search(QUOTA_RE, msg, re.I):
@@ -180,21 +184,114 @@ def _codex_error(d):
     return LlmError('ChatGPT 出错：' + text)
 
 
+# ------------------------------------------------------------------ 每项工作的设置、用量 ----
+def for_task(settings, task):
+    """某一项 AI 工作要用的设置 → (设置副本, 服务名)。副本里这个服务的模型、思考强度换成这项工作选的，
+    其他照旧；settings 里如果挂着用量清单（_usage），副本共用同一个清单（各批同时发时也记得到）。"""
+    name, model, effort = config.task_ai(settings, task)
+    s = dict(settings)
+    s['providers'] = dict(settings.get('providers') or {})
+    if name in s['providers']:
+        p = dict(s['providers'][name])
+        if model:
+            p['chat_model'] = model
+        p['effort'] = effort
+        s['providers'][name] = p
+    s['_task'] = task
+    return s, name
+
+
+def model_label(settings, name):
+    """「服务 · 模型 · 思考强度」，写进任务记录和提示。"""
+    p = (settings.get('providers') or {}).get(name) or {}
+    parts = [PROVIDER_NAMES.get(name, name), p.get('chat_model') or '']
+    if p.get('effort'):
+        parts.append('思考 ' + p['effort'])
+    return ' · '.join(x for x in parts if x)
+
+
+_usage_lock = threading.Lock()
+
+
+def _record_usage(settings, name, usage):
+    """把一次回答的用量记进 settings['_usage']（调用方挂上去才记）。"""
+    sink = settings.get('_usage')
+    if not isinstance(sink, list) or not isinstance(usage, dict):
+        return
+    inp = int(usage.get('input_tokens') or usage.get('prompt_tokens') or 0)
+    out = int(usage.get('output_tokens') or usage.get('completion_tokens') or 0)
+    cached = int(((usage.get('input_tokens_details') or usage.get('prompt_tokens_details') or {}).get('cached_tokens')) or 0)
+    reason = int(((usage.get('output_tokens_details') or usage.get('completion_tokens_details') or {}).get('reasoning_tokens')) or 0)
+    p = settings['providers'].get(name) or {}
+    with _usage_lock:
+        sink.append({'task': settings.get('_task', ''), 'provider': name, 'model': p.get('chat_model', ''), 'effort': p.get('effort', ''),
+                     'input': inp, 'cached': cached, 'output': out, 'reasoning': reason})
+
+
+def usage_sum(items):
+    """一串用量记录加起来：{次数, 输入, 缓存, 输出, 思考, 模型}。没有记录返回 None。"""
+    items = [u for u in items or [] if isinstance(u, dict)]
+    if not items:
+        return None
+    out = {'calls': len(items)}
+    for k in ('input', 'cached', 'output', 'reasoning'):
+        out[k] = sum(int(u.get(k) or 0) for u in items)
+    out['models'] = sorted({f'{PROVIDER_NAMES.get(u["provider"], u["provider"])} · {u["model"]}' + (f' · 思考 {u["effort"]}' if u.get('effort') else '')
+                            for u in items})
+    return out
+
+
+def _responses_body(model, messages, effort):
+    """ChatGPT（两种登录都用 Responses 接口）的请求内容。"""
+    system, rest = _split_system(messages)
+    body = {'model': model, 'instructions': system or 'You are a helpful assistant.', 'store': False, 'stream': True,
+            'input': [{'type': 'message', 'role': m['role'], 'content': _to_codex(m['role'], m['content'])} for m in rest]}
+    if effort:
+        body['reasoning'] = {'effort': effort}
+    return body
+
+
+def _responses_stream(r, settings, name, cancel, need_completed):
+    """读 Responses 接口的数据流：产出文字，收到完成事件时记用量。官方登录要求收到 response.completed 才算成功。"""
+    completed = False
+    for d in _sse_lines(r):
+        if cancel is not None and cancel.is_set():
+            return
+        t = d.get('type')
+        if t == 'response.output_text.delta' and isinstance(d.get('delta'), str):
+            yield d['delta']
+        elif t == 'response.completed':
+            completed = True
+            _record_usage(settings, name, (d.get('response') or {}).get('usage'))
+        elif t in ('response.failed', 'response.incomplete', 'error'):
+            raise _codex_error(d)
+    if need_completed and not completed and not (cancel is not None and cancel.is_set()):
+        raise LlmError('ChatGPT 的回答没有完整结束（连接中断），请重试')
+
+
 def stream(settings, name, messages, cancel=None, json_mode=False):
-    """逐段产出回答文字。messages 可以包含 role=system 的消息。"""
+    """逐段产出回答文字。messages 可以包含 role=system 的消息。
+    settings 用 for_task() 给的副本时，模型、思考强度是这项工作选的，用量记进 settings['_usage']。"""
     check(settings, name)
     p = settings['providers'][name]
     model = p['chat_model']
+    effort = p.get('effort') or ''
 
     if name in OPENAI_COMPAT:
         body = {'model': model, 'messages': [dict(m, content=_to_openai(m['content'])) for m in messages], 'stream': True}
         if json_mode:
             body['response_format'] = {'type': 'json_object'}
+        if name == 'openai' and effort:
+            body['reasoning_effort'] = effort
+        if name in ('openai', 'deepseek'):
+            body['stream_options'] = {'include_usage': True}  # 最后一包带用量
         with _post_stream(p['base_url'].rstrip('/') + '/chat/completions', name, settings, json=body,
                           headers={'Authorization': 'Bearer ' + p['key']}) as r:
             for d in _sse_lines(r):
                 if cancel is not None and cancel.is_set():
                     return
+                if d.get('usage'):
+                    _record_usage(settings, name, d['usage'])
                 try:
                     piece = (d['choices'][0].get('delta') or {}).get('content')
                 except (KeyError, IndexError):
@@ -203,24 +300,26 @@ def stream(settings, name, messages, cancel=None, json_mode=False):
                     yield piece
         return
 
+    if name == 'chatgpt':
+        try:
+            o = chatgpt_auth.fresh()
+        except chatgpt_auth.AuthError as e:
+            raise LlmError(str(e))
+        headers = dict(chatgpt_auth.headers(o), **{'Content-Type': 'application/json', 'Accept': 'text/event-stream'})
+        with _post_stream(chatgpt_auth.RESOURCE + '/responses', name, settings, json=_responses_body(model, messages, effort),
+                          headers=headers) as r:
+            yield from _responses_stream(r, settings, name, cancel, True)
+        return
+
     if name == 'codex':
         try:
             o = codex_auth.fresh()
         except codex_auth.AuthError as e:
             raise LlmError(str(e))
-        system, rest = _split_system(messages)
-        body = {'model': model, 'instructions': system or 'You are a helpful assistant.', 'store': False, 'stream': True,
-                'input': [{'type': 'message', 'role': m['role'], 'content': _to_codex(m['role'], m['content'])} for m in rest]}
         headers = dict(codex_auth.headers(o), **{'Content-Type': 'application/json', 'Accept': 'text/event-stream'})
-        with _post_stream(codex_auth.BASE + '/responses', name, settings, json=body, headers=headers) as r:
-            for d in _sse_lines(r):
-                if cancel is not None and cancel.is_set():
-                    return
-                t = d.get('type')
-                if t == 'response.output_text.delta' and isinstance(d.get('delta'), str):
-                    yield d['delta']
-                elif t in ('response.failed', 'error'):
-                    raise _codex_error(d)
+        with _post_stream(codex_auth.BASE + '/responses', name, settings, json=_responses_body(model, messages, effort),
+                          headers=headers) as r:
+            yield from _responses_stream(r, settings, name, cancel, False)
         return
 
     if name == 'claude':
@@ -291,6 +390,11 @@ def list_models(settings, name):
         try:
             return codex_auth.models()
         except codex_auth.AuthError as e:
+            raise LlmError(str(e))
+    if name == 'chatgpt':
+        try:
+            return chatgpt_auth.models()
+        except chatgpt_auth.AuthError as e:
             raise LlmError(str(e))
     if not p.get('key'):
         raise LlmError(f'请先填写{PROVIDER_NAMES[name]}的 API Key 并保存')
@@ -850,4 +954,9 @@ def correct_all(settings, name, segments, title, teacher, cancel, progress, on_p
         if frames and first in times and last in times:
             visual = notes_text(frames, times[first] - 20, times[last] + 20, 6000)
         return correct_batch(settings, name, b, title, teacher, before, after, visual)
-    _batches(segments, 40, 3, work, cancel, progress, on_part, 'AI 校对中')
+    _batches(segments, CORRECT_BATCH, 3, work, cancel, progress, on_part, 'AI 校对中')
+
+
+# 每批多少句（2026-11-09 实测《1、峰级线基础画法》180 句：每批 40 句时术语说明每批重送一遍，5 批共 5.2 万词元；
+# 一批送完只要 1.4 万，Terra 校对效果几乎一样（剩余错字 15 对 16），用量约为原来 Sol 每批 40 句的 17%）
+CORRECT_BATCH = 200

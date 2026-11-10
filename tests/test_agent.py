@@ -415,7 +415,25 @@ check('整个文件夹排队：没勾步骤不排', not Api().call('bg_add_folde
 Api().call('bg_clear', {})
 library.remove('folder', str(BATCH))
 t8 = wf.process(EN, model='local', steps=['transcribe'], redo=['transcribe'])
-check('本地模型：接口留着，明确报「还不支持」', t8['status'] == 'failed' and t8['error']['error_code'] == 'not_supported')
+check('命令行 --model local：用本机识别', t8['status'] == 'completed' and seen['asr_provider'] == 'local', t8.get('error'))
+# 识别方式（2026-11-10 用户定：默认本机识别，术语多的文件夹设成豆包）：这次手动选的 → --model → 所在文件夹 → 设置里的默认
+check('新装的软件中文默认用本机识别', config.DEFAULTS['asr_zh'] == 'local')
+config.update({'asr_zh': 'local'})  # 这个测试前面设的是豆包
+s_now = config.load()
+check('设置里默认本机识别时，中文课用本机识别', wf.transcribe_provider(L1, 'zh', s_now) == 'local')
+library.set_folder(str(COURSE), asr='doubao')
+check('文件夹设成豆包：里面（含下层文件夹）的中文课用豆包', wf.transcribe_provider(L1, 'zh', s_now) == 'doubao'
+      and library.folder_settings(str(COURSE / '1、基础'))['asr'] == 'doubao')
+library.set_folder(str(COURSE / '1、基础'), asr='local')
+check('下层文件夹可以单独设回本机', wf.transcribe_provider(L1, 'zh', s_now) == 'local')
+check('手动选的优先于文件夹；--model cloud 用豆包', wf.transcribe_provider(L1, 'zh', s_now, {'provider': 'doubao'}) == 'doubao'
+      and wf.transcribe_provider(str(COURSE / 'x.mp4'), 'zh', s_now, {'model': 'cloud'}) == 'doubao')
+check('英文课不看文件夹，按英文的默认', wf.transcribe_provider(L1, 'en', s_now) == s_now['asr_en'])
+library.set_folder(str(COURSE / '1、基础'), asr='')
+library.set_folder(str(COURSE), asr='')
+check('清掉文件夹设置后回到默认', wf.transcribe_provider(L1, 'zh', s_now) == 'local' and 'asr' not in library.load()['dirs'].get(
+    library._key(str(COURSE / '1、基础')), {}))
+config.update({'asr_zh': 'doubao'})
 t9 = wf.process(EN)
 de = docs.load(EN)
 check('英文视频：自动翻译，中英同时显示', {s['name']: s['status'] for s in t9['stages']}['translate'] == 'completed'
@@ -614,7 +632,8 @@ t11 = wf.process(L5)
 FAIL.pop('review')
 FAIL.pop('terms')
 check('额度用完：课程重点写好了，查漏、新术语没做', t11['status'] == 'failed' and t11['error']['stage'] == 'terms'
-      and (docs.load(L5).get('summary') or '').strip() and 'review' not in docs.load(L5)['steps'])
+      and (docs.load(L5).get('summary') or '').strip() and 'review' not in docs.load(L5)['steps'],
+      (t11['status'], t11.get('error'), docs.load(L5).get('steps'), [(x['name'], x['status']) for x in t11['stages']]))
 it5 = item_of(L5)
 check('有课程重点、但查漏和新术语没做完：算没整理完（--todo 会选上）', it5['todo'] and it5['pending_steps'] == ['review', 'terms']
       and it5['state'] == '未整理完' and L5 in [x['path'] for x in wf.find(course='峰级', todo=True)], it5)

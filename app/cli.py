@@ -307,7 +307,8 @@ def parser():
     run_opts.add_argument('--provider', choices=['doubao', 'openai', 'siliconflow'], help='识别服务（默认用软件设置里的）')
     run_opts.add_argument('--doubao-model', choices=['auto', 'stream2', 'flash', 'std1', 'std2'], help='这次用哪种豆包模型（auto 按顺序自动换；默认按软件设置）')
     run_opts.add_argument('--doubao-account', help='这次用哪个豆包账号：auto（按顺序换）、账号的名字或第几个（1 是账号 1）；默认按软件设置')
-    run_opts.add_argument('--model', choices=['cloud', 'local'], default='cloud', help='识别方式：cloud 云端（local 本地模型还没接入）')
+    run_opts.add_argument('--model', choices=['auto', 'cloud', 'local'], default='auto',
+                          help='识别方式：auto 按所在文件夹和设置（默认）；local 本机识别（免费，SenseVoice）；cloud 云端（中文用豆包）')
 
     p = argparse.ArgumentParser(prog='mengren', description='猛人学习命令行（给 AI Agent 调用）')
     sub = p.add_subparsers(dest='cmd', required=True)
@@ -367,7 +368,12 @@ def main(argv=None):
         log.info('命令行被转存，改用真实数据文件夹：%s', redirected)
     log.info('命令行：%s', ' '.join(sys.argv[1:] if argv is None else argv))
     if a.cmd in ('process', 'run', 'resume'):  # 和软件启动时一样清理缓存（音频 3 天、截图 30 天没用的），命令行的缓存不会越积越多
-        from core import cache
+        from core import cache, config
+        try:
+            for x in config.migrate():  # 和软件启动时一样的一次性设置调整
+                log.info('设置调整：%s', x)
+        except Exception:  # noqa: BLE001
+            log.warning('一次性设置调整出错', exc_info=True)
         try:
             cache.cleanup()
         except Exception:  # noqa: BLE001  清理失败不影响整理

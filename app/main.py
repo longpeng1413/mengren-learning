@@ -19,7 +19,7 @@ from webview.dom import _dnd_state  # noqa: E402
 
 from bridge import Api  # noqa: E402
 
-VERSION = '1.10.1'
+VERSION = '1.11.0'
 
 
 _instance = None  # 保持互斥锁的句柄，进程退出时自动释放
@@ -132,6 +132,13 @@ def main():
         return
     if not selftest and not appdata.is_virtualized():
         appdata.adopt_virtual()  # 以前被转存走的设置、媒体库搬回来
+    try:
+        for x in config.migrate():  # 一次性的设置调整（每项只做一次，见 config.migrate）
+            log.info('设置调整：%s', x)
+    except config.DataError:
+        pass  # 设置读不出来，下面 config.load() 会提示原因
+    except Exception:
+        log.warning('一次性设置调整出错', exc_info=True)
     if selftest and '--fake-ai' in sys.argv:  # 界面自测：识别和 AI 换成假的，不联网、不花钱
         from core import fake_ai
         fake_ai.install()

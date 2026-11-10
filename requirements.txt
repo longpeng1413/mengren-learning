@@ -10,3 +10,5 @@ pyflakes==4.0.3
 pystray==0.19.5
 olefile==0.47
 edge-tts==7.3.1
+sherpa-onnx==2.0.1
+numpy==2.5.3

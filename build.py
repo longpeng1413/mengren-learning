@@ -16,7 +16,9 @@ args = [
     '--hidden-import', 'pystray._win32',
     '--collect-all', 'edge_tts',  # 朗读（Edge 在线声音），LGPLv3，许可证随包附上
     '--collect-all', 'pypdfium2', '--collect-all', 'pypdfium2_raw', '--collect-all', 'pypdfium2_cfg',
-    '--exclude-module', 'numpy', '--exclude-module', 'tkinter',
+    # 本机识别（2026-11-10）：sherpa-onnx 连同它自带的 onnxruntime.dll 等运行库一起打包；它要用 numpy，所以不再排除 numpy
+    '--collect-all', 'sherpa_onnx',
+    '--exclude-module', 'tkinter',
     '--distpath', str(ROOT / DIST), '--workpath', str(ROOT / 'build'), '--specpath', str(ROOT / 'build'),
     str(ROOT / 'app' / 'main.py'),
 ]
