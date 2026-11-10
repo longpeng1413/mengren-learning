@@ -247,6 +247,14 @@ gone.update(segments=dw['segments'], summary='改名后的重点', clip={'path':
 Path(c3['path']).write_text(Path(c3['path']).read_text(encoding='utf-8').replace(w.as_posix(), (C2 / '旧名字.mp4').as_posix()), encoding='utf-8')
 c5 = docs.clip(gone, str(vault), '猛人学习', force=True)
 check('笔记里写的视频已经不在了（在软件外面改过名）：照旧更新原笔记', c5['path'] == c3['path'], c5['path'])
+old = vault / '.stversions' / '猛人学习' / '别的名字~20261029-180411.md'  # Syncthing 留的旧版本里有这节课的旧笔记
+old.parent.mkdir(parents=True)
+old.write_text(Path(c3['path']).read_text(encoding='utf-8').replace((C2 / '旧名字.mp4').as_posix(), w.as_posix()), encoding='utf-8')
+Path(c3['path']).unlink()  # 用户删了这节课的笔记再剪藏
+c6 = docs.clip(dw, str(vault), '猛人学习')
+check('「.」开头的文件夹（.stversions 旧版本）里的旧副本不当成这节课的笔记', '.stversions' not in c6['path'] and Path(c6['path']).is_file(), c6['path'])
+c7 = docs.clip(dict(dw, clip={'path': str(old)}), str(vault), '猛人学习')
+check('上次记的笔记在「.」开头的文件夹里：不用它', c7['path'] == c6['path'] and '.stversions' not in c7['path'], c7['path'])
 docs.save(str(w), dw)
 r = api.call('clip_record', {'path': str(w), 'clip': {'path': c3['path'], 'time': c3['time']}})
 check('剪藏完已切到别的课：记录写回剪藏的那节课', r['ok'] and docs.load(str(w))['clip']['path'] == c3['path'], r)

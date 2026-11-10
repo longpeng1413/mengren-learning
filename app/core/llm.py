@@ -649,7 +649,7 @@ TERMS_SYSTEM = (
 
 
 def fix_spans(fixes, limit=300):
-    """字幕改动（AI 校对、画面复核、手动修改）→ 每处换掉的几个字：[{t, wrong, right, before, after, by}]。
+    """字幕改动（AI 校对、手动修改；以前的字幕文件里还有画面复核改的）→ 每处换掉的几个字：[{t, wrong, right, before, after, by}]。
     只看「替换」：拆分、合并、删字、加字不算识别错误。"""
     out = []
     for f in fixes or []:

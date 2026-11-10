@@ -99,7 +99,7 @@ CHAT_PROVIDERS = ['chatgpt', 'codex', 'claude', 'gemini', 'deepseek', 'ark', 'si
 AI_TASKS = [
     ('correct', 'AI 校对', 'correct'),
     ('translate', '翻译（英文课）', 'translate'),
-    ('vision', '看图（找插图、用画面复核存疑句、重画、写图片说明）', 'vision'),
+    ('vision', '看图（截图写说明、AI 重画）', 'vision'),
     ('summary', '课程重点', 'chat'),
     ('review', '查漏补缺', 'chat'),
     ('terms', '找新术语', 'chat'),

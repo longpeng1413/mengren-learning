@@ -30,7 +30,7 @@ sys.path.insert(0, str(ROOT / 'app'))
 
 import cli  # noqa: E402
 from bridge import Api  # noqa: E402
-from core import asr, book, config, doc as docs, frames, library, llm, tasks, workflow as wf  # noqa: E402
+from core import asr, book, config, doc as docs, library, llm, tasks, workflow as wf  # noqa: E402
 
 passed = 0
 
@@ -132,24 +132,9 @@ def fake_stream(settings, name, messages, cancel=None, json_mode=False):
         yield piece
 
 
-def fake_extract(settings, name, path, duration, segments, cancel=None, progress=lambda f, m=None: None, on_part=None):
-    calls['frames'] += 1
-    maybe_fail('frames')
-    return [{'t': 5.0, 'why': '老师说请看', 'note': '三段结构示意图', 'figure': True}]
-
-
-def fake_recheck(settings, name, path, items, frames_list, cancel=None, progress=lambda f, m=None: None, on_part=None):
-    calls['recheck'] += 1
-    maybe_fail('recheck')
-    seen['recheck_items'] = items
-    return [{'i': it['i'], 'text': it['text'].replace('讲论文', '讲论')} for it in items]
-
-
 asr.recognise = fake_recognise
 llm.complete = fake_complete
 llm.stream = fake_stream
-frames.extract = fake_extract
-frames.recheck_doubts = fake_recheck
 RETRY_REAL = wf.RETRY_WAIT
 wf.RETRY_WAIT = (0.05, 0.05)
 
@@ -181,8 +166,8 @@ progress_seen = []
 t1 = wf.process(L1, on_progress=lambda d: progress_seen.append(d.get('stage')))
 st = {s['name']: s['status'] for s in t1['stages']}
 check('一键整理：全部完成', t1['status'] == 'completed' and t1['error'] is None, t1)
-check('步骤顺序和界面的一键整理一样', [s['name'] for s in t1['stages']] == ['transcribe', 'correct', 'frames', 'recheck', 'translate', 'summary', 'review', 'terms'])
-check('中文视频不翻译，其余都做了', st == {'transcribe': 'completed', 'correct': 'completed', 'frames': 'completed', 'recheck': 'completed',
+check('步骤顺序和界面的一键整理一样（2026-11 起没有找插图、复核存疑句）', [s['name'] for s in t1['stages']] == ['transcribe', 'correct', 'translate', 'summary', 'review', 'terms'])
+check('中文视频不翻译，其余都做了', st == {'transcribe': 'completed', 'correct': 'completed',
                                      'translate': 'skipped', 'summary': 'completed', 'review': 'completed', 'terms': 'completed'}, st)
 check('进度会报告', 'correct' in progress_seen and 'summary' in progress_seen)
 d = docs.load(L1)
@@ -190,14 +175,13 @@ check('字幕写进原来的字幕文件', len(d['segments']) == 4 and d['lang']
 check('AI 校对：改了的句子记进 fixes（积累术语表用）', d['segments'][1]['text'] == '峰级的入门很重要。'
       and any(f['before'] == '风级的入门很重要。' and f['by'] == 'ai' for f in d['fixes']) and d['corrected'] is True)
 check('AI 校对前存了一份历史版本（可以在软件里恢复）', d['versions'][0]['reason'] == 'AI 校对前' and d['versions'][0]['segments'][1]['text'] == '风级的入门很重要。')
-check('画面复核：存疑句改正、去掉存疑标记', d['segments'][2]['text'] == '这是一个关于峰级的讲论。' and d['doubts'] == []
-      and any(f['by'] == 'frames' for f in d['fixes']) and seen['recheck_items'][0]['before'])
-check('找关键帧：插图存进 frames', [f['t'] for f in d['frames']] == [5.0] and d['frames'][0]['figure'])
+check('存疑句留给人工：不改字幕、不去掉存疑标记', d['segments'][2]['text'] == '这是一个关于峰级的讲论文。'
+      and [x['reason'] for x in d['doubts']] == ['疑似识别错误，可能是「讲论」'] and not d.get('frames'), d['doubts'])
 check('课程重点 + 查漏补缺', '## 一、峰级' in d['summary'] and '老师自述：讲了很多年 [00:06]' in d['summary'])
 check('新术语只放进「待勾选」，不写术语表', [x['term'] for x in d['terms_pending']['terms']] == ['再推进']
       and d['terms_pending']['errors'][0]['wrong'] == '风级' and '再推进' not in (config.get_teacher(teacher['id'])['terms']))
 check('不剪藏、不替用户标「已校对」', not d.get('clip') and not d.get('reviewed'))
-check('每一步记下完成时间', set(d['steps']) >= {'transcribe', 'correct', 'frames', 'recheck', 'summary', 'review', 'terms'})
+check('每一步记下完成时间', set(d['steps']) >= {'transcribe', 'correct', 'summary', 'review', 'terms'})
 rec = tasks.load(t1['task_id'])
 check('任务记录存到磁盘：每步状态、时间、模型', rec['status'] == 'completed' and rec['stages'][1]['model'].startswith('DeepSeek')
       and rec['stages'][0]['started'] and rec['stages'][0]['finished'] and rec['video_id'] == wf.video_id(L1)
@@ -668,7 +652,7 @@ old7 = docs.new(L7, {'duration': 9})
 old7.update(segments=[{'start': 0.0, 'end': 2.0, 'text': '大家好', 'tr': ''}], corrected=True, teacher=teacher['id'],
             summary='## 一、以前写的重点\n\n- 大家好 [00:00]', doubts=[{'t': 0.0, 'reason': '以前标的', 'text': '大家好'}])
 docs.save(L7, old7)
-check('旧字幕文件：有课程重点、没有 steps 记录 → 算整理完了（不重新找插图、复核、查漏、找新术语）', 'steps' not in docs.load(L7)
+check('旧字幕文件：有课程重点、没有 steps 记录 → 算整理完了（不重新查漏、找新术语）', 'steps' not in docs.load(L7)
       and not item_of(L7)['todo'] and item_of(L7)['state'] == '已整理' and wf.info(L7)['next_steps'] == [], item_of(L7))
 c7 = calls.copy()
 check('旧字幕文件：整理时同样全部跳过', wf.process(L7)['status'] == 'completed' and calls == c7)
@@ -676,11 +660,11 @@ L8 = lesson('8、第八课.mp4')
 old8 = docs.new(L8, {'duration': 9})
 old8.update(segments=[{'start': 0.0, 'end': 2.0, 'text': '大家好', 'tr': ''}], corrected=True, teacher=teacher['id'])
 docs.save(L8, old8)
-check('旧字幕文件：只校对过、没写课程重点 → 没整理完，从找插图往后做（没有存疑句不用复核）',
-      item_of(L8)['pending_steps'] == ['frames', 'summary', 'review', 'terms'] and item_of(L8)['state'] == '有字幕', item_of(L8))
+check('旧字幕文件：只校对过、没写课程重点 → 没整理完，从课程重点往后做',
+      item_of(L8)['pending_steps'] == ['summary', 'review', 'terms'] and item_of(L8)['state'] == '有字幕', item_of(L8))
 # 媒体库文件夹设了「不写课程重点」（灵修类逐字稿课程，2026-10-28）
 library.set_folder(str(COURSE), no_summary=True)
-check('文件夹设了不写课程重点：课程重点、查漏不算没做', item_of(L8)['pending_steps'] == ['frames', 'terms']
+check('文件夹设了不写课程重点：课程重点、查漏不算没做', item_of(L8)['pending_steps'] == ['terms']
       and wf.info(L8)['skipped_steps'].get('summary') == wf.NO_SUMMARY, (item_of(L8), wf.info(L8)['skipped_steps']))
 c8 = calls.copy()
 wf.process(L8, steps=['summary'])
@@ -689,19 +673,17 @@ wf.process(L8, steps=['summary'], redo=['summary'])
 check('文件夹设了不写课程重点：界面上勾选（重做）时照样写', (docs.load(L8).get('summary') or '').strip())
 library.set_folder(str(COURSE), no_summary=False)
 
-# 不该做的步骤不算没做：中文不翻译、音频没有画面、没有老师不校对不找新术语
+# 不该做的步骤不算没做：中文不翻译、没有老师不校对不找新术语
 S0 = config.load()
 done_zh = {'segments': [{'start': 0, 'end': 1, 'text': '你好', 'tr': ''}], 'lang': 'zh', 'summary': 'x', 'steps': {'summary': 1, 'review': 1}}
-audio_no_teacher = wf.Facts(S0, teacher=None, has_video=False, vision=('openai', ''))
+audio_no_teacher = wf.Facts(S0, teacher=None, has_video=False)
 check('音频、没有老师、中文：课程重点和查漏做完就算整理完', wf.pending_steps(done_zh, 'video', audio_no_teacher)[0] == []
       and set(wf.pending_steps(done_zh, 'video', audio_no_teacher)[1]) == set(wf.VIDEO_STAGES))
 check('还没有任何结果的音频（没有老师）：生成字幕 → 课程重点 → 查漏', wf.pending_steps({}, 'video', audio_no_teacher)[0] == ['transcribe', 'summary', 'review'])
-video_teacher_en = wf.Facts(S0, teacher={'id': 'x', 'lang': 'en'}, has_video=True, vision=('openai', ''))
-check('英文视频、有老师：全部步骤都要做（校对完可能有存疑句，复核也算上）', wf.pending_steps({}, 'video', video_teacher_en)[0] == wf.VIDEO_STAGES)
-check('能看图的 AI 没设好：找插图、复核跳过，不算没做', wf.pending_steps({}, 'video', wf.Facts(S0, teacher={'id': 'x'}, vision=('', '没设好')))[0]
-      == ['transcribe', 'correct', 'summary', 'review', 'terms'])
+video_teacher_en = wf.Facts(S0, teacher={'id': 'x', 'lang': 'en'}, has_video=True)
+check('英文视频、有老师：全部步骤都要做', wf.pending_steps({}, 'video', video_teacher_en)[0] == wf.VIDEO_STAGES)
 check('设置里关掉「自动查漏补缺」：查漏不算没做', wf.pending_steps(dict(done_zh, steps={'summary': 1}), 'video',
-      wf.Facts(dict(S0, auto_review=False), teacher=None, has_video=False, vision=('', 'x')))[0] == [])
+      wf.Facts(dict(S0, auto_review=False), teacher=None, has_video=False))[0] == [])
 check('不写课程重点：还没整理的音频只差生成字幕', wf.pending_steps({}, 'video', wf.Facts(S0, has_video=False, no_summary=True))[0] == ['transcribe'])
 check('书：章节都整理完、没写全书总览 → 没整理完', wf.pending_steps({'kind': 'book', 'chapters': [{'title': '第一章', 'md': '内容'}]}, 'book',
       wf.Facts(S0))[0] == ['overview'])
@@ -717,7 +699,7 @@ def tree_files(nodes):
 
 r = Api().call('library', {})
 lib_items = {n['path']: n for n in tree_files(r['groups'])}
-check('媒体库界面的列表也带「还差哪几步」', r['ok'] and lib_items[L6]['pending'] == [] and lib_items[L8]['pending'][0] == 'frames')
+check('媒体库界面的列表也带「还差哪几步」', r['ok'] and lib_items[L6]['pending'] == [] and lib_items[L8]['pending'] and lib_items[L8]['pending'] == item_of(L8)['pending_steps'], (lib_items[L8]['pending'], item_of(L8)['pending_steps']))
 for p in (L5, L6, L7, L8):  # 后面的命令行测试不用它们
     os.remove(p)
     docs.sidecar(p).unlink(missing_ok=True)
@@ -742,7 +724,7 @@ plan_ = {Path(x['path']).name: x['steps'] for x in out['plan']}
 # 第一课：前面用 force 重新生成过课程重点（只做了这一步），第三课：查漏失败过，都只差查漏；第四课是新加的
 check('命令行 process --dry-run：只看不做，只列真正还要做的步骤', code == 0 and out['dry_run'] and calls == c3
       and plan_ == {'1、第一课.mp4': ['review'], '3、第三课.mp4': ['review'],
-                    '4、第四课.mp4': ['transcribe', 'correct', 'frames', 'recheck', 'summary', 'review', 'terms']}, plan_)
+                    '4、第四课.mp4': ['transcribe', 'correct', 'summary', 'review', 'terms']}, plan_)
 code, text, _ = run_cli('process', '--course', '峰级', '--todo', '--dry-run')
 check('命令行 --dry-run 中文输出', '1、第一课.mp4：查漏补缺' in text, text)
 code, text, _ = run_cli('list', '--course', '峰级', '--todo')
@@ -750,7 +732,7 @@ check('命令行 list --todo：写明「未整理完」和还差哪几步', '第
 code, out, err = run_cli('process', '--course', '峰级', '--todo', '--json')
 r0 = out['results'][0] if out.get('results') else {}
 check('命令行 process --todo：新课从头整理，只差查漏的只做查漏', code == 0 and out['success'] and out['count'] == 3 and r0['success']
-      and calls - c3 == Counter({'review': 3, 'asr': 1, 'correct': 1, 'frames': 1, 'recheck': 1, 'summary': 1, 'terms': 1}), (out, calls - c3))
+      and calls - c3 == Counter({'review': 3, 'asr': 1, 'correct': 1, 'summary': 1, 'terms': 1}), (out, calls - c3))
 check('JSON 结构：success / task_id / stage / error_code / retryable / stages / state',
       {'success', 'task_id', 'video_id', 'stage', 'error_code', 'message', 'retryable', 'stages', 'state', 'warnings'} <= set(r0)
       and {'name', 'label', 'status', 'retries', 'model', 'result'} <= set(r0['stages'][0]))

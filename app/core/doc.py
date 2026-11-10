@@ -153,7 +153,7 @@ def summary_basis(segments) -> list:
 def summary_changes(doc) -> int:
     """生成课程重点之后，字幕改了几句（改过、新加的句子数）。没有课程重点时是 0。
     以前生成的课程重点没记 summary_src：按手动改过、而且现在还是改后样子的句子数估算
-    （一键整理里 AI 校对和画面复核在课程重点之前，手动修改一般在之后）。"""
+    （一键整理里 AI 校对在课程重点之前，手动修改一般在之后）。"""
     if not (doc.get('summary') or '').strip() or doc.get('kind') == 'book':
         return 0
     segs = [str(s.get('text') or '').strip() for s in doc.get('segments') or [] if str(s.get('text') or '').strip()]
@@ -497,20 +497,35 @@ def note_media(p: Path):
     return m.group(1) if m else None
 
 
+def _hidden(p, vault) -> bool:
+    """在库里「.」开头的文件夹里（Syncthing 的旧版本、备份、回收站……），不是正经笔记。"""
+    p = Path(p)
+    try:
+        rel = p.resolve().relative_to(Path(vault).resolve())
+    except (ValueError, OSError):
+        return False
+    return any(x.startswith('.') for x in (rel.parts if p.is_dir() else rel.parts[:-1]))
+
+
 def find_note(vault: Path, media: str, prefer: Path = None, also=()):
     """找已经剪藏过的笔记（用户可能在 Obsidian 里移动或改了名）：按笔记属性里的「视频文件」找。
     also：这个视频以前的路径（在软件里改过名、移动过文件夹），笔记里写的可能还是旧路径。"""
     medias = [media] + [x for x in also or () if x]
-    roots = [p for p in (prefer, vault) if p and p.is_dir()]
+    roots = [p for p in (prefer, vault) if p and p.is_dir() and not _hidden(p, vault)]
     seen = set()
     for root in roots:
-        for p in root.rglob('*.md'):
-            if p in seen or '.obsidian' in p.parts or '.trash' in p.parts:
-                continue
-            seen.add(p)
-            m = note_media(p)
-            if m and any(_same_media(m, x) for x in medias):
-                return p
+        # 「.」开头的文件夹都不找（2026-11-10）：.stversions（Syncthing 留的旧版本）、.ai-backups、.trash、.obsidian 里
+        # 都可能有这节课的旧笔记副本，以前找到 .stversions 里的旧副本，把「下」的笔记当成了那份
+        for d, dirs, files in os.walk(root):
+            dirs[:] = [x for x in dirs if not x.startswith('.')]
+            for f in files:
+                p = Path(d) / f
+                if not f.lower().endswith('.md') or p in seen:
+                    continue
+                seen.add(p)
+                m = note_media(p)
+                if m and any(_same_media(m, x) for x in medias):
+                    return p
     return None
 
 
@@ -874,7 +889,7 @@ def clip(doc, vault: str, folder: str, teacher=None, series='', teacher_subfolde
         target_dir = target_dir / safe_name(teacher.get('folder') or teacher.get('display') or teacher.get('name') or '')
     previous = (doc.get('clip') or {}).get('path')
     path = None
-    wrong = bool(previous) and Path(previous).is_file() and _other_lesson(Path(previous), doc)
+    wrong = bool(previous) and Path(previous).is_file() and (_other_lesson(Path(previous), doc) or _hidden(previous, vault))
     if wrong:  # 记错的剪藏记录：笔记位置、插图文件名都不用
         doc = dict(doc, clip={})
         previous = None

@@ -325,10 +325,11 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     renderCues();
     ok('存疑句用橙色标出并写明原因', document.querySelectorAll('.cue.doubt').length === 1 && document.querySelector('.cue.doubt .doubt-tag').textContent.includes('测试存疑原因'));
     updateButtons();
-    ok('有存疑句时可以用画面复核', !document.querySelector('#btnRecheck').disabled);
+    ok('2026-11 去掉了「找插图」「用画面复核存疑句」按钮（插图手动插、存疑句人工确认）', !document.querySelector('#btnRecheck') && !document.querySelector('#btnFrames'));
     const plOrder = [...document.querySelectorAll('#dlgPipeline input[type=checkbox]')].map(x => x.id);
     ok('一键整理：最后一步找新术语', plOrder[plOrder.length - 1] === 'plTerms', plOrder);
-    ok('一键整理：先校对，再找关键帧、用画面复核存疑句', plOrder.indexOf('plCorrect') < plOrder.indexOf('plFrames') && plOrder.indexOf('plFrames') < plOrder.indexOf('plRecheck'), plOrder);
+    ok('一键整理：没有找插图、复核存疑句的勾选，先校对再写课程重点', !plOrder.includes('plFrames') && !plOrder.includes('plRecheck')
+      && plOrder.indexOf('plCorrect') < plOrder.indexOf('plSummary'), plOrder);
     ok('字幕栏上方显示存疑数量',!document.querySelector('#btnDoubts').hidden && document.querySelector('#btnDoubts').textContent === '存疑 1');
     document.querySelector('#btnDoubts').click();
     ok('点「存疑」跳到那一句并单句循环', S.loopIdx === 2 && document.querySelector('#optLoop').checked);
@@ -536,7 +537,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     const sumHelp = $('#helpBody [data-h="area-sum"]'), sumRows = $$('.help-btns tr', sumHelp);
     ok('课程重点区说明：有三个标签页的说明和按钮表', ['课程重点', 'AI 对话', '画面'].every(t => [...$$('li > b', sumHelp)].some(b => b.textContent === t))
       && sumRows.some(r => r.textContent.includes('查漏补缺')) && sumRows.some(r => r.textContent.includes('把课程重点输出为PDF')) && sumRows.some(r => r.textContent.includes('并到上一条'))
-      && sumRows.some(r => r.textContent.includes('找插图')), sumRows.map(r => r.textContent));
+      && sumRows.some(r => r.textContent.includes('截取当前画面')) && !sumRows.some(r => r.textContent.includes('找插图')), sumRows.map(r => r.textContent));
     $('#helpFull').click();
     ok('点「查看完整使用说明」：换成整个软件的说明，左边有目录', !$('#dlgHelp').classList.contains('help-focus') && getComputedStyle($('#helpNav')).display !== 'none' && !$('#helpBody [data-h="start"]').hidden);
     $('#helpClose').click();
@@ -639,8 +640,11 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     undo();
     ok('AI 校对：可以撤销', S.doc.segments[0].text === '大家好，今天讲峰级。' && await until(() => !S.dirty && !S.saving));
     await startCorrect(true);
-    ok('画面复核存疑句：确认后去掉存疑标记', await recheckDoubts(false) && !document.querySelector('.cue.doubt') && S.doc.segments[1].text.endsWith('（画面确认）'), S.doc.segments);
-    ok('找关键帧', await findFrames(true) && S.doc.frames.length === 1 && S.doc.frames[0].note === '假 AI 挑的图');
+    ok('存疑句留给人工：校对后还标着存疑', document.querySelectorAll('.cue.doubt').length === 1);
+    // 画面页：手动截的图（以前自动挑的也一样），带一张 AI 重画的图
+    S.doc.frames = [{ t: 3.0, note: '手动截的图', figure: true, manual: true,
+      redraw: { kind: 'mermaid', code: 'flowchart LR\n  A[破级] --> B[首峰]', note: '重画的结构' } }];
+    renderFrames();
     {  // AI辅助理解图：画面看不清时 AI 重画
       ok('AI辅助理解图：画面页标「AI 重画」，显示重画的流程图代码', !!document.querySelector('.shot .redraw-tag')
         && document.querySelector('.shot .redraw-code').textContent.includes('破级') && !!document.querySelector('[data-unredraw]'));
@@ -693,7 +697,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     openPipeline();
     ok('一键整理：可以选这次豆包用哪种模型（默认是设置里选的「自动」）', document.querySelectorAll('#plDbModel option').length === 5
       && document.querySelector('#plDbModel').value === 'auto');
-    ['plAsr', 'plCorrect', 'plFrames', 'plRecheck', 'plSummary', 'plTerms'].forEach(id => { document.getElementById(id).checked = true; });
+    ['plAsr', 'plCorrect', 'plSummary', 'plTerms'].forEach(id => { document.getElementById(id).checked = true; });
     document.getElementById('plClip').checked = false;
     const bgSaved = S.bg;
     S.bg = [{ id: 'x1', path: 'D:\\课\\甲.mp4', title: '甲', status: 'running', progress: 0.45 }, { id: 'x2', path: 'D:\\课\\乙.mp4', title: '乙', status: 'waiting', progress: 0 }];
@@ -1289,7 +1293,8 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('文件夹菜单「整个文件夹排进后台整理…」：弹出规则对话框，写明里面有几节课，默认步骤勾上', await until(() => document.querySelector('#dlgFolderBg').open)
       && /有 \d+ 节音视频/.test(document.querySelector('#fbInfo').textContent) && document.querySelector('#fbAsr').checked
       && document.querySelector('#fbSummary').checked && document.querySelector('#fbTeacher').options.length > 1, document.querySelector('#fbInfo').textContent);
-    ['fbFrames', 'fbSummary', 'fbTranslate'].forEach(id => { document.getElementById(id).checked = false; });
+    ok('文件夹排队对话框没有找插图、复核的勾选', !document.querySelector('#fbFrames'));
+    ['fbSummary', 'fbTranslate'].forEach(id => { document.getElementById(id).checked = false; });
     // 真的排队会整理后面测试要用的课：截下发给后台的请求（后台排队在 test_agent.py 里测）
     const realApi = window.api;
     let sent = null;

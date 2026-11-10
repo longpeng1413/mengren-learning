@@ -1,7 +1,7 @@
 """任务层：Agent（命令行 cli.py，以后 MCP）调用猛人学习的入口。
 
 做的事和界面上的「一键整理」一样，步骤和顺序是用户定的：
-    生成字幕（已有就跳过）→ AI 校对 → 找关键帧（挑插图）→ 用画面复核存疑句 → 翻译（只有英文才翻）
+    生成字幕（已有就跳过）→ AI 校对 → 翻译（只有英文才翻）
     → 课程重点 → 查漏补缺 → 新术语（只放进「待勾选」，不写术语表）
 **不剪藏**：用户在软件里人工校对、打开「已校对」后自己剪藏。书籍：分章 → 逐章整理（含查漏、回页面核对）→ 全书总览，同样不剪藏。
 
@@ -18,18 +18,22 @@ import re
 import time
 from pathlib import Path
 
-from . import asr, book, config, doc as docs, frames, library, llm, media, tasks
+from . import asr, book, config, doc as docs, library, llm, media, tasks
 from .book import LIB_EXT
 from .log import log
 from .media import AUDIO_EXT
 from .tasks import COMPLETED, FAILED, CANCELLED, SKIPPED, WorkError
 
-VIDEO_STAGES = ['transcribe', 'correct', 'frames', 'recheck', 'translate', 'summary', 'review', 'terms']
+VIDEO_STAGES = ['transcribe', 'correct', 'translate', 'summary', 'review', 'terms']
+# 2026-11-10 去掉的两步（用户定）：「找关键帧（挑插图）」——插图自己听课时手动插更好、不受数量限制；
+# 「用画面复核存疑句」——AI 看图改字幕效果不好，存疑句一律人工校对。两步加起来占了一节课一半以上的 ChatGPT 额度。
+# 以前存下的文件夹规则、命令行脚本里还写着它们时直接忽略，不报错；以前挑好的插图（frames）照常显示、剪藏。
+REMOVED_STAGES = {'frames', 'recheck'}
 BOOK_STAGES = ['chapters', 'organize', 'overview']
-LABELS = {'transcribe': '生成字幕', 'correct': 'AI 校对', 'frames': '找关键帧', 'recheck': '用画面复核存疑句',
+LABELS = {'transcribe': '生成字幕', 'correct': 'AI 校对',
           'translate': '翻译', 'summary': '课程重点', 'review': '查漏补缺', 'terms': '新术语',
           'chapters': '分章', 'organize': '逐章整理', 'overview': '全书总览'}
-SOFT = {'recheck', 'review'}  # 失败了不影响后面的步骤（界面的一键整理也是这样）
+SOFT = {'review'}  # 失败了不影响后面的步骤（界面的一键整理也是这样）
 RETRIES = 3                   # 网络、接口临时出错时，这一步自动重做几次
 RETRY_WAIT = (10, 60, 180)    # 每次重做前等多久（秒）：ChatGPT「太忙」往往要等几分钟才好，所以逐步加长
 VERSIONS_KEEP = 5
@@ -285,14 +289,6 @@ def vision_provider(s, need=True):
     return ''
 
 
-def _vision_check(s):
-    """能看图的 AI → (名字, '')；没设好 → ('', 跳过的原因)，原因写清楚（例如「DeepSeek 不能看图」），和一键整理一样不算失败。"""
-    try:
-        return vision_provider(s, need=True), ''
-    except llm.LlmError as e:
-        return '', f'{e}（这一步先跳过）'
-
-
 def _model_of(s, name):
     """「服务 · 模型 · 思考强度」。s 要用 llm.for_task 给的副本，才是这项工作选的模型。"""
     return llm.model_label(s, name)
@@ -304,14 +300,14 @@ class _Skip(Exception):
 
 
 class Facts:
-    """判断一步要不要做时，字幕文件以外要知道的：有没有指定老师、有没有画面、能看图的 AI 设好没有、设置。
+    """判断一步要不要做时，字幕文件以外要知道的：有没有指定老师、有没有画面、设置。
     真正整理时（Ctx.facts）用到才去查（例如探测视频有没有画面）；列「还没整理完」时（scan_facts）整个媒体库共用一份，
-    不探测文件、不读术语表文件，所以快。has_video / vision / toc 可以给值，也可以给「用到时再算」的函数。"""
+    不探测文件、不读术语表文件，所以快。has_video / toc 可以给值，也可以给「用到时再算」的函数。"""
 
-    def __init__(self, settings, opts=None, teacher=None, has_video=True, vision=None, toc=None, no_summary=False):
+    def __init__(self, settings, opts=None, teacher=None, has_video=True, toc=None, no_summary=False):
         self.settings = settings
         self.opts = opts or {}
-        self._v = {'teacher': teacher, 'has_video': has_video, 'vision': vision, 'toc': toc, 'no_summary': no_summary}
+        self._v = {'teacher': teacher, 'has_video': has_video, 'toc': toc, 'no_summary': no_summary}
 
     def _get(self, k):
         v = self._v[k]
@@ -325,10 +321,6 @@ class Facts:
 
     def has_video(self):
         return bool(self._get('has_video'))
-
-    def vision(self):
-        """(能看图的 AI, '') 或 ('', 跳过的原因)"""
-        return self._get('vision') or _vision_check(self.settings)
 
     def toc(self):
         """书的目录；列「还没整理完」时不读书（None = 不知道，当作没有）"""
@@ -365,20 +357,6 @@ def why_skip(name, d, f, force=False):
             return '这节课没有指定老师（术语表），和一键整理一样不做 AI 校对'
         if d.get('corrected') and not force:
             return '已经校对过'
-    elif name in ('frames', 'recheck'):
-        if not f.has_video():
-            return '音频文件，没有画面'
-        why = f.vision()[1]
-        if why:
-            return why
-        if name == 'frames':
-            if (d.get('frames') or 'frames' in st or old) and not force:
-                return '已经挑过插图'
-        else:
-            if ('recheck' in st or old) and not force:
-                return '已经复核过'
-            if not d.get('_maybe_doubts') and not any(doubt_of(d, x) for x in d.get('segments') or []):
-                return NO_DOUBTS
     elif name == 'translate':
         if (d.get('lang') or f.lang(d)) != 'en' and not f.opts.get('any_lang'):  # 界面里用户自己选了翻译时照样翻
             return '中文字幕，不用翻译'
@@ -423,7 +401,6 @@ def why_skip(name, d, f, force=False):
     return None
 
 
-NO_DOUBTS = '没有存疑句'
 NO_SUMMARY = '媒体库里这个文件夹设了「不写课程重点」（要写：界面上勾选，或 --steps summary --force）'
 
 
@@ -436,8 +413,6 @@ def _pretend(name, d):
         d['steps'] = {'transcribe': 1}
     elif name == 'correct':
         d['corrected'] = True
-        d['_maybe_doubts'] = True  # 校对完可能标出存疑句，复核要做
-        st.pop('recheck', None)
         st['correct'] = 1
     elif name == 'translate':
         d['segments'] = [dict(x, tr=x.get('tr') or '…') for x in d.get('segments') or []]
@@ -451,14 +426,14 @@ def _pretend(name, d):
         d['chapters'] = [dict(c, md=c.get('md') or '…') for c in d.get('chapters') or [{}]]
     elif name == 'overview':
         d['overview'] = '…'
-    else:  # frames、recheck、review、terms
+    else:  # review、terms
         st[name] = 1
 
 
 def pending_steps(d, kind, f, stages=None, redo=()):
     """按一键整理默认的步骤（或 stages 指定的几步），这节课还要做哪几步。返回 ([要做的步骤], {不做的步骤: 原因})。
     从第一步往后：用 why_skip 看这一步要不要做，要做的就假装做完（_pretend），再看下一步。
-    所以失败过的步骤（包括「复核存疑句」「查漏」这种失败了不影响后面的）都算没做完。不读写任何文件。"""
+    所以失败过的步骤（包括「查漏」这种失败了不影响后面的）都算没做完。不读写任何文件。"""
     d = dict(d or {})
     d['steps'] = dict(d['steps']) if isinstance(d.get('steps'), dict) else {}
     todo, skipped = [], {}
@@ -475,14 +450,14 @@ def pending_steps(d, kind, f, stages=None, redo=()):
 def scan_facts():
     """列整个媒体库时共用的：设置、老师档案、能看图的 AI 设好没有（只准备一次）。"""
     s = config.load()
-    return {'settings': s, 'teachers': {t['id']: t for t in config.load_teachers()}, 'vision': _vision_check(s)}
+    return {'settings': s, 'teachers': {t['id']: t for t in config.load_teachers()}}
 
 
 def pending_in_scan(path, d, env, folder_teacher='', no_summary=False):
     """媒体库列表用：这节课（或这本书）还要做哪几步。d 是已经读出来的字幕文件（没有就是 None），不再读任何文件。"""
     kind = kind_of(path)
     tid = (d or {}).get('teacher') or folder_teacher
-    f = Facts(env['settings'], teacher=env['teachers'].get(tid) if tid else None, has_video=kind != 'audio', vision=env['vision'],
+    f = Facts(env['settings'], teacher=env['teachers'].get(tid) if tid else None, has_video=kind != 'audio',
               no_summary=no_summary)
     return pending_steps(d, 'book' if kind == 'book' else 'video', f)[0]
 
@@ -494,7 +469,7 @@ def facts_for(path, d, settings=None, opts=None, probe=True):
     tid = d.get('teacher') or library.folder_teacher(path)
     return Facts(s, opts, teacher=lambda: config.get_teacher(tid, resolve=False) if tid else None,
                  has_video=(lambda: media.probe(path).get('has_video')) if probe else kind_of(path) != 'audio',
-                 vision=lambda: _vision_check(s), toc=lambda: book.read(path).get('toc'),
+                 toc=lambda: book.read(path).get('toc'),
                  no_summary=lambda: library.folder_no_summary(path))
 
 
@@ -695,82 +670,10 @@ def st_correct(ctx):
                 doubts.append({'t': seg['start'], 'reason': reason, 'text': seg['text']})
         doc['doubts'] = doubts
         doc['corrected'] = True
-        _steps(doc).pop('recheck', None)
         _steps(doc)['correct'] = tasks.now()
         return n, len(doubts)
     n, nd = _apply(ctx.path, apply)
     return {'fixed': n, 'doubts': nd}
-
-
-def st_frames(ctx):
-    d = ctx.doc()
-    _need_segments(d)
-    name = ctx.skip_check('frames', d).vision()[0]
-    info = media.probe(ctx.path)
-    s, _vn = llm.for_task(ctx.settings, 'vision')
-    ctx.task.stage('frames').update(model=_model_of(s, name))
-    try:
-        got = frames.extract(s, name, ctx.path, float(d.get('duration') or info['duration'] or 0), d['segments'], ctx.cancel, ctx.progress)
-    except frames.Cancelled:
-        raise WorkError('cancelled', '已取消')
-    ctx.check_cancel()
-
-    def apply(doc):
-        manual = [f for f in doc.get('frames') or [] if f.get('manual')]  # 手动截取的保留，自动挑的替换
-        doc['frames'] = sorted(manual + list(got), key=lambda f: float(f.get('t', 0)))
-        _steps(doc)['frames'] = tasks.now()
-    _apply(ctx.path, apply)
-    return {'figures': len(got)}
-
-
-def st_recheck(ctx):
-    d = ctx.doc()
-    _need_segments(d)
-    try:
-        name = ctx.skip_check('recheck', d).vision()[0]
-    except _Skip as e:
-        if str(e) == NO_DOUBTS:  # 记下「复核过」，以后不再算没做完
-            _apply(ctx.path, lambda doc: _steps(doc).__setitem__('recheck', tasks.now()))
-        raise
-    s, _vn = llm.for_task(ctx.settings, 'vision')
-    segs = d['segments']
-    idx = [i for i, x in enumerate(segs) if doubt_of(d, x)]
-    ctx.task.stage('recheck').update(model=_model_of(s, name))
-    items = [{'i': i, 'start': segs[i]['start'], 'end': segs[i]['end'], 'text': segs[i]['text'], 'reason': doubt_of(d, segs[i]).get('reason', ''),
-              'before': ' '.join(x['text'] for x in segs[max(0, i - 2):i]), 'after': ' '.join(x['text'] for x in segs[i + 1:i + 3])}
-             for i in idx][:60]
-    sent = {it['i']: (it['start'], it['text']) for it in items}
-    shots = [f for f in d.get('frames') or [] if f.get('note')]
-    try:
-        res = frames.recheck_doubts(s, name, ctx.path, items, shots, ctx.cancel, ctx.progress)
-    except frames.Cancelled:
-        raise WorkError('cancelled', '已取消')
-    ctx.check_cancel()
-
-    def apply(doc):
-        fixed = confirmed = 0
-        for x in res:
-            start, before = sent.get(x['i'], (None, None))
-            if start is None:
-                continue
-            _, seg = _seg_at(doc, start, before)
-            if seg is None:
-                continue
-            dd = doubt_of(doc, seg)
-            if 'text' in x:
-                if x['text'] != seg['text']:
-                    record_fix(doc, start, seg['text'], x['text'], 'frames')
-                    seg['text'] = x['text']
-                    fixed += 1
-                if dd:
-                    doc['doubts'] = [y for y in doc['doubts'] if y is not dd]
-                confirmed += 1
-            elif dd and x.get('doubt'):
-                dd['reason'] = x['doubt']
-        _steps(doc)['recheck'] = tasks.now()
-        return fixed, confirmed, sum(1 for y in doc.get('segments') or [] if doubt_of(doc, y))
-    fixed, confirmed, left = _apply(ctx.path, apply)
-    return {'checked': len(items), 'confirmed': confirmed, 'fixed': fixed, 'left': left}
 
 
 def st_translate(ctx):
@@ -986,7 +889,7 @@ def st_overview(ctx):
     return {'chars': len(text or '')}
 
 
-RUNNERS = {'transcribe': st_transcribe, 'correct': st_correct, 'frames': st_frames, 'recheck': st_recheck,
+RUNNERS = {'transcribe': st_transcribe, 'correct': st_correct,
            'translate': st_translate, 'summary': st_summary, 'review': st_review, 'terms': st_terms,
            'chapters': st_chapters, 'organize': st_organize, 'overview': st_overview}
 
@@ -995,8 +898,11 @@ RUNNERS = {'transcribe': st_transcribe, 'correct': st_correct, 'frames': st_fram
 def stages_for(path, steps=None, skip=None):
     """这个文件要走哪些步骤（按固定顺序）。steps 只做这几步，skip 跳过这几步。"""
     allv = BOOK_STAGES if kind_of(path) == 'book' else VIDEO_STAGES
+    # 去掉已经删除的步骤；只写了已删除步骤的（例如老规则 ['recheck']）就什么都不做，而不是变成「全部步骤」
+    steps = [x for x in steps or [] if x not in REMOVED_STAGES] or (None if not steps else ['_removed'])
+    skip = [x for x in skip or [] if x not in REMOVED_STAGES]
     wanted = [x for x in allv if (not steps or x in steps) and not (skip and x in skip)]
-    bad = [x for x in (list(steps or []) + list(skip or [])) if x not in allv]
+    bad = [x for x in (list(steps or []) + list(skip or [])) if x not in allv and x != '_removed']
     if bad:
         raise WorkError('not_supported', f'不认识的步骤：{"、".join(bad)}。{"书籍" if kind_of(path) == "book" else "视频"}可以用：{"、".join(allv)}')
     return wanted

@@ -285,20 +285,15 @@ api.call('teacher_delete', {'id': t2['id']})
 
 # ---------------------------------------------------------------- 1.5 画面 ----
 from core import cache, frames  # noqa: E402
-blank, page2 = bytes(frames.W * frames.H), bytes([200]) * (frames.W * frames.H)
-samples = [(i * 2.0, blank if i < 10 else page2) for i in range(20)]
-ct = frames.candidate_times(samples, [{'start': 30.0, 'end': 31.0, 'text': '来，大家请看这里'}])
-check('候选画面：每段一张、去掉重复、老师说请看时补一张', [w for _, w in ct] == ['定时', '老师说请看'] and ct[1][0] >= 32, ct)
 mp4 = str(MEDIA / '演示视频.mp4')
 g = frames.grab(mp4, 3.0)
 check('截图', g.exists() and g.stat().st_size > 1000 and frames.grab(mp4, 3.0) == g)
 check('截小图', frames.grab(mp4, 3.0, small=True).name.endswith('_s.jpg'))
 fu = api.call('frame_url', {'path': mp4, 't': 3.0})
 check('画面图片地址', fu['ok'] and fu['url'].startswith('file:///'), fu)
-api.call('settings', {'settings': {'vision': 'deepseek'}})
-fk = run_steps(mp4, ['frames'])
-check('画面识别选了 DeepSeek 时提示它不能看图（这一步跳过）', stage(fk, 'frames').get('status') == 'skipped' and '不能看图' in stage(fk, 'frames').get('reason', ''), fk)
-check('没有能看图的 AI 时只截候选画面', all('why' in f for f in frames.extract({}, '', mp4, 40, [])) and frames.extract({}, '', mp4, 40, []))
+# 2026-11-10 去掉了「找关键帧（自动挑插图）」「用画面复核存疑句」：以前的文件夹规则、命令里写着它们也不报错、什么都不做
+fk = run_steps(mp4, ['frames', 'recheck'])
+check('去掉的找插图、复核存疑句：老规则里写着也不报错、不做', fk.get('status') != 'error' and not fk.get('error') and not fk.get('stages'), fk)
 shots = [{'t': 5.0, 'note': '课件标题：交易心理学', 'caption': '欢迎来到', 'figure': True}, {'t': 20.0, 'note': '老师手画曲线'}]
 nt = frames.notes_text(shots)
 check('画面记录写成文字', '[00:05]（可插图） 课件标题：交易心理学　画面字幕：「欢迎来到」' in nt and '[00:20] 老师手画曲线' in nt, nt)
@@ -392,22 +387,7 @@ check('旧笔记里软件写的「状态: 待审计」去掉', '状态' not in d
 check('旧笔记里自己改过的状态保留', '状态: "已确认-资料"' in docs.merge_note(o4.replace('待审计', '已确认-资料'), n1, None, ())[0])
 check('课程重点模板：不让 AI 用标注框（留给用户写理解）', '不要用「> [!…]」这种标注框' in llm.DEFAULT_TEMPLATE)
 check('插图非必要不用：最多 3 张，纯文字课件不插', '最多 3 张' in llm.DEFAULT_TEMPLATE and '纯文字课件' in frames.DESCRIBE_PROMPT
-      and '纯文字的课件页' in frames.SCREEN_PROMPT and '不要照抄课件上的文字' in frames.DESCRIBE_PROMPT)
-
-# 找插图：只留确实需要插的图；手动截取的默认可插
-orig_screen, orig_describe = frames.screen, frames.describe
-frames.screen = lambda *a, **k: [{'t': 5.0, 'why': '手画曲线'}, {'t': 20.0, 'why': '文字页'}]
-frames.describe = lambda *a, **k: [{'t': 5.0, 'why': '手画曲线', 'note': '老师手画的上升趋势', 'figure': True},
-                                   {'t': 20.0, 'why': '文字页', 'note': '纯文字课件', 'figure': False}]
-ex = frames.extract({}, 'codex', mp4, 40, [])
-frames.screen, frames.describe = orig_screen, orig_describe
-check('找插图：只留需要插的图', [f['t'] for f in ex] == [5.0], ex)
-many = [{'t': float(i * 30), 'note': f'第{i}张', 'figure': True} for i in range(12)]
-seen_p = {}
-llm.complete = lambda s_, n_, msgs, **k: seen_p.setdefault('u', msgs[-1]['content']) and json.dumps({'保留': [2, 5, 9]})
-pk = frames.pick({}, 'codex', many, [{'start': 60.0, 'end': 62.0, 'text': '看这张图'}])
-check('可插的图太多时去重、只留最必要的几张', [f['t'] for f in pk] == [30.0, 120.0, 240.0] and '不超过 8 张' in seen_p['u'] and '看这张图' in seen_p['u'], pk)
-check('可插的图不多时不再筛', frames.pick({}, 'codex', many[:5], []) == many[:5])
+      and '不要照抄课件上的文字' in frames.DESCRIBE_PROMPT)
 llm.complete = orig_complete
 orig_c = llm.complete
 llm.complete = lambda *a, **k: json.dumps({'画面': [{'图': 1, '说明': '一页文字课件', '插图': False}]})
@@ -587,23 +567,6 @@ ta2 = api.call('terms_add', {'teacher': nt_['id'], 'terms': [{'term': '棍态'},
 check('没关联文件时加进老师档案', ta2['file'] == '' and ta2['terms'] == 1 and config.get_teacher(nt_['id'])['terms'] == '峰级\n棍态\n风机 => 峰级', config.get_teacher(nt_['id'])['terms'])
 config.delete_teacher(gt['id'])
 config.delete_teacher(nt_['id'])
-seen2 = {}
-
-
-def fake_recheck(s_, n_, msgs, **k):
-    seen2['parts'] = msgs[-1]['content']
-    return json.dumps({'结果': [{'编号': 1, '改为': '峰级的入门'}, {'编号': 2, '仍存疑': '画面里没有字幕'}]}, ensure_ascii=False)
-
-
-llm.complete = fake_recheck
-rc = frames.recheck_doubts({}, 'codex', mp4, [{'i': 3, 'start': 4.0, 'end': 6.0, 'text': '风级的入门', 'reason': '疑似识别错误'},
-                                            {'i': 7, 'start': 20.0, 'end': 22.0, 'text': '讲论文', 'reason': '不通'}], shots)
-llm.complete = orig_complete
-check('用画面复核存疑句：能确认的改正、看不清的继续存疑', rc == [{'i': 3, 'text': '峰级的入门'}, {'i': 7, 'doubt': '画面里没有字幕'}], rc)
-check('复核时附上说话时的画面和附近的画面记录', sum(1 for p in seen2['parts'] if p['type'] == 'image') == 2 and any('课件标题：交易心理学' in p.get('text', '') for p in seen2['parts']))
-api.call('settings', {'settings': {'vision': 'deepseek'}})
-rk = run_steps(mp4, ['recheck'])
-check('复核存疑句也要能看图的 AI（这一步跳过）', stage(rk, 'recheck').get('status') == 'skipped' and '不能看图' in stage(rk, 'recheck').get('reason', ''), rk)
 (config.CACHE_DIR / 'frames' / 'old').mkdir(parents=True, exist_ok=True)
 oldf = config.CACHE_DIR / 'frames' / 'old' / 'x.jpg'
 oldf.write_bytes(b'0')

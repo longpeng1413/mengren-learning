@@ -308,7 +308,7 @@ function libNoSummary(path, nodes = S.lib) {
 }
 const insideDir = (path, dir) => !!path && !!dir && path.toLowerCase().startsWith(dir.toLowerCase().replace(/[\\/]+$/, '') + '\\');
 /* 整理步骤的中文名（和 workflow.LABELS 一样） */
-const STEP_LABEL = { transcribe: '生成字幕', correct: 'AI 校对', frames: '找关键帧', recheck: '用画面复核存疑句', translate: '翻译',
+const STEP_LABEL = { transcribe: '生成字幕', correct: 'AI 校对', frames: '找关键帧（已去掉）', recheck: '用画面复核存疑句（已去掉）', translate: '翻译',
   summary: '课程重点', review: '查漏补缺', terms: '新术语', chapters: '分章', organize: '逐章整理', overview: '全书总览' };
 /* 有整理结果、但一键整理默认的步骤还没做完（例如写完课程重点后额度用完，查漏、新术语没做）：标「未整理完」 */
 function pendingTag(it) {
@@ -504,7 +504,7 @@ function itemMenu(path, x, y) {
 }
 /* 整个文件夹排进后台整理（2026-10-28，几百节课的文件夹）：定一套规则，后台把还没整理完的课一节一节排进去。
    规则记在文件夹上（core/library.py 的 rule），下次打开对话框带出来；不勾课程重点 = 文件夹设成「不写课程重点」。 */
-const FB_DEFAULT = ['transcribe', 'correct', 'frames', 'recheck', 'translate', 'summary', 'review', 'terms'];
+const FB_DEFAULT = ['transcribe', 'correct', 'translate', 'summary', 'review', 'terms'];
 async function openFolderBg(n) {
   let info;
   try { info = await api('folder_rule', { path: n.path }); } catch (e) { fail(e); return; }
@@ -515,7 +515,6 @@ async function openFolderBg(n) {
     + (info.rule ? '下面是上次定的规则，可以改。' : '定好下面的规则，点「开始排队」。');
   $('#fbAsr').checked = has.has('transcribe');
   $('#fbCorrect').checked = has.has('correct');
-  $('#fbFrames').checked = has.has('frames');
   $('#fbTranslate').checked = has.has('translate');
   $('#fbSummary').checked = has.has('summary');
   $('#fbTerms').checked = has.has('terms');
@@ -545,7 +544,6 @@ async function startFolderBg(n) {
   const steps = [];
   if ($('#fbAsr').checked) steps.push('transcribe');
   if ($('#fbCorrect').checked) steps.push('correct');
-  if ($('#fbFrames').checked) steps.push('frames', 'recheck');
   if ($('#fbTranslate').checked) steps.push('translate');
   if ($('#fbSummary').checked) steps.push('summary', 'review');
   if ($('#fbTerms').checked) steps.push('terms');
@@ -1474,7 +1472,7 @@ function onCueInput(e) {
   if (el.classList.contains('src')) seg.text = el.textContent; else seg.tr = el.textContent;
   markDirty();
 }
-/* 记下每句字幕从什么改成了什么（AI 校对、画面复核、手动修改），用来找这节课的识别错误、积累术语表 */
+/* 记下每句字幕从什么改成了什么（AI 校对、手动修改），用来找这节课的识别错误、积累术语表 */
 function recordFix(doc, seg, before, after, by) {
   if (!doc || !seg || !before || before === after) return;
   const list = doc.fixes || (doc.fixes = []);
@@ -1633,13 +1631,11 @@ function updateButtons() {
   $('#btnClip').disabled = !has;
   $('#btnSummary').disabled = !has;
   const vid = !!(S.info && S.info.has_video);
-  $('#btnFrames').disabled = !S.doc || busy || !vid;
   $('#btnCapture').disabled = !S.doc || busy || !vid;
   $('#btnSubShot').hidden = !vid;  // 音频没有画面
   $('#btnSubShot').disabled = !has || busy;
   $('#btnSubPrint').disabled = $('#btnSubPdf').disabled = !has;
   $('#btnDescribe').disabled = !S.doc || busy || !((S.doc && S.doc.frames) || []).some(f => !f.note);
-  $('#btnRecheck').disabled = !S.doc || busy || !vid || !doubtIndexes().length;
   $('#btnReview').disabled = !has || busy || !(S.doc && (S.doc.summary || '').trim()) || !!S.chatAbort;
   $('#btnSumShot').hidden = !vid;
   $('#btnSumShot').disabled = !(S.doc && (S.doc.summary || '').trim()) || busy || !!S.chatAbort;
@@ -1706,10 +1702,10 @@ $('#jobCancel').onclick = () => {
 };
 
 /* ------------------------------------------------------------ 整理步骤 ---- */
-/* 生成字幕、AI 校对、找关键帧、画面复核存疑句、翻译、课程重点、查漏补缺、新术语、整理章节、全书总览，以及一键整理：
+/* 生成字幕、AI 校对、翻译、课程重点、查漏补缺、新术语、整理章节、全书总览，以及一键整理：
    都交给后台的任务层（app/core/workflow.py），和命令行（Agent）是同一套规则。后台做完直接写进字幕文件，
    这里只显示进度和边做边出的内容，做完重新读取。一步做到一半失败，这一步什么都不写。 */
-const SOFT_STEPS = new Set(['recheck', 'review']);  // 失败了不影响一键整理后面的步骤
+const SOFT_STEPS = new Set(['review']);  // 失败了不影响一键整理后面的步骤
 const stageOf = (task, name) => ((task && task.stages) || []).find(s => s.name === name) || {};
 async function runSteps(steps, label, { opts = {}, redo, onItems, onStart } = {}) {
   await flushSave();
@@ -1762,7 +1758,7 @@ function stepResult(res, name) {
   }
   return st.result || {};
 }
-/* 校对、复核改了的句子标上绿色下划线（这些步骤不增删句子，按位置对得上） */
+/* AI 校对改了的句子标上绿色下划线（不增删句子，按位置对得上） */
 function markFixed(before) {
   S.doc.segments.forEach((s, i) => { if (before[i] !== undefined && s.text !== before[i]) { const el = cueEl(i); if (el) el.classList.add('fixed'); } });
 }
@@ -2029,14 +2025,6 @@ function openPipeline() {
   $('#plClip').checked = false;
   $('#plTerms').checked = true;
   termsLabel();
-  const vid = !!(S.info && S.info.has_video), nShots = (S.doc.frames || []).length;
-  $('#plFrames').disabled = !vid;
-  $('#plFrames').checked = vid && !nShots && taskReady('vision');
-  $('#plRecheck').disabled = !vid;
-  $('#plRecheck').checked = vid && taskReady('vision');
-  $('#plFramesLabel').textContent = !vid ? '找关键帧（这是音频文件，没有画面）'
-    : nShots ? `重新挑插图（现在有 ${nShots} 张，会替换自动挑的那些）`
-      : `挑必要的插图${taskReady('vision') ? '' : '（还没设置看图用的 AI）'}`;
   dlg.returnValue = '';
   dlg.showModal();
   dlg.onclose = () => { if (dlg.returnValue === 'ok') runPipeline(); };
@@ -2053,8 +2041,6 @@ async function runPipeline() {
   const steps = [];
   if ($('#plAsr').checked) steps.push('transcribe');
   if ($('#plCorrect').checked) steps.push('correct');
-  if ($('#plFrames').checked && !$('#plFrames').disabled) steps.push('frames');
-  if ($('#plRecheck').checked && !$('#plRecheck').disabled) steps.push('recheck');
   if ($('#plTranslate').checked && !$('#plTranslate').disabled) steps.push('translate');
   if ($('#plSummary').checked) { steps.push('summary'); if (S.settings.auto_review) steps.push('review'); }
   if ($('#plTerms').checked) steps.push('terms');
@@ -2333,7 +2319,8 @@ async function doClip() {
 }
 
 /* -------------------------------------------------------------- 画面 ---- */
-/* 插图：只挑文字说不清、需要看图的画面，每张一句说明；课程重点里的 ![[画面 mm:ss]] 剪藏时换成图片 */
+/* 画面页：「截取当前画面」存下的画面和以前自动挑过的插图（2026-11 起不再自动找插图，插图由用户「插入截图」手动插），
+   每张一句说明；课程重点里的 ![[画面 mm:ss]] 剪藏时换成图片 */
 function frameUrl(t, small, crop) {
   const key = `${S.path}|${t}|${small ? 's' : ''}|${crop ? crop.join(',') : ''}`;
   if (!S.frameUrls[key]) S.frameUrls[key] = api('frame_url', { path: S.path, t, small, crop: crop || null }).then(r => r.url).catch(() => { delete S.frameUrls[key]; return ''; });
@@ -2488,7 +2475,7 @@ function renderFrames() {
   const list = (S.doc && S.doc.frames) || [];
   $('#framesCount').textContent = list.length ? list.length : '';
   if (!S.doc || !list.length) {
-    box.innerHTML = `<div class="ai-empty">${S.info && !S.info.has_video ? '这是音频文件，没有画面。' : '点「找插图」：软件挑出光看文字不好理解、需要看图的画面（走势图、K 线标注、老师手画的曲线），<br>每张写一句说明。课程重点里只在文字确实说不清的地方插图，整节课最多 3 张；纯文字的课件不插。'}</div>`;
+    box.innerHTML = `<div class="ai-empty">${S.info && !S.info.has_video ? '这是音频文件，没有画面。' : '插图由你听课时手动插：看到要插的画面，点字幕栏或课程重点下面的「插入截图」，想插几张都行。<br>这里列出用「截取当前画面」存下的画面（以前自动挑的插图也在这里）。'}</div>`;
   } else {
     box.innerHTML = list.map(shotHTML).join('');
     $$('img[data-st]', box).forEach(img => frameUrl(+img.dataset.st, true).then(u => { if (u) img.src = u; }));
@@ -2498,23 +2485,6 @@ function renderFrames() {
   updateButtons();
 }
 function sortFrames() { S.doc.frames = (S.doc.frames || []).sort((a, b) => a.t - b.t); }
-async function findFrames(auto) {
-  if (!S.doc || !S.path) return false;
-  const old = S.doc.frames || [];
-  const manual = old.filter(f => f.manual);
-  if (!auto && old.length > manual.length && !confirm(`重新找关键帧？\n现在自动找到的 ${old.length - manual.length} 张画面和它们的记录会被替换（你手动截取的 ${manual.length} 张保留）。`)) return false;
-  if (S.settings.ai_hidden) savePrefs({ ai_hidden: false });
-  $$('.ai-tabs .tab')[2].click();
-  try {
-    const res = await runSteps(['frames'], '正在找关键帧…');
-    renderDoc();
-    const out = stepResult(res, 'frames');
-    if (!out) return false;
-    if (out.skipped !== undefined) { toast(out.skipped, { ms: 7000 }); return true; }
-    toast(out.figures ? `挑出 ${out.figures} 张需要看图才好理解的画面，课程重点里会在必要的地方插图（最多 3 张）` : '没有需要插图的画面（纯文字课件或只有老师讲话的视频很正常）', { ms: 7000 });
-    return true;
-  } catch (e) { fail(e); return false; }
-}
 async function describeFrames(list) {
   const doc = S.doc;
   if (!list.length) return false;
@@ -2571,22 +2541,7 @@ async function captureFrame() {
   $$('.ai-tabs .tab')[2].click();
   renderFrames(); markDirty();
   if (taskReady('vision')) await describeFrames([f]);
-  else toast('已截取。还没设置「画面识别」用的 AI，可以自己在下面写一句说明', { ms: 6000 });
-}
-/* 用画面复核存疑句：AI 校对后还拿不准的句子，截下说话时的画面再核对一次 */
-async function recheckDoubts(auto) {
-  if (!doubtIndexes().length) { if (!auto) toast('没有存疑句'); return true; }
-  try {
-    const before = S.doc.segments.map(s => s.text);
-    snapshot();
-    const res = await runSteps(['recheck'], 'AI 正在用画面复核存疑句…');
-    renderDoc();
-    const out = stepResult(res, 'recheck');
-    if (!out || out.skipped !== undefined) { dropSnapshot(); if (out) toast(out.skipped); return !!out || !!auto; }  // 一键整理里复核失败不影响后面的步骤
-    markFixed(before);
-    toast(`用画面复核了 ${out.checked} 句存疑句：确认 ${out.confirmed} 句（改了 ${out.fixed} 句，绿色下划线标出）${out.left ? `，还有 ${out.left} 句看不清，留给你回听` : ''}`, { ms: 9000 });
-    return true;
-  } catch (e) { fail(e); return !!auto; }
+  else toast('已截取。还没设置「看图」用的 AI，可以自己在下面写一句说明', { ms: 6000 });
 }
 function shotOf(el) { const k = el.closest('.shot'); return k && S.doc.frames[+k.dataset.k]; }
 function showLightbox(url) {
@@ -4034,13 +3989,11 @@ function bind() {
     try { openTermsFile(p, (await api('terms_view', { path: p })).uri); } catch (e) { fail(e); }
   };
   $('#btnDoubts').onclick = nextDoubt;
-  $('#btnFrames').onclick = () => { if (!S.job) findFrames(false); };
   $('#btnCapture').onclick = () => { if (!S.job) captureFrame(); };
   $('#btnSubShot').onclick = () => { if (!S.job) insertSubShot(); };
   $('#btnSubPrint').onclick = () => printSubs(false);
   $('#btnSubPdf').onclick = () => printSubs(true);
   $('#btnDescribe').onclick = () => { if (!S.job) describeFrames((S.doc.frames || []).filter(f => !f.note)); };
-  $('#btnRecheck').onclick = () => { if (!S.job) recheckDoubts(false); };
   const fb = $('#framesBox');
   fb.addEventListener('input', e => { const f = e.target.matches('[data-note]') && shotOf(e.target); if (f) { f.note = e.target.value; markDirty(); } });
   fb.addEventListener('change', e => { const f = e.target.matches('[data-fig]') && shotOf(e.target); if (f) { f.figure = e.target.checked; markDirty(); } });
