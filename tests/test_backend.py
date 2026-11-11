@@ -456,6 +456,125 @@ check('剪藏：字幕里裁剪过的截图另存「…__字幕裁剪.jpg」，�
 check('裁剪、改大小后媒体库提示「待更新剪藏」；没编辑过的指纹不变', docs.note_hash(dict(_ss_doc, fig_edits={'3': {'w': 360}})) != docs.note_hash(_ss_doc)
       and docs.note_hash(dict(_ss_doc, fig_edits={'3': {}})) == docs.note_hash(_ss_doc)
       and docs.note_hash(dict(_ss_doc, sub_shots=[{'t': 5.0, 'at': 4.0, 'crop': [0, 0, 0.5, 1]}, {'t': 1.0, 'at': -1}])) != docs.note_hash(_ss_doc))
+# 编辑截图：画标注、翻译、复制、保存（2026-11-11，照猛人截图；core/shotedit.py）
+from PIL import Image  # noqa: E402
+from core import ocr, ppocr, shotedit, youdao  # noqa: E402
+_W, _H = Image.open(_full_f).size
+check('标注数据：不合法的、空的当没编辑；不认识的条目丢掉；只镜像也算编辑', shotedit.norm_marks(None) is None and shotedit.norm_marks({'wh': [_W, _H], 'items': []}) is None
+      and shotedit.norm_marks({'wh': 'x', 'items': [{'k': 'pen', 'p': [[1, 1]]}]}) is None
+      and shotedit.norm_marks({'wh': [_W, _H], 'items': [{'k': 'bad'}, {'k': 'text', 't': '  '}, {'k': 'rect', 'p': [[1, 1]]}, {'k': 'pen', 'c': 'red', 'w': 3, 'p': [[1, 2]]}]})
+      == {'wh': [_W, _H], 'items': [{'k': 'pen', 'w': 3.0, 'p': [[1.0, 2.0]], 'c': '#ff3b30'}]}
+      and shotedit.norm_marks({'wh': [_W, _H], 'flip': 1, 'items': []}) == {'wh': [_W, _H], 'items': [], 'flip': True})
+_mk = {'wh': [_W, _H], 'items': [{'k': 'fill', 'c': '#00ff00', 'w': 1, 'p': [[0, 0], [_W * 0.3, _H * 0.3]]},
+                                 {'k': 'erase', 'w': 10, 'p': [[_W * 0.15, _H * 0.15]]},
+                                 {'k': 'text', 'c': '#0000ff', 's': 30, 'x': _W * 0.5, 'y': _H * 0.5, 't': '中文\n第二行'}]}
+_e_f = frames.grab(mp4, 3.0, marks=_mk)
+_e_img = Image.open(_e_f).convert('RGB')
+_orig = Image.open(_full_f).convert('RGB')
+_px = lambda im, x, y: im.getpixel((int(x), int(y)))  # noqa: E731
+_near = lambda a, b, d=40: all(abs(x - y) <= d for x, y in zip(a, b))  # noqa: E731
+check('画标注：另存「…_e指纹.jpg」，实心框是绿的、橡皮擦过的地方露出原图、原截图不变',
+      _e_f.name.startswith(_full_f.stem + '_e') and _e_f.parent == _full_f.parent and _near(_px(_e_img, _W * 0.05, _H * 0.25), (0, 255, 0))
+      and _near(_px(_e_img, _W * 0.15, _H * 0.15), _px(_orig, _W * 0.15, _H * 0.15)) and Image.open(_full_f).size == (_W, _H),
+      (_px(_e_img, _W * 0.05, _H * 0.25), _px(_e_img, _W * 0.15, _H * 0.15), _px(_orig, _W * 0.15, _H * 0.15)))
+_txt = [_e_img.getpixel((x, y)) for x in range(int(_W * 0.5), int(_W * 0.5 + 60)) for y in range(int(_H * 0.5), int(_H * 0.5 + 80))]
+check('画标注：文字画在左上角 (x, y) 往右下（有蓝色的字）', any(p[2] > 150 and p[0] < 90 and p[1] < 90 for p in _txt))
+_fl = shotedit.render_image(_full_f, {'wh': [_W, _H], 'flip': True, 'items': []}, [0.0, 0.0, 0.5, 1.0])
+check('镜像 + 裁剪：先左右翻转再裁（裁出来的是原图右半边翻过来）', _fl.size == (round(_W / 2), _H)
+      and _near(_px(_fl, 3, _H / 2), _px(_orig, _W - 4, _H / 2), 30), (_fl.size, _px(_fl, 3, _H / 2), _px(_orig, _W - 4, _H / 2)))
+_shot = lambda t, crop=None, marks=None: frames.grab(mp4, t, crop=crop, marks=marks)  # noqa: E731
+_placed2 = docs.place_figures('![[画面 00:03]]', [], _ed_dir, '编辑课', _shot, {'3': {'crop': [0, 0, 0.5, 0.5], 'marks': _mk, 'w': 300}})
+_ed_imgs2 = docs.sub_shot_images({'segments': _ss_segs, 'sub_shots': [{'t': 3.0, 'at': 0.0, 'marks': _mk}]}, _ed_dir, '编辑课', _shot)
+check('剪藏：画了标注的图另存「…__编辑.jpg」/「…__字幕编辑.jpg」（画好、裁好的），带宽度',
+      _placed2 == '![[image/编辑课__00-03__编辑.jpg|300]]' and _ed_imgs2 == {0: ['![[image/编辑课__00-03__字幕编辑.jpg]]']}
+      and abs(_dims(_ed_dir / 'image' / '编辑课__00-03__编辑.jpg')[0] - _fw / 2) <= 2
+      and _near(Image.open(_ed_dir / 'image' / '编辑课__00-03__字幕编辑.jpg').convert('RGB').getpixel((3, 3)), (0, 255, 0)), [_placed2, _ed_imgs2])
+_mk2 = dict(_mk, items=_mk['items'][:1])
+check('画了标注、改了标注：媒体库提示「待更新剪藏」', docs.note_hash(dict(_ss_doc, fig_edits={'3': {'marks': _mk}})) != docs.note_hash(_ss_doc)
+      and docs.note_hash(dict(_ss_doc, fig_edits={'3': {'marks': _mk}})) != docs.note_hash(dict(_ss_doc, fig_edits={'3': {'marks': _mk2}}))
+      and docs.note_hash(dict(_ss_doc, sub_shots=[{'t': 5.0, 'at': 4.0, 'marks': _mk}])) != docs.note_hash(dict(_ss_doc, sub_shots=[{'t': 5.0, 'at': 4.0}])))
+check('界面取编辑后的图：frame_url 带上标注', '_e' in api.call('frame_url', {'path': str(mp4), 't': 3.0, 'marks': _mk})['url'])
+_save_to = TMP / '另存的截图.png'
+_sv = api.call('shot_save', {'path': str(mp4), 't': 3.0, 'crop': [0, 0, 0.5, 0.5], 'marks': _mk, 'dest': str(_save_to)})
+check('另存为图片：画好、裁好的 PNG', _sv.get('path') == str(_save_to) and Image.open(_save_to).size == (round(_W / 2), round(_H / 2))
+      and _near(Image.open(_save_to).convert('RGB').getpixel((3, _H * 0.25)), (0, 255, 0)), _sv)
+# 认字后的段落合并（照猛人截图 text_blocks）
+_lines = [{'text': 'Writing with AI is', 'box': [100, 100, 400, 130]}, {'text': 'easy', 'box': [410, 102, 470, 130]},
+          {'text': 'and fast for everyone.', 'box': [100, 140, 430, 170]},
+          {'text': '1. First item', 'box': [100, 220, 300, 250]}, {'text': '2. Second item', 'box': [100, 260, 320, 290]},
+          {'text': '中文标题', 'box': [600, 40, 760, 80]}]
+_bl = shotedit.group_blocks(_lines)
+check('认字结果合并：同一行被拆开的接回去、相邻的行合成一段、列表每条单独一段（序号留着）',
+      [(b['prefix'], b['text']) for b in _bl] == [('', '中文标题'), ('', 'Writing with AI is easy and fast for everyone.'), ('1. ', 'First item'), ('2. ', 'Second item')], _bl)
+check('哪些段要翻译：外文翻，中文和夹着几个英文名的中文不翻', shotedit.is_foreign('Cut losses short') and not shotedit.is_foreign('中文标题')
+      and not shotedit.is_foreign('我们用 ChatGPT 来校对字幕'))
+_ov_img = Image.new('RGB', (800, 400), (250, 250, 240))
+_ov = shotedit.overlay_items(_ov_img, _bl[1:2], ['用人工智能写作对每个人来说都简单快捷，这是一句比较长的译文，要换行'])
+check('译文盖回原处：一个原底色的实心框盖住原文 + 换好行、在框里的中文',
+      [x['k'] for x in _ov] == ['fill', 'text'] and _ov[0]['c'] == '#fafaf0' and _ov[0]['p'] == [[98, 98], [472, 172]]
+      and '\n' in _ov[1]['t'] and _ov[1]['x'] > 98 and _ov[1]['s'] >= 9
+      and max(shotedit.font(_ov[1]['s']).getlength(ln) for ln in _ov[1]['t'].split('\n')) <= 472 - _ov[1]['x'] + 1, _ov)
+# 翻译：认字 + 有道 / AI（假的，不联网）
+_keep_ocr, _keep_yd_post, _keep_complete = shotedit.ocr_lines, youdao._post, llm.complete
+shotedit.ocr_lines = lambda img: [{'text': 'Cut losses short', 'box': [10, 10, 200, 40]}, {'text': '中文不用翻', 'box': [10, 300, 200, 330]}]
+_yd_sent = []
+
+
+def _fake_yd(s, url, data):
+    _yd_sent.append((url, data))
+    q = [v for k, v in data if k == 'q']
+    if s['providers']['youdao']['app_id'] == 'bad':
+        return {'errorCode': '202'}
+    return {'errorCode': '0', 'translateResults': [{'translation': '截断亏损（有道）'} for _ in q]}
+
+
+youdao._post = _fake_yd
+llm.complete = lambda s_, n_, msgs, json_mode=False: json.dumps({'译文': {k: '截断亏损（AI）' for k in json.loads(msgs[-1]['content'].split('\n', 1)[1])}}, ensure_ascii=False)
+_st = config.load()
+_tr_ai = shotedit.translate_items(dict(_st, shot_translate='auto'), _full_f, wh=[_W, _H])
+_st_yd = copy.deepcopy(_st); _st_yd['providers']['youdao'].update(app_id='appid1', key='secret1')
+_tr_yd = shotedit.translate_items(dict(_st_yd, shot_translate='auto'), _full_f, wh=[_W * 2, _H * 2])
+_sign_ok = dict(_yd_sent[0][1])['sign'] == youdao._sign('appid1', 'secret1', 'Cut losses short', dict(_yd_sent[0][1])['salt'], dict(_yd_sent[0][1])['curtime'])
+check('截图翻译：没填有道用 AI；填了有道先用有道（批量接口、v3 签名对），只翻外文那一段；坐标按界面给的大小换算',
+      _tr_ai['service'] != '有道翻译' and '截断亏损（AI）' in [x.get('t') for x in _tr_ai['items']] and _tr_ai['blocks'] == 1
+      and _tr_yd['service'] == '有道翻译' and '截断亏损（有道）' in [x.get('t') for x in _tr_yd['items']] and _sign_ok
+      and _yd_sent[0][0] == youdao.BATCH_ENDPOINT and _tr_yd['items'][0]['p'][1][0] == 404, [_tr_ai, _tr_yd])
+_st_bad = copy.deepcopy(_st_yd); _st_bad['providers']['youdao']['app_id'] = 'bad'
+_tr_fb = shotedit.translate_items(dict(_st_bad, shot_translate='auto'), _full_f)
+try:
+    shotedit.translate_items(dict(_st_bad, shot_translate='youdao'), _full_f)
+    _only_yd = ''
+except shotedit.ShotEditError as e:
+    _only_yd = str(e)
+check('有道出错：「自动」改用 AI；「只用有道」报出有道的原因（签名不对 → 检查密钥）', _tr_fb['service'] != '有道翻译' and '应用密钥' in _only_yd, _only_yd)
+shotedit.ocr_lines = lambda img: [{'text': '全是中文', 'box': [10, 10, 200, 40]}]
+try:
+    shotedit.translate_items(_st, _full_f)
+    _zh_err = ''
+except shotedit.ShotEditError as e:
+    _zh_err = str(e)
+check('图里只有中文：提示不用翻译', '已经是中文' in _zh_err, _zh_err)
+shotedit.ocr_lines, youdao._post, llm.complete = _keep_ocr, _keep_yd_post, _keep_complete
+_pub = config.public(_st_yd)['providers']['youdao']
+check('有道应用密钥和别的密钥一样只给界面看后四位', _pub['key'].startswith('••••') and _pub['app_id'] == 'appid1' and _pub['has_key'])
+# PP-OCRv6 认字小进程（真的跑一次：英文图）
+_en = Image.new('RGB', (900, 200), (255, 255, 255))
+from PIL import ImageDraw, ImageFont  # noqa: E402
+ImageDraw.Draw(_en).text((40, 60), 'Cut losses short and let profits run', font=ImageFont.truetype(r'C:\Windows\Fonts\arial.ttf', 40), fill=(0, 0, 0))
+_en_p = TMP / 'ocr-en.png'; _en.save(_en_p)
+_t0 = time.time()
+try:
+    _pp = ppocr.recognize(_en_p)
+except Exception as e:
+    _pp = [{'text': f'出错：{e}', 'box': [0, 0, 0, 0]}]
+check('PP-OCRv6 认字（单独的小进程）：英文认得对、带位置；结果文件用完删掉', ' '.join(x['text'] for x in _pp).replace(' ', '').lower() == 'cutlossesshortandletprofitsrun'
+      and _pp[0]['box'][0] < 60 and not _en_p.with_suffix('.json').exists(), [_pp, round(time.time() - _t0, 1)])
+_keep_rec, _keep_win = ppocr.recognize, shotedit.win_ocr_lines
+ppocr.recognize = lambda p, timeout=120: (_ for _ in ()).throw(RuntimeError('假装认字进程坏了'))
+shotedit.win_ocr_lines = lambda img: [{'text': 'windows', 'box': [0, 0, 1, 1]}]
+check('PP-OCRv6 出错时退回 Windows 自带认字，临时图片删掉', shotedit.ocr_lines(_en) == [{'text': 'windows', 'box': [0, 0, 1, 1]}]
+      and not list((ocr.OCR_DIR).glob('shot-*')))
+ppocr.recognize, shotedit.win_ocr_lines = _keep_rec, _keep_win
 # 课程重点里手动插的截图（2026-11-02）：重新生成时放回去
 _new = '一句话。\n\n## 一、甲\n\n- 甲 [00:10]\n  接着说 [00:12]\n- 乙 [01:00]\n\n| 项 | 时间 |\n|---|---|\n| 丙 | 02:00 |\n\n```\n03:00 代码里\n```\n\n## 二、丁\n\n- 丁 [05:00]'
 _old = '旧的\n\n![[画面 00:30]]\n\n![[画面 02:30]]\n\n![[画面 03:30]]\n\n![[画面 00:05]]\n\n![[画面 09:00]]'

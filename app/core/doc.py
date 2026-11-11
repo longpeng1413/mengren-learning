@@ -125,10 +125,13 @@ def note_hash(doc) -> str:
 
 
 def _shot_edit(x):
-    """截图编辑过的裁剪范围和显示宽度（2026-11-02）；没编辑过返回空列表。"""
+    """截图编辑过的裁剪范围和显示宽度（2026-11-02）；没编辑过返回空列表。
+    画了标注的（marks，2026-11-11）再加上标注的指纹（没画过的旧字幕文件指纹不变）。"""
     from .media import norm_crop, norm_width
-    crop, w = norm_crop(x.get('crop')), norm_width(x.get('w'))
-    return [crop, w] if crop or w else []
+    from .shotedit import marks_key, norm_marks
+    crop, w, marks = norm_crop(x.get('crop')), norm_width(x.get('w')), norm_marks(x.get('marks'))
+    out = [crop, w] if crop or w or marks else []
+    return out + [marks_key(None, marks)] if marks else out
 
 
 def _embed(name, w=None):
@@ -378,6 +381,7 @@ def sub_shot_images(doc, note_dir: Path, title, shot):
     → {挂在第几句后面: ['![[image/…]]']}；截图复制到笔记旁边的 image，文件名和课程重点的插图同一规则（同一时间只存一份）。
     裁剪过的（crop，2026-11-02）另存「…__字幕裁剪.jpg」、每次剪藏重写（范围可能改了）；设了宽度（w）写进图片链接。"""
     from .media import norm_crop
+    from .shotedit import norm_marks
     out = {}
     segs = doc.get('segments') or []  # 和 to_markdown 写字幕时用同一份，位置才对得上
     for x in sorted((x for x in doc.get('sub_shots') or [] if isinstance(x, dict)), key=lambda x: (float(x.get('at') or 0), float(x.get('t') or 0))):
@@ -386,12 +390,16 @@ def sub_shot_images(doc, note_dir: Path, title, shot):
             line = f'（画面 {fmt(t)}）'
         else:
             try:
-                crop = norm_crop(x.get('crop'))
-                name = f'{safe_name(title)}__{fmt(t).replace(":", "-")}' + ('__字幕裁剪' if crop else '') + '.jpg'
+                crop, marks = norm_crop(x.get('crop')), norm_marks(x.get('marks'))
+                tag = '__字幕编辑' if marks else '__字幕裁剪' if crop else ''
+                name = f'{safe_name(title)}__{fmt(t).replace(":", "-")}{tag}.jpg'
                 dest = note_dir / 'image' / name
-                if crop or not dest.exists():
+                if crop or marks or not dest.exists():
                     dest.parent.mkdir(parents=True, exist_ok=True)
-                    _small_copy(Path(shot(t)), dest, crop)
+                    if marks:  # 画了标注：用画好、裁好的图（2026-11-11）
+                        _small_copy(Path(shot(t, crop, marks)), dest)
+                    else:
+                        _small_copy(Path(shot(t)), dest, crop)
                 line = _embed(name, x.get('w'))
             except Exception:
                 line = f'（画面 {fmt(t)}，截图失败）'
@@ -837,8 +845,10 @@ def _redraw_block(f, t, note_dir: Path, title):
 def place_figures(summary, frames_list, note_dir: Path, title, shot, edits=None):
     """把课程重点里的 ![[画面 mm:ss]] 换成真正的图片：截图复制到笔记旁边的 image 文件夹；
     这张画面有 AI辅助理解图（redraw）的，放重画的图，不放看不清的截图。
-    edits（doc 的 fig_edits，2026-11-02）：{'秒数': {crop, w}}，用户在「编辑截图」里裁剪、改大小的：裁剪的另存「…__裁剪.jpg」，宽度写进图片链接。"""
+    edits（doc 的 fig_edits，2026-11-02）：{'秒数': {crop, w, marks}}，用户在「编辑截图」里裁剪、改大小的：裁剪的另存「…__裁剪.jpg」，
+    画了标注的（marks，2026-11-11）另存「…__编辑.jpg」（shot(t, crop, marks) 给画好的图），宽度写进图片链接。"""
     from .media import norm_crop
+    from .shotedit import norm_marks
     if not summary or not _FIG.search(summary):
         return summary
 
@@ -861,11 +871,17 @@ def place_figures(summary, frames_list, note_dir: Path, title, shot, edits=None)
             return f'（画面 {m.group(1)}，截图失败）'
         e = (edits or {}).get(str(t))
         e = e if isinstance(e, dict) else {}
-        crop = norm_crop(e.get('crop'))
-        name = f'{safe_name(title)}__{fmt(real_t).replace(":", "-")}' + ('__裁剪' if crop else '') + '.jpg'
+        crop, marks = norm_crop(e.get('crop')), norm_marks(e.get('marks'))
+        name = f'{safe_name(title)}__{fmt(real_t).replace(":", "-")}' + ('__编辑' if marks else '__裁剪' if crop else '') + '.jpg'
         dest = note_dir / 'image' / name
         dest.parent.mkdir(parents=True, exist_ok=True)
-        _small_copy(src, dest, crop)
+        if marks:  # 画了标注（2026-11-11）：用画好、裁好的图
+            try:
+                _small_copy(Path(shot(real_t, crop, marks)), dest)
+            except Exception:
+                return f'（画面 {m.group(1)}，截图失败）'
+        else:
+            _small_copy(src, dest, crop)
         return _embed(name, e.get('w'))
     return _FIG.sub(repl, summary)
 

@@ -12,7 +12,7 @@ import time
 import uuid
 from pathlib import Path
 
-from core import asr, bgqueue, book, cache, chatgpt_auth, codex_auth, config, distill, doc as docs, frames, glossary, jobs, library, llm, local_asr, media, mentor, ocr, roundtable, tasks, tts, workflow
+from core import asr, bgqueue, book, cache, chatgpt_auth, codex_auth, config, distill, doc as docs, frames, glossary, jobs, library, llm, local_asr, media, mentor, ocr, roundtable, shotedit, tasks, tts, workflow, youdao
 from core.log import LOG_DIR, log
 
 MEDIA_FILTER = ('音视频和文档 (*.mp4;*.m4v;*.mov;*.mkv;*.webm;*.avi;*.flv;*.ts;*.wmv;*.3gp;*.mpg;*.mpeg;'
@@ -615,6 +615,8 @@ class Api:
         if b.get('kind') == 'chat':
             reply = llm.complete(s, name, [{'role': 'user', 'content': '只回复两个字：你好'}])
             return {'message': '连接正常：' + reply.strip()[:20]}
+        if name == 'youdao':
+            return {'message': '连接正常：Good morning → ' + youdao.translate_many(s, ['Good morning'])[0]}
         return {'message': asr.test_provider(s, name)}
 
     # -------------------------------------------------------- 导出与剪藏 ----
@@ -643,7 +645,7 @@ class Api:
                 series = f.get('name') or Path(f['path']).name
         mp = d.get('media') or ''
         boundary = docs.source_boundary(d, media.tail_problem(mp) if mp and os.path.isfile(mp) else '')
-        shot = (lambda t: frames.grab(mp, t)) if mp and os.path.isfile(mp) else None
+        shot = (lambda t, crop=None, marks=None: frames.grab(mp, t, crop=crop, marks=marks)) if mp and os.path.isfile(mp) else None
         return docs.clip(d, ob.get('vault'), ob.get('folder'), teacher, series, ob.get('teacher_subfolder', True),
                          ob.get('name_pattern') or '{title}', boundary, shot, bool(b.get('force')))
 
@@ -829,7 +831,50 @@ class Api:
         path = b.get('path')
         if not path or not os.path.isfile(path):
             raise ValueError('视频文件不见了')
-        return {'url': file_url(frames.grab(path, float(b.get('t') or 0), small=bool(b.get('small')), crop=b.get('crop')))}
+        return {'url': file_url(frames.grab(path, float(b.get('t') or 0), small=bool(b.get('small')), crop=b.get('crop'), marks=b.get('marks')))}
+
+    # 截图编辑（2026-11-11，core/shotedit.py）：翻译、复制、保存。界面传 path（视频）、t（截图时间）、crop、marks
+    def _shot_src(self, b):
+        path = b.get('path')
+        if not path or not os.path.isfile(path):
+            raise ValueError('视频文件不见了')
+        return path, float(b.get('t') or 0)
+
+    def _shot_image(self, b):
+        path, t = self._shot_src(b)
+        return shotedit.render_image(frames.grab(path, t), shotedit.norm_marks(b.get('marks')), media.norm_crop(b.get('crop')))
+
+    def do_shot_translate(self, b):
+        """认出截图里的外文、翻成中文，返回盖在原处的标注（界面放进编辑里，可以撤销、拖动、改字）。"""
+        path, t = self._shot_src(b)
+        try:
+            return shotedit.translate_items(config.load(), frames.grab(path, t), flip=bool(b.get('flip')),
+                                            crop=media.norm_crop(b.get('crop')), wh=b.get('wh'))
+        except shotedit.ShotEditError as e:
+            raise ValueError(str(e))
+
+    def do_shot_copy(self, b):
+        shotedit.copy_to_clipboard(self._shot_image(b))
+        return {}
+
+    def do_shot_save(self, b):
+        """另存为图片（PNG 原画质 / JPG 小一些），不弹窗时用 b['dest']（自测用）。"""
+        import webview
+        dest = b.get('dest')
+        if not dest:
+            name = re.sub(r'[\\/:*?"<>|]+', '_', str(b.get('name') or '截图'))[:80] + '.png'
+            r = self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename=name, file_types=('PNG 图片 (*.png)', 'JPG 图片 (*.jpg)'))
+            if not r:
+                return {'path': None}
+            dest = r if isinstance(r, str) else r[0]
+        if not dest.lower().endswith(('.png', '.jpg', '.jpeg')):
+            dest += '.png'
+        img = self._shot_image(b)
+        if dest.lower().endswith('.png'):
+            img.save(dest, 'PNG')
+        else:
+            img.save(dest, 'JPEG', quality=92)
+        return {'path': dest}
 
     def do_models(self, b):
         name = b.get('provider')

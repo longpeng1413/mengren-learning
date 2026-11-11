@@ -479,13 +479,44 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .fig-tools button:hover { border-color: var(--accent-line); color: var(--accent); }
 .fig-tools button[data-sf="del"]:hover { color: var(--danger); border-color: var(--danger); }
 /* 编辑截图：裁剪、调整大小（2026-11-02） */
-.shot-edit-dlg { max-width: 96vw; }
-.se-tip { margin: -8px 0 10px; }
-.se-wrap { display: flex; justify-content: center; background: #000; border-radius: 8px; padding: 8px; }
-.se-stage { position: relative; display: inline-block; user-select: none; touch-action: none; cursor: crosshair; overflow: hidden; }
-.se-stage img { display: block; max-width: min(82vw, 960px); max-height: 60vh; min-width: 200px; min-height: 120px; }
-.se-box { position: absolute; box-shadow: 0 0 0 9999px rgba(0,0,0,.6); outline: 2px solid var(--accent); cursor: move; }
-.se-box i { position: absolute; width: 12px; height: 12px; background: var(--accent); border: 2px solid #fff; border-radius: 3px; box-sizing: border-box; }
+/* 编辑截图（2026-11-11，照猛人截图；shotedit.js）：按钮做小（用户：按钮大了图上空间不够），图尽量占满窗口；
+   工具栏在图片下面那一行正中间（同一天用户要求），左边恢复原图和提示，右边取消、完成 */
+.shot-edit-dlg { max-width: 98vw; max-height: 98vh; padding: 8px 10px 10px; min-width: 0; overflow: hidden; }
+.se-bar { display: flex; align-items: center; justify-content: center; gap: 2px; flex-wrap: wrap; }
+.se-bar button { width: 26px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text); cursor: pointer; }
+.se-bar button svg { width: 16px; height: 16px; }
+.se-bar button:hover:not(:disabled) { background: var(--hover); border-color: var(--line); }
+.se-bar button.on { background: var(--accent-weak); border-color: var(--accent); color: var(--accent); }
+.se-bar button:disabled { opacity: .4; cursor: default; }
+.se-bar button.busy { animation: sePulse 1s infinite; }
+@keyframes sePulse { 50% { opacity: .35; } }
+.se-sep { width: 1px; height: 16px; background: var(--line); margin: 0 4px; }
+.se-swatch { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--line); display: block; }
+.se-info { font-size: 12px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.se-info:empty::before { content: attr(data-tip); }
+.se-info.bad { color: var(--danger); }
+.se-pop { position: absolute; z-index: 5; padding: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 2px; min-width: 120px; }
+.se-pop button { height: 26px; padding: 0 10px; text-align: left; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--text); cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.se-pop button:hover { background: var(--hover); }
+.se-pop button.on { border-color: var(--accent); color: var(--accent); }
+.se-pop .se-colors { display: grid; grid-template-columns: repeat(5, 22px); gap: 6px; padding: 4px; }
+.se-pop .se-colors button { width: 22px; height: 22px; padding: 0; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--line); }
+.se-pop .se-colors button.on { box-shadow: 0 0 0 2px var(--accent); }
+.se-pop label { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; padding: 2px 4px; }
+.se-pop input[type=color] { width: 36px; height: 22px; border: none; background: none; padding: 0; }
+.se-wrap { display: flex; justify-content: center; align-items: center; background: #000; border-radius: 6px; padding: 6px; overflow: auto; }
+.se-stage { position: relative; display: inline-block; user-select: none; touch-action: none; overflow: hidden; line-height: 0; }
+.se-stage canvas { display: block; }
+.se-stage[data-tool="crop"], .se-stage[data-tool="pen"], .se-stage[data-tool="arrow"], .se-stage[data-tool="line"], .se-stage[data-tool="ellipse"], .se-stage[data-tool="rect"], .se-stage[data-tool="fill"] { cursor: crosshair; }
+.se-stage[data-tool="text"] { cursor: text; }
+.se-stage[data-tool="erase"] { cursor: cell; }
+.se-stage.over-text { cursor: move; }
+.se-box { position: absolute; box-shadow: 0 0 0 9999px rgba(0,0,0,.6); outline: 2px solid var(--accent); pointer-events: none; }
+.se-box.full { box-shadow: none; outline: none; }
+.se-box i { position: absolute; width: 12px; height: 12px; background: var(--accent); border: 2px solid #fff; border-radius: 3px; box-sizing: border-box; display: none; pointer-events: auto; }
+.se-stage[data-tool="crop"] .se-box { pointer-events: auto; cursor: move; outline: 2px solid var(--accent); }
+.se-stage[data-tool="crop"] .se-box.full { outline-style: dashed; }
+.se-stage[data-tool="crop"] .se-box i { display: block; }
 .se-box i[data-h="nw"] { left: -7px; top: -7px; cursor: nwse-resize; }
 .se-box i[data-h="n"] { left: calc(50% - 6px); top: -7px; cursor: ns-resize; }
 .se-box i[data-h="ne"] { right: -7px; top: -7px; cursor: nesw-resize; }
@@ -494,6 +525,11 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .se-box i[data-h="s"] { left: calc(50% - 6px); bottom: -7px; cursor: ns-resize; }
 .se-box i[data-h="sw"] { left: -7px; bottom: -7px; cursor: nesw-resize; }
 .se-box i[data-h="w"] { left: -7px; top: calc(50% - 6px); cursor: ew-resize; }
+.se-text { position: absolute; z-index: 3; margin: 0; padding: 0; border: 1px dashed #2da9ff; background: rgba(255,255,255,.84); outline: none; resize: none; overflow: hidden; white-space: pre; font-family: "Microsoft YaHei", sans-serif; line-height: 1.3; min-width: 1em; caret-color: currentColor; }
+.se-foot { margin-top: 8px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; }
+.se-foot-l { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.se-foot-r { display: flex; justify-content: flex-end; gap: 8px; }
+@media (max-width: 960px) { .se-foot { grid-template-columns: 1fr auto; } .se-bar { grid-column: 1 / -1; grid-row: 1; } }
 /* 检查更新（2026-11-02） */
 .update-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .update-notes { margin: 0 0 10px; font-size: 13px; }

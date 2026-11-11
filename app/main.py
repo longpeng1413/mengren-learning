@@ -9,6 +9,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+if len(sys.argv) >= 4 and sys.argv[1] == '--ocr-worker':  # 截图认字的小进程（core/ppocr.py）：不开窗口、不读设置，认完就退出
+    from core import ppocr
+    sys.exit(ppocr.worker(sys.argv[2], sys.argv[3]))
+
 from core import config  # noqa: E402
 from core.log import dump_threads, log, setup as setup_log  # noqa: E402
 
@@ -19,7 +23,7 @@ from webview.dom import _dnd_state  # noqa: E402
 
 from bridge import Api  # noqa: E402
 
-VERSION = '1.13.0'
+VERSION = '1.14.0'
 
 
 _instance = None  # 保持互斥锁的句柄，进程退出时自动释放

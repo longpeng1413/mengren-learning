@@ -3,7 +3,7 @@
 import json
 import time
 
-from . import asr, book, distill, llm
+from . import asr, book, distill, llm, shotedit
 
 
 def _payload(messages):
@@ -40,6 +40,8 @@ def complete(settings, name, messages, json_mode=False):
         return json.dumps({'译文': {k: '中文：' + v for k, v in _payload(messages).items()}}, ensure_ascii=False)
     if system == llm.REVIEW_SYSTEM:
         return json.dumps({'补充': [{'放在': '假 AI 的小节', '内容': '- 查漏补上的一条 [00:05]'}]}, ensure_ascii=False)
+    if system == shotedit.SHOT_TRANSLATE_SYSTEM:  # 截图翻译
+        return json.dumps({'译文': {k: '假的中文译文' for k in _payload(messages)}}, ensure_ascii=False)
     if system == llm.TERMS_SYSTEM:
         return json.dumps({'新术语': [{'术语': '假AI新术语', '时间': '00:01', '原话': '假 AI'}], '识别错误': []}, ensure_ascii=False)
     return '{}'
@@ -83,7 +85,14 @@ def stream(settings, name, messages, cancel=None, json_mode=False):
         yield piece
 
 
+def ocr_lines(img):
+    """截图认字：不跑真的认字，假装图中间有一行英文。"""
+    w, h = img.size
+    return [{'text': 'Cut losses short and let profits run', 'box': [int(w * 0.2), int(h * 0.45), int(w * 0.8), int(h * 0.55)]}]
+
+
 def install():
+    shotedit.ocr_lines = ocr_lines
     asr.recognise = recognise
     llm.complete = complete
     llm.stream = stream

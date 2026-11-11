@@ -131,7 +131,10 @@ DEFAULTS = {
         'doubao': {'key': '', 'app_id': '', 'access_token': '', 'name': '', 'more_keys': [], 'spent': {},
                    'base_url': 'https://openspeech.bytedance.com/api/v3',
                    'model': 'stream2', 'pick': '', 'pick_account': '', 'enable_ddc': False, 'stream_speed': 8, 'use_proxy': False},
+        # 有道智云文本翻译（2026-11-11，截图编辑的「翻译」用，和猛人截图同一个接口）：app_id = 应用ID，key = 应用密钥
+        'youdao': {'app_id': '', 'key': '', 'use_proxy': False},
     },
+    'shot_translate': 'auto',  # 截图翻译用哪个：auto 填了有道就先用有道、出错再用 AI / youdao 只用有道 / ai 只用「翻译」那一项的 AI
     'proxy': '',
     'asr_en': 'openai',
     'asr_zh': 'local',  # 2026-11-10 用户定：默认本机识别（免费，不丢句首的字、断句好），术语多的文件夹（峰级）在媒体库里设成豆包
@@ -192,7 +195,7 @@ DEFAULTS = {
 
 PROVIDER_NAMES = {'chatgpt': 'ChatGPT（官方登录）', 'codex': 'ChatGPT（旧登录方式）', 'claude': 'Claude', 'gemini': 'Gemini', 'deepseek': 'DeepSeek',
                   'ark': '豆包大模型（火山方舟）', 'siliconflow': '硅基流动', 'openai': 'OpenAI', 'doubao': '豆包语音（火山引擎）',
-                  'local': '本机识别（免费）'}
+                  'local': '本机识别（免费）', 'youdao': '有道翻译'}
 _lock = threading.Lock()
 
 

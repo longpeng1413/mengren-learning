@@ -515,20 +515,15 @@
   </form>
 </dialog>
 
-<!-- 编辑截图：裁剪、调整大小（字幕栏和课程重点里插的截图） -->
+<!-- 编辑截图（2026-11-11 起，照猛人截图：裁剪、镜像、绘图、文字、橡皮、撤销、翻译、复制、保存；代码在 shotedit.js） -->
 <dialog id="dlgShotEdit" class="dialog shot-edit-dlg">
-  <form method="dialog">
-    <h2>裁剪截图</h2>
-    <p class="muted small-text se-tip">在图上拖出要留下的部分；拖框里面可以移动，拖四角和四边可以调整。原截图不会被改，随时可以点「整张」恢复。</p>
-    <div class="se-wrap"><div class="se-stage" id="seStage"><img id="seImg" alt="" draggable="false"><div class="se-box" id="seBox"><i data-h="nw"></i><i data-h="n"></i><i data-h="ne"></i><i data-h="e"></i><i data-h="se"></i><i data-h="s"></i><i data-h="sw"></i><i data-h="w"></i></div></div></div>
-    <div class="dialog-btns">
-      <button type="button" class="btn" id="seFull" title="不裁剪，用整张截图">整张（不裁剪）</button>
-      <span class="muted small-text" id="seInfo"></span>
-      <span class="grow"></span>
-      <button value="cancel" class="btn">取消</button>
-      <button value="ok" class="btn primary" id="seOk">确定</button>
-    </div>
-  </form>
+  <div class="se-pop" id="sePop" hidden></div>
+  <div class="se-wrap" id="seWrap"><div class="se-stage" id="seStage"><canvas id="seCanvas"></canvas><div class="se-box" id="seBox"><i data-h="nw"></i><i data-h="n"></i><i data-h="ne"></i><i data-h="e"></i><i data-h="se"></i><i data-h="s"></i><i data-h="sw"></i><i data-h="w"></i></div><textarea id="seText" class="se-text" rows="1" spellcheck="false" hidden></textarea></div></div>
+  <div class="se-foot">
+    <div class="se-foot-l"><button type="button" class="btn small" id="seReset" title="去掉所有裁剪、镜像和标注（可以撤销）">恢复原图</button><span class="se-info" id="seInfo" data-tip="右键撤销，Ctrl+右键恢复；原截图不会被改"></span></div>
+    <div class="se-bar" id="seBar"><button type="button" data-tool="crop" title="裁剪：拖出要留下的部分"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg></button><button type="button" data-act="mirror" title="左右镜像"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M8 7 3 12l5 5V7z"/><path d="m16 7 5 5-5 5V7z"/></svg></button><i class="se-sep"></i><button type="button" data-tool="pen" title="画笔"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button><button type="button" data-tool="arrow" title="箭头"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19 19 5"/><path d="M9 5h10v10"/></svg></button><button type="button" data-tool="line" title="直线"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19 19 5"/></svg></button><button type="button" data-tool="ellipse" title="圆形"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="12" rx="9" ry="7"/></svg></button><button type="button" data-tool="rect" title="方框"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="1"/></svg></button><button type="button" data-tool="fill" title="实心框（可以遮住不想要的地方）"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="1" fill="currentColor"/></svg></button><button type="button" data-tool="text" title="文字"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V5h16v2"/><path d="M12 5v14"/><path d="M9 19h6"/></svg></button><button type="button" data-tool="erase" title="橡皮：擦掉画上去的东西"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3a1 1 0 0 1 0-1.4l10-10a1 1 0 0 1 1.4 0l5.6 5.6a1 1 0 0 1 0 1.4L11 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg></button><i class="se-sep"></i><button type="button" data-menu="width" title="线条粗细"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16" stroke-width="1"/><path d="M4 12h16" stroke-width="2.5"/><path d="M4 18h16" stroke-width="4"/></svg></button><button type="button" data-menu="size" title="文字大小"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5h10v2"/><path d="M8 5v14"/><path d="M14 13v-1h7v1"/><path d="M17.5 12v7"/></svg></button><button type="button" data-menu="color" title="颜色"><i class="se-swatch" id="seSwatch"></i></button><i class="se-sep"></i><button type="button" data-act="undo" title="撤销"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button><button type="button" data-act="redo" title="恢复"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg></button><button type="button" data-act="clear" title="清除全部标注"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg></button><i class="se-sep"></i><button type="button" data-act="translate" title="把图里的外文翻译成中文"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg></button><button type="button" data-act="copy" title="复制图片"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><button type="button" data-act="save" title="另存为图片"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg></button></div>
+    <div class="se-foot-r"><button type="button" class="btn" id="seCancel">取消</button><button type="button" class="btn primary" id="seOk">完成</button></div>
+  </div>
 </dialog>
 
 <!-- 翻译 -->
@@ -694,7 +689,7 @@
         <p class="muted">鼠标移到这一句上才出现，都能撤销。按钮放在每句右边留出的空白里，不挡字；排成一排还是 2×2 方块，在字幕栏上方「Aa」文字设置的「按钮」里选。</p>
         <div class="help-btns" data-tpl="cue"></div>
         <h4>插进字幕的截图</h4>
-        <p>图下面「上移 / 下移」挪到上一句 / 下一句后面（断句不准时用），「裁剪」只留需要的那一块，「大小」调显示多大，「删除」去掉这张图（裁剪、大小的用法见<a class="help-go" data-go="area-sum">课程重点区</a>最后）。剪藏时截图放进笔记的「完整字幕」。</p>
+        <p>图下面「上移 / 下移」挪到上一句 / 下一句后面（断句不准时用），「编辑」裁剪、画箭头方框、写字、翻译、复制、保存，「大小」调显示多大，「删除」去掉这张图（编辑、大小的用法见<a class="help-go" data-go="area-sum">课程重点区</a>最后）。剪藏时截图放进笔记的「完整字幕」。</p>
       </section>
 
       <section data-h="area-sum" hidden>
@@ -740,10 +735,19 @@
           <li>下面的快捷问题：概括要点、解释难点、出复习题、整理方法、找识别错误。</li>
         </ul>
 
-        <h4>截图的裁剪和大小</h4>
+        <h4>截图的编辑和大小</h4>
         <p class="muted">课程重点和字幕栏里插的截图下面都有。</p>
         <ul>
-          <li><b>✂ 裁剪</b>：在截图上拖出要留下的部分（框还是整张时直接拖就是画框；画好后拖框里面移动，拖四角、四边调整），「整张（不裁剪）」恢复。原截图不会被改。</li>
+          <li><b>✏ 编辑</b>（和猛人截图的编辑一样）：上面一排小按钮依次是裁剪、镜像、画笔、箭头、直线、圆形、方框、实心框（遮住不想要的地方）、文字、橡皮、粗细、字号、颜色、撤销、恢复、清除、翻译、复制、保存。原截图不会被改，画的东西以后还能接着改，「恢复原图」全部去掉。
+            <ul>
+              <li><b>裁剪</b>：选「裁剪」后在图上拖出要留下的部分；拖框里面移动，拖四角、四边调整。裁掉的部分变暗，换别的工具时还能看到、还能在上面画。</li>
+              <li><b>文字</b>：选「文字」后单击图片，直接输入；Enter 写完（Shift+Enter 换行），Esc 取消。写好的文字可以按住拖动；单击修改；选中（蓝色虚线框）后再选颜色、字号，直接改这段字；把字删光等于删掉。</li>
+              <li><b>橡皮</b>只擦画上去的东西，不擦截图本身；碰到文字擦掉整段。</li>
+              <li><b>翻译</b>：先在本机认出图里的字（PP-OCRv6），再把外文段落翻成中文，用原来的底色盖在原处；盖上去的中文和普通文字一样能拖动、修改、撤销。设置「有道翻译」里填了应用ID 和密钥时先用有道（快），出错再用「每项 AI 工作」里「翻译」那一项的 AI。</li>
+              <li><b>复制 / 保存</b>：把编辑好的图复制到剪贴板（可以直接粘贴到微信、Word、Obsidian），或另存为 PNG / JPG。</li>
+              <li>点「完成」后，软件里、打印出来、剪藏到 Obsidian 的都是编辑好的图。</li>
+            </ul>
+          </li>
           <li><b>⇲ 大小</b>：拖滑块调这张图显示多宽，图马上跟着变，不用点确定；也可以点「小 / 中 / 大 / 自动」；「这节课的图都用这个大小」把这节课所有截图改成一样大。软件里、打印出来、剪藏的笔记里都是这个大小。</li>
         </ul>
       </section>
@@ -959,6 +963,16 @@
           <tr><td>Tab / Shift + Tab</td><td>缩进 / 取消缩进（鼠标停在某一条上直接按也行）</td></tr>
           <tr><td>Esc</td><td>取消这次修改</td></tr>
         </table>
+        <h4>编辑截图（和猛人截图一样）</h4>
+        <table class="help-keys">
+          <tr><td>右键</td><td>撤销上一笔 / 上一步</td></tr>
+          <tr><td>Ctrl + 右键</td><td>恢复刚撤销的</td></tr>
+          <tr><td>Ctrl + Z / Ctrl + Y</td><td>撤销 / 恢复（Ctrl + Shift + Z 也是恢复）</td></tr>
+          <tr><td>Delete</td><td>删掉选中的文字；没选中文字时清除全部标注（可以撤销）</td></tr>
+          <tr><td>Enter / Shift + Enter</td><td>写字时：写完 / 换行</td></tr>
+          <tr><td>Esc</td><td>写字时取消这段字；不在写字时关掉编辑窗口（改过会先问）</td></tr>
+          <tr><td>Ctrl + C / Ctrl + S</td><td>复制图片 / 另存为图片</td></tr>
+        </table>
         <h4>到处都能用</h4>
         <table class="help-keys">
           <tr><td>Ctrl + Z</td><td>撤销：字幕的拆分、合并、删除、AI 校对，课程重点的每一步修改（先撤销最后改的那一边）</td></tr>
@@ -1023,6 +1037,7 @@
       <button data-sec="gemini">Gemini</button>
       <button data-sec="deepseek">DeepSeek</button>
       <button data-sec="ark">豆包大模型</button>
+      <button data-sec="youdao">有道翻译</button>
       <button data-sec="net">网络代理</button>
     </aside>
     <div class="settings-body" id="settingsBody">
@@ -1225,6 +1240,19 @@
         <div class="test-row"><button class="btn small" data-test="ark" data-kind="chat">测试连接</button><span class="test-result"></span></div>
       </section>
 
+      <section data-sec="youdao" hidden>
+        <h3>有道翻译（截图翻译用）</h3>
+        <p class="hint">编辑截图时的「翻译」：先在本机认出图里的字，再交给有道或 AI 翻成中文。有道很快（一般 1 秒内），和猛人截图用的是同一个有道智云接口：到 ai.youdao.com 创建应用、开通「文本翻译」，把应用ID 和应用密钥填在这里（和猛人截图里填的一样）。</p>
+        <div class="grid2">
+          <div class="field"><div class="label">应用ID</div><input data-k="providers.youdao.app_id" placeholder="应用ID（不是 APIKey）"></div>
+          <div class="field"><div class="label">应用密钥</div><div class="key-row"><input data-k="providers.youdao.key" data-secret placeholder="应用密钥"><button class="btn small" data-clear="providers.youdao.key">清除</button></div></div>
+        </div>
+        <div class="field"><div class="label">截图翻译用</div>
+          <select data-k="shot_translate"><option value="auto">自动：填了有道就先用有道，出错再用 AI</option><option value="youdao">只用有道</option><option value="ai">只用 AI（「每项 AI 工作」里「翻译」那一项）</option></select></div>
+        <div class="field"><label class="check"><input type="checkbox" data-k="providers.youdao.use_proxy"> 有道也走代理（一般不用：有道在国内，直连最快）</label></div>
+        <div class="test-row"><button class="btn small" data-test="youdao" data-kind="translate">测试连接</button><span class="test-result"></span></div>
+      </section>
+
       <section data-sec="net" hidden>
         <h3>网络代理</h3>
         <div class="field"><div class="label">代理地址</div><input data-k="proxy" placeholder="例如 http://127.0.0.1:7897（Clash Verge 默认端口）"><div class="hint">只给勾选了「通过网络代理连接」的服务用。默认 ChatGPT、OpenAI、Claude、Gemini 走代理。</div></div>
@@ -1284,6 +1312,7 @@
 <div class="ctx-menu" id="ctxMenu" hidden></div>
 <div class="toasts" id="toasts"></div>
 <script src="app.js"></script>
+<script src="shotedit.js"></script>
 <script src="tts.js"></script>
 <script src="mentor.js"></script>
 <script src="round.js"></script>

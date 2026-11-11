@@ -26,10 +26,22 @@ def frame_file(path, t, small=False) -> Path:
     return frames_dir(path) / (f'{int(round(float(t) * 1000)):09d}' + ('_s' if small else '') + '.jpg')
 
 
-def grab(path, t, small=False, crop=None) -> Path:
+def grab(path, t, small=False, crop=None, marks=None) -> Path:
     """截一张图（已经截过就直接用）。small=True 时截 640 宽的小图。
-    crop：用户在「编辑截图」里框的范围（media.norm_crop），从整张截图裁出来另存一张（同一个缓存文件夹，一起按 30 天清理）。"""
+    crop：用户在「编辑截图」里框的范围（media.norm_crop），从整张截图裁出来另存一张（同一个缓存文件夹，一起按 30 天清理）。
+    marks：编辑截图时画的标注（2026-11-11，shotedit.norm_marks）：画到整张截图上再裁剪，另存「…_e指纹.jpg」（同一个缓存文件夹）。"""
     crop = norm_crop(crop) if crop else None
+    from .shotedit import marks_key, norm_marks, render_file
+    marks = norm_marks(marks) if marks else None
+    if marks:
+        src = grab(path, t)
+        out = src.with_name(src.stem + '_e' + marks_key(crop, marks) + '.jpg')
+        if out.is_file() and out.stat().st_size > 0:
+            return out
+        try:
+            return render_file(src, out, marks, crop)
+        except Exception as e:
+            raise MediaError(f'画标注失败：{e}')
     if crop:
         src = grab(path, t)
         out = src.with_name(src.stem + '_c' + hashlib.sha1(json.dumps(crop).encode()).hexdigest()[:8] + '.jpg')

@@ -1307,7 +1307,7 @@ function placeSubShots(old) {
   [...(old || $$('.sub-shot', inner))].forEach(el => { el.remove(); if (el.dataset.key && !pool.has(el.dataset.key)) pool.set(el.dataset.key, el); });
   const shots = (S.doc && S.doc.sub_shots) || [];
   shots.map((x, k) => ({ x, k, i: findIndex(x.at) })).sort((a, b) => a.i - b.i || a.x.t - b.x.t).forEach(({ x, k, i }) => {
-    const key = `${S.path}|${x.t}|${x.crop ? x.crop.join(',') : ''}`;  // 带上课程路径：换课时不会拿上一节课同一时间的图
+    const key = `${S.path}|${x.t}|${x.crop ? x.crop.join(',') : ''}|${marksKey(x.marks)}`;  // 带上课程路径：换课时不会拿上一节课同一时间的图
     let el = pool.get(key);
     if (el) pool.delete(key);
     else {
@@ -1316,11 +1316,11 @@ function placeSubShots(old) {
       <img alt="" title="点击看大图">
       <div class="sub-shot-bar"><a class="tslink" data-t="${x.t}">[${fmt(x.t)}]</a> 截图
         <span class="grow"></span>
-        <button data-ss="up" title="挪到上一句后面">↑ 上移</button><button data-ss="down" title="挪到下一句后面">↓ 下移</button><button data-ss="crop" title="裁剪">✂ 裁剪</button><button data-ss="size" title="调整大小">⇲ 大小</button><button data-ss="del" title="删掉这张截图">删除</button></div>
+        <button data-ss="up" title="挪到上一句后面">↑ 上移</button><button data-ss="down" title="挪到下一句后面">↓ 下移</button><button data-ss="edit" title="编辑截图：裁剪、画箭头方框、写字、翻译、复制、保存">✏ 编辑</button><button data-ss="size" title="调整大小">⇲ 大小</button><button data-ss="del" title="删掉这张截图">删除</button></div>
     </div>`;
       el = tpl.content.firstElementChild;
       const img = $('img', el);
-      frameUrl(x.t, false, x.crop).then(u => { if (u && img) img.src = u; });
+      frameUrl(x.t, false, x.crop, x.marks).then(u => { if (u && img) img.src = u; });
     }
     el.dataset.sk = k;
     el.classList.toggle('sized', !!x.w); el.style.maxWidth = x.w ? `${x.w + 2}px` : '';
@@ -1358,7 +1358,7 @@ function insertSubShot() {
 }
 function moveSubShot(k, act) {
   const x = (S.doc.sub_shots || [])[k], segs = S.doc.segments; if (!x) return;
-  if (act === 'crop') return openShotEdit(x.t, x.crop).then(r => { if (r) { setShotProp(x, 'crop', r.crop); placeSubShots(); markDirty(); } });
+  if (act === 'edit') return openShotEdit(x.t, x).then(r => { if (r) { setShotProp(x, 'crop', r.crop); setShotProp(x, 'marks', r.marks); placeSubShots(); markDirty(); } });
   if (act === 'del') {
     if (!confirm('删掉这张截图？')) return;
     S.doc.sub_shots.splice(k, 1);
@@ -2319,9 +2319,9 @@ async function doClip() {
 /* -------------------------------------------------------------- 画面 ---- */
 /* 截图：字幕栏、课程重点的「插入截图」，以前留下的插图（frames，含 AI辅助理解图 redraw）照常显示。
    2026-11-11 起没有「画面」页了（截取当前画面、补写说明、AI 重画都去掉，用户定）；课程重点里的 ![[画面 mm:ss]] 剪藏时换成图片 */
-function frameUrl(t, small, crop) {
-  const key = `${S.path}|${t}|${small ? 's' : ''}|${crop ? crop.join(',') : ''}`;
-  if (!S.frameUrls[key]) S.frameUrls[key] = api('frame_url', { path: S.path, t, small, crop: crop || null }).then(r => r.url).catch(() => { delete S.frameUrls[key]; return ''; });
+function frameUrl(t, small, crop, marks) {  // marks：编辑截图时画的标注（2026-11-11，见 shotedit.js），后台画好再给图
+  const key = `${S.path}|${t}|${small ? 's' : ''}|${crop ? crop.join(',') : ''}|${marksKey(marks)}`;
+  if (!S.frameUrls[key]) S.frameUrls[key] = api('frame_url', { path: S.path, t, small, crop: crop || null, marks: marks || null }).then(r => r.url).catch(() => { delete S.frameUrls[key]; return ''; });
   return S.frameUrls[key];
 }
 /* 课程重点里 ![[画面 mm:ss]] 实际用哪张画面：3 秒内有挑出来的画面就用它（和剪藏时 doc.place_figures 一样） */
@@ -2343,75 +2343,17 @@ function hydrateFigures(root) {
       fig.querySelector('figcaption').insertAdjacentHTML('beforeend', `　<b>${REDRAW_LABEL}</b>${shot.redraw.kind === 'mermaid' ? '（流程图，剪藏到 Obsidian 后显示成图）' : ''}`);
       return;
     }
-    const e = (S.doc.fig_edits || {})[String(t)] || {};  // 编辑过的：裁剪后的图、显示宽度
+    const e = (S.doc.fig_edits || {})[String(t)] || {};  // 编辑过的：裁剪、标注后的图，显示宽度
     if (e.w) fig.style.maxWidth = e.w + 'px';
-    frameUrl(shot ? shot.t : t, false, e.crop).then(u => { if (u) img.src = u; });
+    frameUrl(shot ? shot.t : t, false, e.crop, e.marks).then(u => { if (u) img.src = u; });
   });
 }
-/* ---------- 截图的「裁剪」和「大小」（2026-11-02 用户要求，是两个分开的功能）：字幕栏和课程重点里的截图都能用。
-   crop = [左, 上, 右, 下]（占整张截图的比例），w = 显示宽度（像素，没有 = 自动）。原截图不改：显示时后台按 crop 另裁一张（frames.grab），
-   剪藏时裁好再复制进笔记（doc._small_copy），宽度写成 Obsidian 的 ![[图|宽度]]。字幕截图记在 sub_shots 每一张上，
-   课程重点的图记在 fig_edits {'秒数': {crop, w}}（课程重点重新生成后同一时间的图照样用）。
-   裁剪：对话框 #dlgShotEdit。大小：图下面「大小」弹出滑块（openSizeMenu），拖动时图马上变，不用点确定。 ---------- */
-const SE = { crop: [0, 0, 1, 1] };
-function openShotEdit(t, crop) {
-  return new Promise(resolve => {
-    const dlg = $('#dlgShotEdit'), img = $('#seImg');
-    SE.crop = crop ? crop.slice() : [0, 0, 1, 1];
-    img.removeAttribute('src'); $('#seInfo').textContent = '正在取截图…';
-    img.onload = seDraw;
-    frameUrl(t, false).then(u => { if (u) img.src = u; else $('#seInfo').textContent = '截图取不到'; });
-    seDraw();
-    dlg.returnValue = ''; dlg.showModal();
-    dlg.onclose = () => {
-      if (dlg.returnValue !== 'ok') return resolve(null);
-      const c = SE.crop.map(x => Math.round(x * 10000) / 10000);
-      const full = c[0] <= 0.001 && c[1] <= 0.001 && c[2] >= 0.999 && c[3] >= 0.999;
-      resolve({ crop: full ? null : c });
-    };
-  });
-}
-function seDraw() {
-  const [l, t, r, b] = SE.crop, img = $('#seImg');
-  Object.assign($('#seBox').style, { left: l * 100 + '%', top: t * 100 + '%', width: (r - l) * 100 + '%', height: (b - t) * 100 + '%' });
-  if (img.naturalWidth) $('#seInfo').textContent = `留下 ${Math.round((r - l) * img.naturalWidth)} × ${Math.round((b - t) * img.naturalHeight)} 像素`;
-}
-function bindShotEdit() {
-  const stage = $('#seStage'), MIN = 0.03;
-  let drag = null;
-  const pos = e => { const r = $('#seImg').getBoundingClientRect(); return [clamp((e.clientX - r.left) / r.width, 0, 1), clamp((e.clientY - r.top) / r.height, 0, 1)]; };
-  stage.addEventListener('pointerdown', e => {
-    if (!$('#seImg').naturalWidth) return;
-    e.preventDefault();
-    try { stage.setPointerCapture(e.pointerId); } catch (_) { /* 自测里的假事件没有真的指针 */ }
-    const full = SE.crop[2] - SE.crop[0] > 0.98 && SE.crop[3] - SE.crop[1] > 0.98;  // 框还是整张图时，拖动是画新框
-    drag = { h: e.target.dataset.h || (e.target.closest('#seBox') && !full ? 'move' : 'new'), p: pos(e), c: SE.crop.slice() };
-  });
-  stage.addEventListener('pointermove', e => {
-    if (!drag) return;
-    const [x, y] = pos(e), dx = x - drag.p[0], dy = y - drag.p[1];
-    let [l, t, r, b] = drag.c;
-    if (drag.h === 'new') SE.crop = [Math.min(drag.p[0], x), Math.min(drag.p[1], y), Math.max(drag.p[0], x), Math.max(drag.p[1], y)];
-    else if (drag.h === 'move') { const w = r - l, h = b - t; l = clamp(l + dx, 0, 1 - w); t = clamp(t + dy, 0, 1 - h); SE.crop = [l, t, l + w, t + h]; }
-    else {
-      if (drag.h.includes('w')) l = clamp(l + dx, 0, r - MIN);
-      if (drag.h.includes('e')) r = clamp(r + dx, l + MIN, 1);
-      if (drag.h.includes('n')) t = clamp(t + dy, 0, b - MIN);
-      if (drag.h.includes('s')) b = clamp(b + dy, t + MIN, 1);
-      SE.crop = [l, t, r, b];
-    }
-    seDraw();
-  });
-  const end = () => {
-    if (!drag) return;
-    const [l, t, r, b] = SE.crop;
-    if (r - l < MIN || b - t < MIN) SE.crop = drag.c;  // 只是点了一下：不改
-    drag = null; seDraw();
-  };
-  stage.addEventListener('pointerup', end);
-  stage.addEventListener('pointercancel', end);
-  $('#seFull').onclick = () => { SE.crop = [0, 0, 1, 1]; seDraw(); };
-}
+/* ---------- 截图的「编辑」和「大小」：字幕栏和课程重点里的截图都能用。
+   编辑（2026-11-11 起，照猛人截图：裁剪、镜像、画笔、箭头、方框、文字、橡皮、翻译、复制、保存）在 shotedit.js 的 openShotEdit，
+   结果 {crop, marks}：crop = [左, 上, 右, 下]（占整张截图的比例），marks = 画的标注（后台 core/shotedit.py 画到图上）。
+   w = 显示宽度（像素，没有 = 自动）。原截图不改：显示时后台按 crop、marks 另画一张（frames.grab），剪藏时复制画好的图。
+   字幕截图记在 sub_shots 每一张上，课程重点的图记在 fig_edits {'秒数': {crop, w, marks}}（课程重点重新生成后同一时间的图照样用）。
+   大小：图下面「大小」弹出滑块（openSizeMenu），拖动时图马上变，不用点确定。 ---------- */
 function setShotProp(o, k, v) { if (v) o[k] = v; else delete o[k]; return o; }  // 没裁剪 / 自动大小就不记
 /* 课程重点的图按秒数记在 fig_edits；什么都没改的去掉 */
 function setFigEdit(t, k, v) {
@@ -2483,7 +2425,7 @@ function renderSummary() {
   if (s) refreshCoverage();
   hydrateFigures(box);
   $$('.shot-fig', box).forEach((fig, n) => fig.querySelector('figcaption').insertAdjacentHTML('beforeend',
-    `<span class="fig-tools tts-skip" data-n="${n}"><button data-sf="up" title="挪到上一条重点前面">↑ 上移</button><button data-sf="down" title="挪到下一条重点后面">↓ 下移</button>${fig.querySelector('.redraw-svg, .redraw-code') ? '' : '<button data-sf="crop" title="裁剪">✂ 裁剪</button>'}${fig.querySelector('.redraw-code') ? '' : '<button data-sf="size" title="调整大小">⇲ 大小</button>'}<button data-sf="del" title="从课程重点里删掉这张图">删除</button></span>`));
+    `<span class="fig-tools tts-skip" data-n="${n}"><button data-sf="up" title="挪到上一条重点前面">↑ 上移</button><button data-sf="down" title="挪到下一条重点后面">↓ 下移</button>${fig.querySelector('.redraw-svg, .redraw-code') ? '' : '<button data-sf="edit" title="编辑截图：裁剪、画箭头方框、写字、翻译、复制、保存">✏ 编辑</button>'}${fig.querySelector('.redraw-code') ? '' : '<button data-sf="size" title="调整大小">⇲ 大小</button>'}<button data-sf="del" title="从课程重点里删掉这张图">删除</button></span>`));
 }
 /* ---------- 课程重点里手动插截图（2026-11-02 用户要求，和字幕栏的「插入截图」一样）：和 AI 插的图同一种写法，一行 ![[画面 mm:ss]]
    （剪藏时 doc.place_figures 换成截图）。插在出处时间离视频现在最近（不晚于它）的那一条后面，正在编辑时插在光标那一行后面；
@@ -2563,10 +2505,10 @@ function moveSumShot(n, act) {  // n：课程重点里从上往下第几张图
   const figs = blocks.map((b, k) => k).filter(k => FIG_LINE.test(lines[blocks[k][0]]));
   const k = figs[n]; if (k === undefined) return;
   const li = blocks[k][0], tag = lines[li].trim(), t = figTime(tag);
-  if (act === 'crop') {
+  if (act === 'edit') {
     const f = figShot(t);
-    return openShotEdit(f ? f.t : t, ((S.doc.fig_edits || {})[String(t)] || {}).crop).then(r => {
-      if (r) { setFigEdit(t, 'crop', r.crop); markDirty(); renderSummary(); }
+    return openShotEdit(f ? f.t : t, (S.doc.fig_edits || {})[String(t)] || {}).then(r => {
+      if (r) { setFigEdit(t, 'crop', r.crop); setFigEdit(t, 'marks', r.marks); markDirty(); renderSummary(); }
     });
   }
   if (act === 'del') {
@@ -2973,14 +2915,15 @@ function printSubs(pdf) {
   const shots = {};
   (S.doc.sub_shots || []).forEach(x => { const i = findIndex(x.at); (shots[i] = shots[i] || []).push(x); });
   const figs = i => (shots[i] || []).sort((a, b) => a.t - b.t).map(x =>
-    `<figure class="shot-fig" data-pt="${x.t}" data-crop="${x.crop ? x.crop.join(',') : ''}"${x.w ? ` style="max-width:${x.w}px"` : ''}><img alt=""></figure>`).join('');
+    `<figure class="shot-fig" data-pk="${S.doc.sub_shots.indexOf(x)}"${x.w ? ` style="max-width:${x.w}px"` : ''}><img alt=""></figure>`).join('');
   const html = figs(-1) + S.doc.segments.map((s, i) => {
     const d = doubtOf(s);
     return `<div class="print-cue">${S.settings.print_ts_subs !== false ? `<span class="print-t">[${fmt(s.start)}]</span> ` : ''}${esc(s.text)}${d ? ` <span class="print-doubt">〔存疑：${esc(d.reason || '')}〕</span>` : ''}`
       + `${(s.tr || '').trim() ? `<div class="print-tr">${esc(s.tr)}</div>` : ''}</div>${figs(i)}`;
   }).join('');
-  return printDoc('完整字幕', html, box => $$('[data-pt]', box).forEach(f => {
-    frameUrl(+f.dataset.pt, false, f.dataset.crop ? f.dataset.crop.split(',').map(Number) : null).then(u => { if (u) f.querySelector('img').src = u; });
+  return printDoc('完整字幕', html, box => $$('[data-pk]', box).forEach(f => {
+    const x = S.doc.sub_shots[+f.dataset.pk];
+    frameUrl(x.t, false, x.crop, x.marks).then(u => { if (u) f.querySelector('img').src = u; });
   }), pdf);
 }
 /* 字幕有多少被课程重点的出处时间引用到（粗略估计，用来判断有没有大段漏掉） */
@@ -3914,7 +3857,6 @@ function bind() {
   $('#btnSumShot').onclick = () => { if (!S.chatAbort) insertSumShot(); };
   $('#btnPrint').onclick = () => printSummary(false);
   $('#btnPdf').onclick = () => printSummary(true);
-  bindShotEdit();
   bindSumTools();
   $('#btnReview').onclick = () => { if (!S.job) runReview(); };
   $('#btnTerms').onclick = () => { if (S.job) return; if (S.doc.terms_pending) openTerms(); else findTerms(false); };
@@ -3991,6 +3933,7 @@ function bind() {
 
   // 键盘
   document.addEventListener('keydown', e => {
+    if ($('#dlgShotEdit').open) return;  // 编辑截图开着：快捷键归它（shotedit.js），不保存字幕、不播放视频
     const inField = e.target.closest('input, textarea, select, [contenteditable]');
     const ctrl = e.ctrlKey || e.metaKey;
     if (ctrl && e.key.toLowerCase() === 's') { e.preventDefault(); if (S.doc) { S.dirty = true; save(false); } return; }

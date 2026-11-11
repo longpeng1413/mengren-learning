@@ -48,25 +48,83 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('截图上移两次：回到上上一句后面', ssAfter() === ssK - 1, ssAfter());
     renderCues();
     ok('字幕重画后截图还在原来的位置', ssAfter() === ssK - 1);
-    // 编辑截图：裁剪、调整大小（2026-11-02）。seDrag 在编辑框的图上按比例位置拖动
-    window.seDrag = (x0, y0, x1, y1, el) => {
-      const r = $('#seImg').getBoundingClientRect();
-      const ev = (type, x, y, target) => (target || $('#seStage')).dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1, clientX: r.left + r.width * x, clientY: r.top + r.height * y }));
-      ev('pointerdown', x0, y0, el); ev('pointermove', x1, y1); ev('pointerup', x1, y1);
+    // 编辑截图（2026-11-11，照猛人截图）：裁剪、绘图、文字、橡皮、撤销、翻译。seDrag 在编辑框的图上按比例位置拖动
+    const seEv = (type, x, y, opts = {}) => {
+      const r = $('#seCanvas').getBoundingClientRect();
+      (opts.target || $('#seCanvas')).dispatchEvent(new PointerEvent(type, Object.assign({ bubbles: true, cancelable: true, pointerId: 1, button: 0, clientX: r.left + r.width * x, clientY: r.top + r.height * y }, opts)));
     };
+    window.seDrag = (x0, y0, x1, y1, el) => { seEv('pointerdown', x0, y0, { target: el }); seEv('pointermove', (x0 + x1) / 2, (y0 + y1) / 2); seEv('pointermove', x1, y1); seEv('pointerup', x1, y1); };
+    const seKey = (key, o = {}, target) => (target || $('#dlgShotEdit')).dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key, bubbles: true, cancelable: true }, o)));
     const near = (a, b) => a && b && a.every((x, i) => Math.abs(x - b[i]) < 0.02);
-    document.querySelector('#cues .sub-shot [data-ss="crop"]').click();
-    ok('字幕截图点「裁剪」打开裁剪截图，显示整张截图', await until(() => $('#dlgShotEdit').open && $('#seImg').naturalWidth > 0));
+    document.querySelector('#cues .sub-shot [data-ss="edit"]').click();
+    ok('字幕截图点「编辑」打开编辑截图，显示整张截图', await until(() => $('#dlgShotEdit').open && SE.img && SE.W > 0 && $('#seCanvas').width === SE.W));
+    const seBtns = [...$$('#seBar button')];
+    ok('编辑工具按钮做小了（不超过 28 像素）、排在一行里、每个都有说明', seBtns.length >= 18 && seBtns.every(b => b.offsetWidth <= 28 && b.offsetHeight <= 28 && b.title)
+      && $('#seBar').offsetHeight <= 40, [seBtns.length, $('#seBar').offsetHeight]);
+    { const br = $('#seBar').getBoundingClientRect(), cr = $('#seCanvas').getBoundingClientRect(), dr = $('#dlgShotEdit').getBoundingClientRect();
+      ok('编辑按钮在图片下面那一行正中间（2026-11-11 用户要求），恢复原图在左、取消完成在右', br.top >= cr.bottom && Math.abs((br.left + br.right) / 2 - (dr.left + dr.right) / 2) < 30
+        && $('#seReset').getBoundingClientRect().right <= br.left && $('#seOk').getBoundingClientRect().left >= br.right, [br.left, br.right, br.top, cr.bottom, dr.left, dr.right]); }
+    $('#seBar [data-tool="crop"]').click();
     seDrag(0.2, 0.2, 0.8, 0.7, $('#seBox'));
-    ok('一开始框是整张图：拖动画出新框', near(SE.crop, [0.2, 0.2, 0.8, 0.7]), SE.crop);
+    ok('裁剪：一开始框是整张图，拖动画出新框', near(SE.crop, [0.2, 0.2, 0.8, 0.7]), SE.crop);
     seDrag(0.8, 0.7, 0.7, 0.6, $('#seBox [data-h="se"]'));
-    ok('拖右下角缩小框', near(SE.crop, [0.2, 0.2, 0.7, 0.6]), SE.crop);
+    ok('裁剪：拖右下角缩小框', near(SE.crop, [0.2, 0.2, 0.7, 0.6]), SE.crop);
     seDrag(0.4, 0.4, 0.3, 0.45, $('#seBox'));
-    ok('拖框里面移动框', near(SE.crop, [0.1, 0.25, 0.6, 0.65]), SE.crop);
+    ok('裁剪：拖框里面移动框', near(SE.crop, [0.1, 0.25, 0.6, 0.65]), SE.crop);
+    $('#seBar [data-tool="arrow"]').click();
+    seDrag(0.3, 0.3, 0.5, 0.5);
+    ok('箭头：画了一条红色箭头（坐标是整张截图的像素）', SE.items.length === 1 && SE.items[0].k === 'arrow' && SE.items[0].c === SE.color
+      && Math.abs(SE.items[0].p[1][0] - SE.W * 0.5) < 3, SE.items);
+    seEv('pointerdown', 0.5, 0.5, { button: 2 });
+    const afterRight = SE.items.length;
+    seEv('pointerdown', 0.5, 0.5, { button: 2, ctrlKey: true });
+    ok('右键撤销上一笔，Ctrl+右键恢复（和猛人截图一样）', afterRight === 0 && SE.items.length === 1);
+    seKey('z', { ctrlKey: true }); const afterZ = SE.items.length; seKey('y', { ctrlKey: true });
+    ok('Ctrl+Z 撤销、Ctrl+Y 恢复', afterZ === 0 && SE.items.length === 1);
+    v.pause(); seKey(' ');
+    ok('编辑窗口开着时，空格不会播放视频', v.paused);
+    $('#seBar [data-tool="text"]').click();
+    seEv('pointerdown', 0.2, 0.8); seEv('pointerup', 0.2, 0.8);
+    const seTa = $('#seText');
+    ok('文字：单击图片出现输入框', !seTa.hidden && document.activeElement === seTa);
+    seTa.value = '要点'; seTa.dispatchEvent(new Event('input')); seKey('Escape', {}, seTa);
+    ok('写字时按 Esc：只取消这段字，编辑窗口还开着', seTa.hidden && SE.items.length === 1 && $('#dlgShotEdit').open);
+    seEv('pointerdown', 0.2, 0.8); seEv('pointerup', 0.2, 0.8);
+    seTa.value = 'Hello\n第二行'; seTa.dispatchEvent(new Event('input')); seKey('Enter', {}, seTa);
+    const txt = SE.items[1];
+    ok('文字：Enter 写完，记下文字、颜色、字号，写完后是选中的', seTa.hidden && txt && txt.k === 'text' && txt.t === 'Hello\n第二行' && txt.c === SE.color && txt.s > 0 && SE.sel === 1, SE.items);
+    const seTb = seTextBox(txt), cx = (seTb[0] + seTb[2]) / 2 / SE.W, cy = (seTb[1] + seTb[3]) / 2 / SE.H, x0 = txt.x;
+    seDrag(cx, cy, cx + 0.1, cy);
+    ok('文字可以按住拖动', Math.abs(SE.items[1].x - (x0 + SE.W * 0.1)) < 3, [x0, SE.items[1].x]);
+    seKey('z', { ctrlKey: true });
+    ok('拖动也能撤销', Math.abs(SE.items[1].x - x0) < 1);
+    seEv('pointerdown', cx, cy); seEv('pointerup', cx, cy);
+    ok('单击已有的文字：进入修改', !seTa.hidden && seTa.value === 'Hello\n第二行');
+    seKey('Enter', {}, seTa);
+    $('#seBar [data-menu="color"]').click();
+    ok('颜色菜单在编辑窗口里往上弹（工具栏在底部）', !$('#sePop').hidden && $$('#sePop .se-colors button').length === 10
+      && $('#sePop').getBoundingClientRect().bottom <= $('#seBar [data-menu="color"]').getBoundingClientRect().top && $('#sePop').getBoundingClientRect().top >= 0);
+    $('#sePop [data-c="#00a2ff"]').click();
+    ok('选了颜色：以后画的用它，选中的文字也跟着变', SE.color === '#00a2ff' && SE.items[1].c === '#00a2ff' && $('#sePop').hidden);
+    $('#seBar [data-menu="width"]').click(); $('#sePop [data-v="8"]').click();
+    ok('粗细菜单：选「粗 8」', SE.width === 8);
+    seKey('Delete');
+    ok('Delete 删掉选中的文字（Ctrl+Z 能找回）', SE.items.length === 1);
+    seKey('z', { ctrlKey: true });
+    $('#seBar [data-tool="erase"]').click();
+    seDrag(cx - 0.02, cy, cx + 0.02, cy);
+    ok('橡皮碰到文字擦掉整段，擦的这一笔也记下（只擦画上去的东西）', !SE.items.some(x => x.k === 'text') && SE.items.some(x => x.k === 'erase'), SE.items);
+    $('#seBar [data-act="translate"]').click();
+    ok('翻译：认出外文、翻成中文，盖在原处（一个实心框 + 文字），可以撤销', await until(() => SE.items.some(x => x.k === 'text' && x.t.includes('假的中文译文')))
+      && SE.items.some(x => x.k === 'fill') && $('#seInfo').textContent.includes('已翻译'), [$('#seInfo').textContent, SE.items.map(x => x.k)]);
+    const cropBefore = SE.crop.slice();
+    $('#seBar [data-act="mirror"]').click();
+    ok('镜像：截图左右翻转，裁剪框和画的东西跟着翻', SE.flip && near(SE.crop, [1 - cropBefore[2], cropBefore[1], 1 - cropBefore[0], cropBefore[3]]));
+    $('#seBar [data-act="mirror"]').click();
     $('#seOk').click(); await until(() => !$('#dlgShotEdit').open); await wait(50);
     const subX = S.doc.sub_shots[0], subEl = () => document.querySelector('#cues .sub-shot');
-    ok('确定后记下裁剪范围，字幕栏显示裁剪后的图', near(subX.crop, [0.1, 0.25, 0.6, 0.65]) && !subX.w
-      && await until(() => /_c[0-9a-f]{8}\.jpg/.test((subEl().querySelector('img') || {}).src || '')), [subX, (subEl().querySelector('img') || {}).src]);
+    ok('完成：记下裁剪和标注，字幕栏显示编辑后的图', near(subX.crop, [0.1, 0.25, 0.6, 0.65]) && subX.marks && subX.marks.items.length >= 3 && subX.marks.wh[0] === SE.W && !subX.marks.flip
+      && await until(() => /_e[0-9a-f]{10}\.jpg/.test((subEl().querySelector('img') || {}).src || '')), [subX, (subEl().querySelector('img') || {}).src]);
     // 「大小」是单独的按钮（2026-11-02 用户：裁剪和调整大小是两个功能）：拖滑块马上变，不用点确定
     subEl().querySelector('[data-ss="size"]').click();
     const ctxM = $('#ctxMenu');
@@ -92,11 +150,11 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       ok('有截图时合并、拆分、撤销：截图不重新加载，这一句在屏幕上的位置不变', sameImg && subEl().querySelector('img') === img0
         && Math.abs(t2m - t2) < 2 && Math.abs(t2s - t2) < 2 && Math.abs(top(2) - t2) < 2 && S.doc.segments.length === n2, [t2, t2m, t2s, top(2), sameImg]);
     }
-    document.querySelector('#cues .sub-shot [data-ss="crop"]').click();
-    await until(() => $('#dlgShotEdit').open);
-    ok('再打开裁剪：框是上次的', near(SE.crop, subX.crop));
-    $('#seFull').click(); $('#seOk').click(); await until(() => !$('#dlgShotEdit').open); await wait(50);
-    ok('点「整张」：恢复成整张截图', !subX.crop, subX);
+    document.querySelector('#cues .sub-shot [data-ss="edit"]').click();
+    await until(() => $('#dlgShotEdit').open && SE.img);
+    ok('再打开编辑：裁剪框、画的东西都是上次的，可以接着改', near(SE.crop, subX.crop) && SE.items.length === subX.marks.items.length);
+    $('#seReset').click(); $('#seOk').click(); await until(() => !$('#dlgShotEdit').open); await wait(50);
+    ok('「恢复原图」：去掉裁剪和标注', !subX.crop && !subX.marks, subX);
     const keepConfirm = window.confirm; window.confirm = () => true;
     document.querySelector('#cues .sub-shot [data-ss="del"]').click();
     window.confirm = keepConfirm;
@@ -363,16 +421,20 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     $('#summaryBox .fig-tools [data-sf="down"]').click(); $('#summaryBox .fig-tools [data-sf="down"]').click();
     ok('截图下移两次：越过小标题', S.doc.summary.includes('## 二、后面\n\n![[画面 00:25]]\n\n- 要点丙'), S.doc.summary);
     ok('图下面的按钮不朗读', !TTS.segments($('#summaryBox')).some(x => x.text.includes('上移')));
-    $('#summaryBox .fig-tools [data-sf="crop"]').click();
-    ok('课程重点的图也能「裁剪」', await until(() => $('#dlgShotEdit').open && $('#seImg').naturalWidth > 0));
+    $('#summaryBox .fig-tools [data-sf="edit"]').click();
+    ok('课程重点的图也能「编辑」', await until(() => $('#dlgShotEdit').open && SE.img));
+    $('#seBar [data-tool="crop"]').click();
     seDrag(0.1, 0.1, 0.5, 0.5, $('#seBox'));
+    $('#seBar [data-tool="rect"]').click();
+    seDrag(0.2, 0.2, 0.4, 0.4);
     $('#seOk').click(); await until(() => !$('#dlgShotEdit').open); await wait(50);
     const sumFig = () => document.querySelector('#summaryBox .shot-fig');
     $('#summaryBox .fig-tools [data-sf="size"]').click();
     const rg2 = $('#ctxMenu input[type=range]'); rg2.value = 300; rg2.dispatchEvent(new Event('input'));
     const fe = (S.doc.fig_edits || {})['25'];
-    ok('课程重点的图：按时间记下裁剪和宽度，显示裁剪后的图、马上变成 300 像素宽', fe && fe.w === 300 && fe.crop && Math.abs(fe.crop[2] - 0.5) < 0.02 && sumFig().style.maxWidth === '300px'
-      && await until(() => /_c[0-9a-f]{8}\.jpg/.test((sumFig().querySelector('img') || {}).src || '')), [fe, S.doc.summary]);
+    ok('课程重点的图：按时间记下裁剪、标注和宽度，显示编辑后的图、马上变成 300 像素宽', fe && fe.w === 300 && fe.crop && Math.abs(fe.crop[2] - 0.5) < 0.02
+      && fe.marks && fe.marks.items[0].k === 'rect' && sumFig().style.maxWidth === '300px'
+      && await until(() => /_e[0-9a-f]{10}\.jpg/.test((sumFig().querySelector('img') || {}).src || '')), [fe, S.doc.summary]);
     S.doc.sub_shots = [{ t: 10, at: S.doc.segments[1].start }]; placeSubShots();
     $('#ctxMenu [data-a=all]').click();
     ok('「这节课的图都用这个大小」：课程重点和字幕栏的截图一起改', S.doc.sub_shots[0].w === 300 && S.doc.fig_edits['25'].w === 300 && $('#ctxMenu').hidden
@@ -409,7 +471,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     $('#optPrintTsSum').click();
     // 字幕栏「打印」：和剪藏的「完整字幕」一样排，插的截图在挂的那一句下面
     const psegs = S.doc.segments;
-    S.doc.sub_shots = [{ t: 10, at: psegs[1].start, w: 300, crop: [0, 0, 0.5, 0.5] }];
+    S.doc.sub_shots = [{ t: 10, at: psegs[1].start, w: 300, crop: [0, 0, 0.5, 0.5], marks: { wh: [320, 240], items: [{ k: 'rect', c: '#ff3b30', w: 4, p: [[20, 20], [100, 80]] }] } }];
     const keepTr = psegs[2].tr; psegs[2].tr = '第三句的译文';
     S.doc.doubts = [{ t: psegs[3].start, reason: '听不清' }];
     updateButtons();
@@ -418,9 +480,9 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     window.systemPrint = async () => { const pa = $('#printArea'); printed2 = pa && { html: pa.innerHTML, cues: [...pa.querySelectorAll('.print-cue')].map(x => x.textContent),
       figAfter: pa.querySelector('.shot-fig') && pa.querySelector('.shot-fig').previousElementSibling.textContent,
       w: pa.querySelector('.shot-fig') && pa.querySelector('.shot-fig').style.maxWidth,
-      img: [...pa.querySelectorAll('img')].filter(im => im.complete && im.naturalWidth > 0 && /_c[0-9a-f]{8}\.jpg/.test(im.src)).length }; };
+      img: [...pa.querySelectorAll('img')].filter(im => im.complete && im.naturalWidth > 0 && /_e[0-9a-f]{10}\.jpg/.test(im.src)).length }; };
     $('#btnSubPrint').click();
-    ok('打印字幕：课程名、每句 [时间] 原文、译文、存疑原因，截图（裁剪、大小照旧）在挂的那一句下面', await until(() => printed2) && printed2.html.includes('完整字幕')
+    ok('打印字幕：课程名、每句 [时间] 原文、译文、存疑原因，截图（裁剪、标注、大小照旧）在挂的那一句下面', await until(() => printed2) && printed2.html.includes('完整字幕')
       && printed2.html.includes(S.doc.title) && printed2.cues.length === psegs.length && printed2.cues[0].startsWith(`[${fmt(psegs[0].start)}]`)
       && printed2.cues[2].includes('第三句的译文') && printed2.cues[3].includes('〔存疑：听不清〕') && printed2.figAfter === printed2.cues[1]
       && printed2.w === '300px' && printed2.img === 1, printed2);
