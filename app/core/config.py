@@ -99,7 +99,6 @@ CHAT_PROVIDERS = ['chatgpt', 'codex', 'claude', 'gemini', 'deepseek', 'ark', 'si
 AI_TASKS = [
     ('correct', 'AI 校对', 'correct'),
     ('translate', '翻译（英文课）', 'translate'),
-    ('vision', '看图（截图写说明、AI 重画）', 'vision'),
     ('summary', '课程重点', 'chat'),
     ('review', '查漏补缺', 'chat'),
     ('terms', '找新术语', 'chat'),
@@ -390,7 +389,7 @@ def set_oauth(name: str, oauth: dict) -> None:
 
 def task_ai(settings: dict, task: str):
     """某一项 AI 工作用哪个服务、哪个模型、什么思考强度 → (服务, 模型, 思考强度)。
-    没单独设服务时沿用旧的四项设置（对话 / 校对 / 看图 / 翻译）；没单独设模型时用那个服务自己选的模型；
+    没单独设服务时沿用旧的几项设置（对话 / 校对 / 翻译）；没单独设模型时用那个服务自己选的模型；
     思考强度只对 EFFORT_PROVIDERS 有效，其他服务一律空（用默认）。"""
     t = (settings.get('ai_tasks') or {}).get(task) or {}
     name = t.get('provider') or settings.get(TASK_SLOT.get(task, 'chat')) or ''
@@ -400,10 +399,48 @@ def task_ai(settings: dict, task: str):
     return name, model, effort
 
 
+# 推荐用的模型（2026-11-11 用户：把台式机上调好的设置做成默认，笔记本更新后不用自己改）。
+# 这几项用 ChatGPT（两种登录）或 OpenAI 时默认 GPT-6.1 Terra；其余（课程重点、查漏补缺、书籍整理、老师对话、蒸馏）留空 = 服务默认（Sol）。
+# 2026-11 实测：校对、翻译、找新术语、对话用 Terra 和 Sol 差不多、额度省一半左右；课程重点用 Terra 会漏写老师自述和原话。
+# 翻译：填了 OpenAI 的 API Key 就用 OpenAI（按用量付费，一节 30 分钟的英文课几分钱，不占 ChatGPT 会员额度），没填用 ChatGPT。
+TERRA = 'gpt-6.1-terra'
+TERRA_TASKS = ('correct', 'translate', 'terms', 'chat', 'book_chat')
+TERRA_PROVIDERS = ('chatgpt', 'codex', 'openai')
+
+
+def has_login(s: dict, name: str) -> bool:
+    """这个 AI 服务能不能用：两种 ChatGPT 登录看有没有续期令牌，其他看有没有填 API Key。"""
+    p = (s.get('providers') or {}).get(name) or {}
+    if name in ('codex', 'chatgpt'):
+        return bool((p.get('oauth') or {}).get('refresh'))
+    return bool(p.get('key'))
+
+
+def recommended_tasks(s: dict) -> tuple:
+    """按推荐补上还没选模型的工作 → (完整的 ai_tasks, 改了哪几项的名字)。只补模型是空的：用户自己选过模型的不动。"""
+    tasks = copy.deepcopy(s.get('ai_tasks') or {})
+    names = {k: n for k, n, _s in AI_TASKS}
+    did = []
+    for task in TERRA_TASKS:
+        t = dict(tasks.get(task) or {'provider': '', 'model': '', 'effort': ''})
+        if t.get('model'):
+            continue
+        name = t.get('provider') or s.get(TASK_SLOT[task]) or ''
+        if task == 'translate' and has_login(s, 'openai') and (name in ('chatgpt', 'codex') or not has_login(s, name)):
+            t['provider'] = name = 'openai'
+        if name not in TERRA_PROVIDERS:
+            continue
+        t['model'] = TERRA
+        tasks[task] = t
+        did.append(names[task])
+    return tasks, did
+
+
 def migrate() -> list:
     """一次性的设置调整，每项只做一次（记在 migrations 里）。返回这次做了哪些（写日志用）。
     - ai_校对_terra（2026-11-10 实测）：AI 校对用 ChatGPT 的，校对单独改用 GPT-6.1 Terra（效果接近 Sol，用量约一半，整节一批时约 1/6）；
-    - 识别_本机（2026-11-10 用户定）：中文识别默认改成本机识别。"""
+    - 识别_本机（2026-11-10 用户定）：中文识别默认改成本机识别；
+    - 推荐模型（2026-11-11 用户定）：校对、翻译、找新术语、两种对话没选过模型的按 recommended_tasks 补上 Terra。"""
     s = load()
     done = list(s.get('migrations') or [])
     patch, did = {}, []
@@ -419,6 +456,12 @@ def migrate() -> list:
             patch['asr_zh'] = 'local'
             did.append('中文识别默认改成本机识别')
         done.append('识别_本机')
+    if '推荐模型' not in done:
+        tasks, names = recommended_tasks(dict(s, ai_tasks=patch.get('ai_tasks', s['ai_tasks'])))
+        if names:
+            patch['ai_tasks'] = tasks
+            did.append('、'.join(names) + ' 改用 ' + TERRA)
+        done.append('推荐模型')
     if done != list(s.get('migrations') or []):
         patch['migrations'] = done
         update(patch)

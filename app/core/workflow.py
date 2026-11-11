@@ -271,24 +271,6 @@ def doubt_of(d, seg):
     return next((x for x in d.get('doubts') or [] if abs(float(x.get('t', 0)) - float(seg.get('start', 0))) < 0.02), None)
 
 
-def vision_provider(s, need=True):
-    """「看图」用哪个 AI（要能看图，设置里 ai_tasks.vision，没单独设时沿用 vision）。need=False 时没设好返回空字符串。
-    界面的 bridge._vision 也用这个。真正调用时用 llm.for_task(s, 'vision') 拿模型和思考强度。"""
-    s2, name = llm.for_task(s, 'vision')
-    if name and name in config.CHAT_PROVIDERS:
-        try:
-            if name in llm.VISION_NOTE:
-                raise llm.LlmError(llm.VISION_NOTE[name] + '，请到「设置 → 每项 AI 工作」给「看图」换一个能看图的服务')
-            llm.check(s2, name)
-            return name
-        except llm.LlmError:
-            if need:
-                raise
-    if need:
-        raise llm.LlmError('还没有设置「看图」用哪个 AI，请到「设置 → 每项 AI 工作」选择')
-    return ''
-
-
 def _model_of(s, name):
     """「服务 · 模型 · 思考强度」。s 要用 llm.for_task 给的副本，才是这项工作选的模型。"""
     return llm.model_label(s, name)
@@ -448,7 +430,7 @@ def pending_steps(d, kind, f, stages=None, redo=()):
 
 
 def scan_facts():
-    """列整个媒体库时共用的：设置、老师档案、能看图的 AI 设好没有（只准备一次）。"""
+    """列整个媒体库时共用的：设置、老师档案（只准备一次）。"""
     s = config.load()
     return {'settings': s, 'teachers': {t['id']: t for t in config.load_teachers()}}
 

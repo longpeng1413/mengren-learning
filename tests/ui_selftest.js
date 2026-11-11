@@ -341,20 +341,10 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     loopHint.click();
     ok('点循环提示关掉单句循环', !document.querySelector('#optLoop').checked && S.loopIdx === null && loopHint.hidden);
 
-    // 画面：关键帧和画面记录、课程重点里的插图
-    S.doc.frames = [{ t: 5, note: '课件标题：交易心理学', caption: '欢迎来到', figure: true }, { t: 20, note: '' }];
-    renderFrames();
-    document.querySelectorAll('.ai-tabs .tab')[2].click();
-    ok('画面页列出画面和记录', document.querySelectorAll('.shot').length === 2 && document.querySelector('.shot textarea').value.includes('交易心理学') && document.querySelector('#framesCount').textContent === '2');
-    ok('画面缩略图能显示', await until(() => { const im = document.querySelector('.shot img'); return im && im.src.startsWith('file:') && im.complete && im.naturalWidth > 0; }, 15000));
-    ok('有没写记录的画面时可以补写', !document.querySelector('#btnDescribe').disabled && document.querySelector('#framesHint').textContent.includes('1 张还没有记录'));
-    const ta2 = document.querySelectorAll('.shot textarea')[1]; ta2.value = '我自己写的画面记录'; ta2.dispatchEvent(new Event('input', { bubbles: true }));
-    ok('可以自己写画面记录', S.doc.frames[1].note === '我自己写的画面记录' && S.dirty);
-    document.querySelectorAll('.shot [data-del]')[1].click();
-    ok('删除画面', S.doc.frames.length === 1);
-    v.currentTime = 12; await wait(300);
-    await captureFrame();
-    ok('截取当前画面（没设置画面识别 AI 时先留空）', S.doc.frames.length === 2 && S.doc.frames.some(f => f.manual && Math.abs(f.t - 12) < 0.5));
+    // 2026-11-11 去掉 AI 区的「画面」页（截取当前画面、补写说明、AI 重画）：插图都用「插入截图」
+    ok('没有「画面」页了，AI 区只剩课程重点和 AI 对话两个标签', !document.querySelector('[data-tab=frames]') && !document.querySelector('#framesBox')
+      && !document.querySelector('#btnCapture') && document.querySelectorAll('.ai-tabs .tab').length === 2 && typeof renderFrames === 'undefined');
+    S.doc.frames = [{ t: 5, note: '课件标题：交易心理学', figure: true }];  // 以前自动挑的插图
     S.doc.summary = '## 一、开头\n- 要点 [00:05]\n![[画面 00:05]]';
     renderSummary();
     ok('课程重点里的插图能显示', await until(() => { const im = document.querySelector('#summaryBox .shot-fig img'); return im && im.complete && im.naturalWidth > 0; }, 15000));
@@ -535,9 +525,9 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('课程重点区的「?」：只显示课程重点区的说明，Enter / Tab / Shift+Tab 写在快捷键里', $('#dlgHelp').open && !$('#helpBody [data-h="area-sum"]').hidden
       && /Enter[\s\S]*Tab[\s\S]*Shift/.test($('#helpBody [data-h="area-sum"] .help-keys').textContent));
     const sumHelp = $('#helpBody [data-h="area-sum"]'), sumRows = $$('.help-btns tr', sumHelp);
-    ok('课程重点区说明：有三个标签页的说明和按钮表', ['课程重点', 'AI 对话', '画面'].every(t => [...$$('li > b', sumHelp)].some(b => b.textContent === t))
+    ok('课程重点区说明：有两个标签页的说明和按钮表', ['课程重点', 'AI 对话'].every(t => [...$$('li > b', sumHelp)].some(b => b.textContent === t))
       && sumRows.some(r => r.textContent.includes('查漏补缺')) && sumRows.some(r => r.textContent.includes('把课程重点输出为PDF')) && sumRows.some(r => r.textContent.includes('并到上一条'))
-      && sumRows.some(r => r.textContent.includes('截取当前画面')) && !sumRows.some(r => r.textContent.includes('找插图')), sumRows.map(r => r.textContent));
+      && !sumRows.some(r => /截取当前画面|找插图|补写说明/.test(r.textContent)) && !/「画面」页|AI 重画/.test(sumHelp.textContent), sumRows.map(r => r.textContent));
     $('#helpFull').click();
     ok('点「查看完整使用说明」：换成整个软件的说明，左边有目录', !$('#dlgHelp').classList.contains('help-focus') && getComputedStyle($('#helpNav')).display !== 'none' && !$('#helpBody [data-h="start"]').hidden);
     $('#helpClose').click();
@@ -627,7 +617,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     const aiBase = base.replace(/ui\\$/, 'ui-ai\\');
     const keepPath = S.path;
     await api('settings', { settings: { providers: { deepseek: { key: 'sk-fake' }, openai: { key: 'sk-fake' }, doubao: { key: 'fake' } },
-      vision: 'openai', chat: 'deepseek', correct: 'deepseek', translate: 'deepseek', asr_zh: 'doubao', asr_en: 'openai', auto_review: true } });
+      chat: 'deepseek', correct: 'deepseek', translate: 'deepseek', asr_zh: 'doubao', asr_en: 'openai', auto_review: true } });
     await loadSettings();
     await window.openPath(aiBase + 'AI整理测试.mp4');
     ok('整理：打开还没有字幕的视频', await until(() => S.doc && S.doc.title === 'AI整理测试' && !S.doc.segments.length));
@@ -641,25 +631,17 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('AI 校对：可以撤销', S.doc.segments[0].text === '大家好，今天讲峰级。' && await until(() => !S.dirty && !S.saving));
     await startCorrect(true);
     ok('存疑句留给人工：校对后还标着存疑', document.querySelectorAll('.cue.doubt').length === 1);
-    // 画面页：手动截的图（以前自动挑的也一样），带一张 AI 重画的图
-    S.doc.frames = [{ t: 3.0, note: '手动截的图', figure: true, manual: true,
+    // 以前留下的 AI辅助理解图（2026-11-11 起不再新画）：课程重点里照常显示重画的图和标注
+    S.doc.frames = [{ t: 3.0, note: '以前挑的图', figure: true,
       redraw: { kind: 'mermaid', code: 'flowchart LR\n  A[破级] --> B[首峰]', note: '重画的结构' } }];
-    renderFrames();
-    {  // AI辅助理解图：画面看不清时 AI 重画
-      ok('AI辅助理解图：画面页标「AI 重画」，显示重画的流程图代码', !!document.querySelector('.shot .redraw-tag')
-        && document.querySelector('.shot .redraw-code').textContent.includes('破级') && !!document.querySelector('[data-unredraw]'));
+    {
       const keep = S.doc.summary;
       S.doc.summary = '## 一、开头\n- 要点 [00:03]\n![[画面 00:03]]'; renderSummary();
-      ok('AI辅助理解图：课程重点预览显示重画的图和标注，不显示截图', await until(() => {
+      ok('以前的 AI辅助理解图：课程重点预览显示重画的图和标注，不显示截图', await until(() => {
         const fig = document.querySelector('#summaryBox .shot-fig');
         return fig && fig.querySelector('.redraw-code') && fig.textContent.includes('AI辅助理解图｜根据老师讲解和画面整理，非原画面');
       }));
-      document.querySelector('[data-unredraw]').click();
-      ok('改用原截图：去掉重画的图', !S.doc.frames[0].redraw && !!document.querySelector('[data-redraw]') && !document.querySelector('.shot .redraw-tag'));
-      document.querySelector('[data-redraw]').click();
-      ok('点「AI 重画」：重画一张（假 AI 画 SVG），画面页和课程重点预览都显示', await until(() => S.doc.frames[0].redraw && S.doc.frames[0].redraw.kind === 'svg'
-        && document.querySelector('.shot .redraw-svg') && document.querySelector('#summaryBox .redraw-svg'), 15000));
-      S.doc.summary = keep; renderSummary();
+      S.doc.summary = keep; S.doc.frames = []; renderSummary();
     }
     ok('课程重点：后台写好，自动查漏补缺', await doSummary() && S.doc.summary.includes('## 一、风险') && S.doc.summary.includes('查漏补上的一条')
       && $('#summaryBox').textContent.includes('截断亏损') && $('#btnSummary').textContent === '重新生成', S.doc.summary);
@@ -1040,7 +1022,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     showSection('tasks');
     // 每项 AI 工作（2026-11-10）：一行一项，选服务、模型、思考强度
     const atRows = [...document.querySelectorAll('#aiTaskTable .ai-task[data-task]')];
-    ok('设置：每项 AI 工作 11 行，每行能选 8 个服务、模型、思考强度', atRows.length === 11 && atRows[0].querySelectorAll('.at-prov option').length === 8
+    ok('设置：每项 AI 工作 10 行（2026-11-11 去掉了「看图」），每行能选 8 个服务、模型、思考强度', atRows.length === 10 && !document.querySelector('#aiTaskTable [data-task="vision"]') && atRows[0].querySelectorAll('.at-prov option').length === 8
       && !!atRows[0].querySelector('.at-model') && atRows[0].querySelectorAll('.at-effort option').length === 7, atRows.length);
     const rowOf = id => document.querySelector(`#aiTaskTable .ai-task[data-task="${id}"]`);
     ok('设置：没单独设的沿用原来的大类（校对用 DeepSeek，课程重点用对话那一项）', rowOf('correct').querySelector('.at-prov').value === 'deepseek'

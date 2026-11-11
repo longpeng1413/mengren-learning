@@ -814,49 +814,6 @@ class Api:
         return book.clip_book(d, info, ob.get('vault'), ob.get('book_folder') or '', ob.get('book_dir_pattern') or '《{title}》{author}',
                               bool(b.get('force')))
 
-    # ------------------------------------------------------------ 画面 ----
-    def _vision(self, s, need=True):
-        return workflow.vision_provider(s, need)
-
-    def do_frames_describe(self, b):
-        """给指定的画面写（或重写）画面记录。"""
-        path = b.get('path')
-        if not path or not os.path.isfile(path):
-            raise ValueError('视频文件不见了')
-        s = config.load()
-        name = self._vision(s)
-        todo = [{'t': float(f['t']), **{k: v for k, v in f.items() if k != 't'}} for f in (b.get('frames') or []) if isinstance(f, dict) and 't' in f]
-        if not todo:
-            raise ValueError('没有要识别的画面')
-
-        def run(job):
-            try:
-                out = frames.describe(s, name, path, todo, b.get('segments') or [], job.cancel, job.report,
-                                      on_part=lambda part: job.push(part))
-            except frames.Cancelled:
-                return {'frames': []}
-            return {'frames': out}
-        return {'job': jobs.start('frames', run).id}
-
-    def do_frames_redraw(self, b):
-        """让 AI 重画指定的画面（AI辅助理解图）。返回每张的 redraw（AI 说不画的没有 redraw）。"""
-        path = b.get('path')
-        if not path or not os.path.isfile(path):
-            raise ValueError('视频文件不见了')
-        s = config.load()
-        name = self._vision(s)
-        todo = [{'t': float(f['t']), 'note': str(f.get('note') or '')} for f in (b.get('frames') or []) if isinstance(f, dict) and 't' in f]
-        if not todo:
-            raise ValueError('没有要重画的画面')
-
-        def run(job):
-            try:
-                out = frames.redraw(s, name, path, todo, b.get('segments') or [], job.cancel, job.report)
-            except frames.Cancelled:
-                return {'frames': []}
-            return {'frames': [{'t': f['t'], 'redraw': f.get('redraw')} for f in out]}
-        return {'job': jobs.start('frames', run).id}
-
     def do_split_time(self, b):
         """拆分一句时找准时间：本机识别重听这一句，对上后半句第一个字，拆在它前面的停顿里（见 local_asr.split_point）。"""
         path = b.get('path')
@@ -911,18 +868,27 @@ class Api:
         return r
 
     def _switch_to_chatgpt(self):
-        """官方登录成功后：原来用旧登录（codex）的工作都换成官方登录，模型照旧（两边是同一批模型）。返回换了几项。"""
+        """官方登录成功后：原来用旧登录（codex）或用着还没设置好的服务（没填 API Key，比如新装时默认的 DeepSeek）的工作，
+        都换成官方登录，模型照旧（两边是同一批模型）；再按推荐给校对、找新术语、对话这几项补上 Terra（config.recommended_tasks，
+        2026-11-11 用户：新电脑登录完就和台式机一样）。返回换了几项。"""
         s = config.load()
         patch, n = {}, 0
-        for slot in ('chat', 'correct', 'vision', 'translate'):
-            if s.get(slot) == 'codex':
+
+        def swap(name):
+            return name == 'codex' or (name and name != 'chatgpt' and not config.has_login(s, name))
+
+        for slot in ('chat', 'correct', 'translate'):
+            if swap(s.get(slot)):
                 patch[slot] = 'chatgpt'
                 n += 1
         tasks = copy.deepcopy(s['ai_tasks'])
         for t in tasks.values():
-            if t.get('provider') == 'codex':
+            if swap(t.get('provider')):
+                if t['provider'] != 'codex':
+                    t['model'] = ''  # 别家的模型名 ChatGPT 认不得
                 t['provider'] = 'chatgpt'
                 n += 1
+        tasks, _names = config.recommended_tasks(dict(s, ai_tasks=tasks, **patch))
         patch['ai_tasks'] = tasks
         if not s['providers']['chatgpt'].get('chat_model') and s['providers']['codex'].get('chat_model'):
             patch['providers'] = {'chatgpt': {'chat_model': s['providers']['codex']['chat_model']}}

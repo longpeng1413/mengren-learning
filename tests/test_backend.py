@@ -386,47 +386,22 @@ o4 = '---\n视频文件: "x.mp4"\n状态: "待审计"\ntags:\n  - 猛人学习\n
 check('旧笔记里软件写的「状态: 待审计」去掉', '状态' not in docs.merge_note(o4, n1, None, ())[0])
 check('旧笔记里自己改过的状态保留', '状态: "已确认-资料"' in docs.merge_note(o4.replace('待审计', '已确认-资料'), n1, None, ())[0])
 check('课程重点模板：不让 AI 用标注框（留给用户写理解）', '不要用「> [!…]」这种标注框' in llm.DEFAULT_TEMPLATE)
-check('插图非必要不用：最多 3 张，纯文字课件不插', '最多 3 张' in llm.DEFAULT_TEMPLATE and '纯文字课件' in frames.DESCRIBE_PROMPT
-      and '不要照抄课件上的文字' in frames.DESCRIBE_PROMPT)
+check('插图非必要不用：最多 3 张', '最多 3 张' in llm.DEFAULT_TEMPLATE)
 llm.complete = orig_complete
-orig_c = llm.complete
-llm.complete = lambda *a, **k: json.dumps({'画面': [{'图': 1, '说明': '一页文字课件', '插图': False}]})
-dm = frames.describe({}, 'codex', mp4, [{'t': 5.0, 'manual': True}], [])
-llm.complete = orig_c
-check('手动截取的画面：写一句说明，默认可插', dm[0]['figure'] and dm[0]['note'] == '一页文字课件' and not dm[0].get('caption'), dm)
+check('看图的 AI 都去掉了（2026-11-11）：没有写图片说明、AI 重画', not hasattr(frames, 'describe') and not hasattr(frames, 'redraw')
+      and 'vision' not in config.TASK_SLOT and not hasattr(api, 'do_frames_describe') and not hasattr(api, 'do_frames_redraw'))
 
-# AI辅助理解图（2026-10-15）：画面看不清时 AI 依据讲解重画（Mermaid 或 SVG），剪藏时代替截图
+# 以前留下的 AI辅助理解图（2026-10-15 起有，2026-11-11 起不再新画）：照常显示、照常剪藏，SVG 要清理过
 bad_svg = ('```svg\n<svg width="10" height="10" onload="alert(1)"><script>alert(2)</script><a href="https://evil.example/x">'
            '<rect width="10" height="10" fill="url(https://evil.example/p.png)"/></a><image href="file:///C:/x.png"/><use href="#ok"/></svg>\n```')
 clean_svg = docs.sanitize_svg(bad_svg)
 check('AI 画的 SVG：去掉脚本、事件、外部链接和外部图片，保留图内引用', clean_svg.startswith('<svg xmlns=') and 'script' not in clean_svg
       and 'onload' not in clean_svg and 'evil' not in clean_svg and '<image' not in clean_svg and 'href="#ok"' in clean_svg, clean_svg)
-check('不是 SVG / Mermaid 的不要', docs.sanitize_svg('这不是图') == '' and frames.clean_mermaid('随便写的') == ''
-      and frames.clean_mermaid('```mermaid\nflowchart LR\n A-->B\n```') == 'flowchart LR\n A-->B')
-orig_c = llm.complete
-llm.complete = lambda *a, **k: json.dumps({'画面': [{'图': 1, '说明': '模糊的手画结构', '插图': True, '看不清': True},
-                                                   {'图': 2, '说明': '清楚的走势', '插图': True, '看不清': False},
-                                                   {'图': 3, '说明': '纯文字课件', '插图': False, '看不清': True}]})
-dd = frames.describe({}, 'codex', mp4, [{'t': 5.0}, {'t': 10.0}, {'t': 15.0}], [])
-check('判断画面看不清：只有要插的图才算', dd[0]['unclear'] and not dd[1]['unclear'] and not dd[2]['unclear'], dd)
-
-
-def fake_redraw_ai(settings, name, messages, json_mode=False):
-    txt = json.dumps(messages, ensure_ascii=False)
-    if '（00:05）' in txt:
-        return json.dumps({'画': True, '类型': 'mermaid', '代码': '```mermaid\nflowchart LR\n  A[破级] --> B[首峰]\n```', '说明': '破级到首峰'})
-    if '（00:10）' in txt:
-        return json.dumps({'画': True, '类型': 'svg', '代码': '<svg width="100" height="50" onclick="x()"><path d="M0 50 L50 0" stroke="#000"/></svg>'})
-    return json.dumps({'画': False, '原因': '老师没讲清楚'})
-
-
-llm.complete = fake_redraw_ai
-rd = frames.redraw({}, 'codex', mp4, [{'t': 5.0, 'note': 'a', 'figure': True}, {'t': 10.0, 'note': 'b', 'figure': True},
-                                      {'t': 15.0, 'note': 'c', 'figure': True}], [])
-llm.complete = orig_c
-check('AI 重画：关系图写成 Mermaid，形状图写成 SVG（清理过），拿不准的不画', rd[0]['redraw']['kind'] == 'mermaid'
-      and rd[0]['redraw']['code'].startswith('flowchart LR') and rd[1]['redraw']['kind'] == 'svg' and 'onclick' not in rd[1]['redraw']['code']
-      and 'redraw' not in rd[2], rd)
+check('不是 SVG 的不要', docs.sanitize_svg('这不是图') == '')
+rd = [{'t': 5.0, 'note': 'a', 'figure': True, 'redraw': {'kind': 'mermaid', 'code': 'flowchart LR\n  A[破级] --> B[首峰]', 'note': '破级到首峰'}},
+      {'t': 10.0, 'note': 'b', 'figure': True,
+       'redraw': {'kind': 'svg', 'code': docs.sanitize_svg('<svg width="100" height="50"><path d="M0 50 L50 0" stroke="#000"/></svg>')}},
+      {'t': 15.0, 'note': 'c', 'figure': True}]
 check('课程重点知道哪张已经有 AI辅助理解图', '（00:05）' not in frames.notes_text(rd) and '已有 AI辅助理解图' in frames.notes_text(rd))
 note_dir = TMP / 'redraw-note'
 placed = docs.place_figures('要点一\n![[画面 00:05]]\n要点二\n![[画面 00:10]]\n要点三\n![[画面 00:15]]', rd, note_dir, '测试课',
@@ -962,24 +937,44 @@ check('用量：各项工作的副本记进同一个清单，能加总', tot['ca
 check('没有用量记录时为空', llm.usage_sum([]) is None)
 
 # 一次性设置调整（2026-11-10）：校对改 Terra、中文识别默认本机，只做一次
-api.call('settings', {'settings': {'migrations': [], 'correct': 'codex', 'asr_zh': 'doubao', 'ai_tasks': {k: {'provider': '', 'model': '', 'effort': ''} for k in s_t['ai_tasks']}}})
+EMPTY_TASKS = {k: {'provider': '', 'model': '', 'effort': ''} for k in s_t['ai_tasks']}
+tasks_t = copy.deepcopy(EMPTY_TASKS)
+tasks_t['chat'] = {'provider': '', 'model': 'gpt-6.1-sol', 'effort': ''}  # 用户自己选过模型的不动
+api.call('settings', {'settings': {'migrations': [], 'chat': 'codex', 'correct': 'codex', 'translate': 'deepseek', 'asr_zh': 'doubao',
+                                   'ai_tasks': tasks_t, 'providers': {'deepseek': {'key': None}, 'openai': {'key': 'sk-test-1234567890'}}}})
 did = config.migrate()
 s_m = config.load()
-check('一次性调整：ChatGPT 校对改 Terra、中文识别改本机', s_m['ai_tasks']['correct']['model'] == 'gpt-6.1-terra' and s_m['asr_zh'] == 'local'
-      and len(did) == 2 and set(s_m['migrations']) >= {'ai_校对_terra', '识别_本机'}, did)
+tm = s_m['ai_tasks']
+check('一次性调整：ChatGPT 校对改 Terra、中文识别改本机', tm['correct']['model'] == 'gpt-6.1-terra' and s_m['asr_zh'] == 'local'
+      and len(did) == 3 and set(s_m['migrations']) >= {'ai_校对_terra', '识别_本机', '推荐模型'}, did)
+check('推荐模型：找新术语、书的对话改 Terra，课程重点等留空（用 Sol），自己选过的不动',
+      tm['terms']['model'] == tm['book_chat']['model'] == 'gpt-6.1-terra' and tm['chat']['model'] == 'gpt-6.1-sol'
+      and not tm['summary']['model'] and not tm['review']['model'] and not tm['distill']['model'], tm)
+check('推荐模型：填了 OpenAI 的 Key、翻译用的服务没设置好时，翻译改用 OpenAI 的 Terra',
+      tm['translate'] == {'provider': 'openai', 'model': 'gpt-6.1-terra', 'effort': ''}, tm['translate'])
 api.call('settings', {'settings': {'asr_zh': 'doubao'}})
 check('一次性调整只做一次：用户之后改回去的不再改', config.migrate() == [] and config.load()['asr_zh'] == 'doubao')
+api.call('settings', {'settings': {'translate': 'deepseek', 'chat': 'deepseek', 'providers': {'openai': {'key': None}}}})
+tr, _n = config.recommended_tasks(dict(config.load(), ai_tasks=EMPTY_TASKS))
+check('推荐模型：没填 OpenAI、用的是 DeepSeek 时不改', not tr['translate']['model'] and not tr['terms']['model'], tr['translate'])
 
-# 官方登录成功后，原来用旧登录的工作都换过去
-tasks_t = copy.deepcopy(config.load()['ai_tasks'])
+# 官方登录成功后，原来用旧登录、或用着没设置好的服务的工作都换过去，再按推荐补上模型
+tasks_t = copy.deepcopy(EMPTY_TASKS)
 tasks_t['review'] = {'provider': 'codex', 'model': '', 'effort': ''}
-api.call('settings', {'settings': {'chat': 'codex', 'vision': 'codex', 'correct': 'deepseek', 'ai_tasks': tasks_t,
-                                   'providers': {'chatgpt': {'chat_model': ''}, 'codex': {'chat_model': 'gpt-6.1-sol'}}}})
+tasks_t['summary'] = {'provider': 'claude', 'model': 'claude-opus-5-5', 'effort': ''}  # Claude 没填 Key
+api.call('settings', {'settings': {'chat': 'codex', 'correct': 'deepseek', 'translate': 'deepseek', 'ai_tasks': tasks_t,
+                                   'providers': {'chatgpt': {'chat_model': ''}, 'codex': {'chat_model': 'gpt-6.1-sol'},
+                                                 'deepseek': {'key': 'sk-keep-1234567890'}}}})
 n_sw = api._switch_to_chatgpt()
 s_sw = config.load()
-check('官方登录后：用旧登录的工作换成官方登录，模型带过去', n_sw == 3 and s_sw['chat'] == 'chatgpt' and s_sw['vision'] == 'chatgpt'
-      and s_sw['correct'] == 'deepseek' and s_sw['ai_tasks']['review']['provider'] == 'chatgpt'
-      and s_sw['providers']['chatgpt']['chat_model'] == 'gpt-6.1-sol', n_sw)
+tw = s_sw['ai_tasks']
+check('官方登录后：用旧登录、没设置好的服务的工作换成官方登录，模型带过去', n_sw == 3 and s_sw['chat'] == 'chatgpt'
+      and s_sw['correct'] == 'deepseek' and tw['review']['provider'] == 'chatgpt'
+      and tw['summary'] == {'provider': 'chatgpt', 'model': '', 'effort': ''}
+      and s_sw['providers']['chatgpt']['chat_model'] == 'gpt-6.1-sol', (n_sw, tw['summary']))
+check('官方登录后：按推荐补上 Terra（填了 Key 的 DeepSeek 不换）', tw['terms']['model'] == tw['chat']['model'] == 'gpt-6.1-terra'
+      and not tw['correct']['model'] and not tw['translate']['model'], tw)
+api.call('settings', {'settings': {'providers': {'deepseek': {'key': None}}}})
 api.call('settings', {'settings': {'chat': 'codex', 'vision': 'codex', 'translate': 'deepseek', 'correct': 'deepseek',
                                    'ai_tasks': {k: {'provider': '', 'model': '', 'effort': ''} for k in s_t['ai_tasks']}}})
 api.call('settings', {'settings': {'translate': 'claude'}})

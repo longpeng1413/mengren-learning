@@ -713,7 +713,7 @@ window.openPath = async function (path) {
     $('#fileTitle').textContent = d.doc.title; $('#fileTitle').title = d.path; document.title = `${d.doc.title} - 猛人学习`;
     if (summaryEditing) toggleSummaryEdit(false);
     setupPlayer(d);
-    renderTeacherSelect(); renderCues(); renderSummary(); renderChat(); renderFrames(); updateButtons(); updateSaveLabel();
+    renderTeacherSelect(); renderCues(); renderSummary(); renderChat(); updateButtons(); updateSaveLabel();
     $('#optReviewed').checked = !!S.doc.reviewed;
     renderLibrary(); busyNotice(d);
     if (d.convert_job) runJob(d.convert_job, '正在准备播放…', { onDone: job => setSource(job.result.src), detachable: true, quiet: true });
@@ -1631,11 +1631,9 @@ function updateButtons() {
   $('#btnClip').disabled = !has;
   $('#btnSummary').disabled = !has;
   const vid = !!(S.info && S.info.has_video);
-  $('#btnCapture').disabled = !S.doc || busy || !vid;
   $('#btnSubShot').hidden = !vid;  // 音频没有画面
   $('#btnSubShot').disabled = !has || busy;
   $('#btnSubPrint').disabled = $('#btnSubPdf').disabled = !has;
-  $('#btnDescribe').disabled = !S.doc || busy || !((S.doc && S.doc.frames) || []).some(f => !f.note);
   $('#btnReview').disabled = !has || busy || !(S.doc && (S.doc.summary || '').trim()) || !!S.chatAbort;
   $('#btnSumShot').hidden = !vid;
   $('#btnSumShot').disabled = !(S.doc && (S.doc.summary || '').trim()) || busy || !!S.chatAbort;
@@ -1731,7 +1729,7 @@ async function reloadDoc() {
 }
 function renderDoc() {
   if (S.mode === 'book') { renderBook(); updateButtons(); updateSaveLabel(); return; }
-  renderTeacherSelect(); renderCues(); renderSummary(); renderFrames(); updateButtons(); updateSaveLabel();
+  renderTeacherSelect(); renderCues(); renderSummary(); updateButtons(); updateSaveLabel();
   $('#optReviewed').checked = !!S.doc.reviewed;
 }
 /* 一步的结果：失败时提示原因、返回 null；跳过时返回 {skipped: 原因}；完成时返回这一步的结果 */
@@ -2319,8 +2317,8 @@ async function doClip() {
 }
 
 /* -------------------------------------------------------------- 画面 ---- */
-/* 画面页：「截取当前画面」存下的画面和以前自动挑过的插图（2026-11 起不再自动找插图，插图由用户「插入截图」手动插），
-   每张一句说明；课程重点里的 ![[画面 mm:ss]] 剪藏时换成图片 */
+/* 截图：字幕栏、课程重点的「插入截图」，以前留下的插图（frames，含 AI辅助理解图 redraw）照常显示。
+   2026-11-11 起没有「画面」页了（截取当前画面、补写说明、AI 重画都去掉，用户定）；课程重点里的 ![[画面 mm:ss]] 剪藏时换成图片 */
 function frameUrl(t, small, crop) {
   const key = `${S.path}|${t}|${small ? 's' : ''}|${crop ? crop.join(',') : ''}`;
   if (!S.frameUrls[key]) S.frameUrls[key] = api('frame_url', { path: S.path, t, small, crop: crop || null }).then(r => r.url).catch(() => { delete S.frameUrls[key]; return ''; });
@@ -2453,97 +2451,6 @@ function sizeAllShots(w) {
   (S.doc.sub_shots || []).forEach(x => setShotProp(x, 'w', w));
   renderSummary(); placeSubShots();
 }
-function shotHTML(f, i) {
-  return `<div class="shot" data-k="${i}">
-    <div><img alt="" data-st="${f.t}" title="点击看大图"></div>
-    <div class="shot-body">
-      <div class="shot-head"><a class="tslink" data-t="${f.t}">[${fmt(f.t)}]</a>
-        <label class="check" title="课程重点里可以插这张图"><input type="checkbox" data-fig ${f.figure ? 'checked' : ''}> 可插图</label>
-        ${f.why ? `<span class="why" title="${esc(f.why)}">${esc(f.manual ? '手动截取' : f.why).slice(0, 24)}</span>` : (f.manual ? '<span class="why">手动截取</span>' : '')}
-        <span class="grow"></span>
-        ${f.redraw ? '<span class="redraw-tag" title="剪藏时用 AI 重画的图代替截图">AI 重画</span>' : ''}
-        <button data-redo title="让 AI 重新写这张图的说明">重新识别</button>${f.redraw
-          ? '<button data-unredraw title="改用原截图">改用原截图</button>'
-          : '<button data-redraw title="让 AI 按老师的讲解重画示意图">AI 重画</button>'}<button data-del title="删除这张画面">删除</button></div>
-      <textarea data-note spellcheck="false" placeholder="${f.note === undefined ? '还没有说明，点「补写说明」让 AI 写一句，或者自己写' : ''}">${esc(f.note || '')}</textarea>
-      ${f.caption ? `<div class="cap">画面字幕：「${esc(f.caption)}」</div>` : ''}
-      ${f.redraw ? `<div class="redraw-box"><div class="cap">${REDRAW_LABEL}${f.redraw.note ? '：' + esc(f.redraw.note) : ''}</div>${redrawHTML(f.redraw)}</div>` : ''}
-    </div></div>`;
-}
-function renderFrames() {
-  const box = $('#framesBox');
-  const list = (S.doc && S.doc.frames) || [];
-  $('#framesCount').textContent = list.length ? list.length : '';
-  if (!S.doc || !list.length) {
-    box.innerHTML = `<div class="ai-empty">${S.info && !S.info.has_video ? '这是音频文件，没有画面。' : '插图由你听课时手动插：看到要插的画面，点字幕栏或课程重点下面的「插入截图」，想插几张都行。<br>这里列出用「截取当前画面」存下的画面（以前自动挑的插图也在这里）。'}</div>`;
-  } else {
-    box.innerHTML = list.map(shotHTML).join('');
-    $$('img[data-st]', box).forEach(img => frameUrl(+img.dataset.st, true).then(u => { if (u) img.src = u; }));
-  }
-  const missing = list.filter(f => !f.note).length;
-  $('#framesHint').textContent = list.length ? `${list.length} 张${missing ? `，${missing} 张还没有记录` : ''}` : '';
-  updateButtons();
-}
-function sortFrames() { S.doc.frames = (S.doc.frames || []).sort((a, b) => a.t - b.t); }
-async function describeFrames(list) {
-  const doc = S.doc;
-  if (!list.length) return false;
-  list.forEach(f => { const el = $(`.shot[data-k="${doc.frames.indexOf(f)}"]`); if (el) el.classList.add('busy'); });
-  try {
-    await flushSave();
-    const r = await api('frames_describe', { path: S.path, frames: list.map(f => ({ t: f.t })), segments: doc.segments });
-    const apply = items => {
-      for (const x of items) {
-        const f = (doc.frames || []).find(y => Math.abs(y.t - x.t) < 0.01);
-        if (f) Object.assign(f, { note: x.note || '', caption: x.caption || '', figure: !!x.figure });
-      }
-      if (S.doc === doc) renderFrames();
-    };
-    return await runJob(r.job, 'AI 正在写图片说明…', {
-      onItems: apply,
-      onDone: job => { apply(job.result.frames || []); markDirty(); save(); toast('图片说明写好了'); },
-      onError: job => { renderFrames(); if (job.status === 'error') fail(new Error(job.error)); },
-    });
-  } catch (e) { renderFrames(); fail(e); return false; }
-}
-async function redrawFrames(list) {
-  const doc = S.doc;
-  if (!list.length) return false;
-  list.forEach(f => { const el = $(`.shot[data-k="${doc.frames.indexOf(f)}"]`); if (el) el.classList.add('busy'); });
-  try {
-    await flushSave();
-    const r = await api('frames_redraw', { path: S.path, frames: list.map(f => ({ t: f.t, note: f.note || '' })), segments: doc.segments });
-    return await runJob(r.job, 'AI 正在重画看不清的画面…', {
-      onDone: job => {
-        let n = 0;
-        for (const x of job.result.frames || []) {
-          const f = (doc.frames || []).find(y => Math.abs(y.t - x.t) < 0.01);
-          if (f && x.redraw) { f.redraw = x.redraw; f.figure = true; n++; }
-        }
-        if (S.doc === doc) { renderFrames(); renderSummary(); }
-        if (n) { markDirty(); save(); }
-        toast(n ? '重画好了，剪藏时用这张 AI辅助理解图代替截图' : 'AI 拿不准画面上是什么，没有重画（剪藏时继续用原截图）', { ms: 6000 });
-      },
-      onError: job => { renderFrames(); if (job.status === 'error') fail(new Error(job.error)); },
-    });
-  } catch (e) { renderFrames(); fail(e); return false; }
-}
-async function captureFrame() {
-  const v = $('#video');
-  if (!S.doc || !v.getAttribute('src')) return;
-  v.pause();
-  const t = +v.currentTime.toFixed(2);
-  S.doc.frames = S.doc.frames || [];
-  if (S.doc.frames.some(f => Math.abs(f.t - t) < 0.5)) return toast('这个时间已经有一张了');
-  const f = { t, manual: true, why: '手动截取' };
-  S.doc.frames.push(f); sortFrames();
-  if (S.settings.ai_hidden) savePrefs({ ai_hidden: false });
-  $$('.ai-tabs .tab')[2].click();
-  renderFrames(); markDirty();
-  if (taskReady('vision')) await describeFrames([f]);
-  else toast('已截取。还没设置「看图」用的 AI，可以自己在下面写一句说明', { ms: 6000 });
-}
-function shotOf(el) { const k = el.closest('.shot'); return k && S.doc.frames[+k.dataset.k]; }
 function showLightbox(url) {
   if (!url) return;
   const lb = document.createElement('div'); lb.className = 'lightbox';
@@ -3360,7 +3267,7 @@ function collectSettings() {
   });
   if (Object.keys(tasks).length) {
     patch.ai_tasks = tasks;
-    for (const [slot, task] of [['chat', 'summary'], ['correct', 'correct'], ['vision', 'vision'], ['translate', 'translate']]) {
+    for (const [slot, task] of [['chat', 'summary'], ['correct', 'correct'], ['translate', 'translate']]) {
       if (tasks[task] && tasks[task].provider) patch[slot] = tasks[task].provider;
     }
   }
@@ -3430,7 +3337,7 @@ async function chatgptDone(r) {
   clearInterval(chatgptPoll);
   $('#chatgptPaste').hidden = true;
   await refreshSettingsOnly(); renderChatgptBox(); renderAiTasks();
-  toast(`ChatGPT 官方登录成功：${r.email || ''}` + (r.switched ? `，原来用旧登录的 ${r.switched} 项工作已经换过来` : ''));
+  toast(`ChatGPT 官方登录成功：${r.email || ''}` + (r.switched ? `，${r.switched} 项工作已经换成官方登录，模型按推荐设好了` : ''));
   const input = $('[data-k="providers.chatgpt.chat_model"]');
   if (!input.value) {
     try {
@@ -3989,23 +3896,9 @@ function bind() {
     try { openTermsFile(p, (await api('terms_view', { path: p })).uri); } catch (e) { fail(e); }
   };
   $('#btnDoubts').onclick = nextDoubt;
-  $('#btnCapture').onclick = () => { if (!S.job) captureFrame(); };
   $('#btnSubShot').onclick = () => { if (!S.job) insertSubShot(); };
   $('#btnSubPrint').onclick = () => printSubs(false);
   $('#btnSubPdf').onclick = () => printSubs(true);
-  $('#btnDescribe').onclick = () => { if (!S.job) describeFrames((S.doc.frames || []).filter(f => !f.note)); };
-  const fb = $('#framesBox');
-  fb.addEventListener('input', e => { const f = e.target.matches('[data-note]') && shotOf(e.target); if (f) { f.note = e.target.value; markDirty(); } });
-  fb.addEventListener('change', e => { const f = e.target.matches('[data-fig]') && shotOf(e.target); if (f) { f.figure = e.target.checked; markDirty(); } });
-  fb.addEventListener('click', async e => {
-    const f = shotOf(e.target); if (!f) return;
-    if (e.target.matches('.redraw-svg')) { showLightbox(e.target.src); return; }
-    if (e.target.matches('img')) { showLightbox(await frameUrl(f.t, false)); return; }
-    if (e.target.matches('[data-del]')) { S.doc.frames = S.doc.frames.filter(x => x !== f); renderFrames(); markDirty(); return; }
-    if (e.target.matches('[data-redo]') && !S.job) describeFrames([f]);
-    if (e.target.matches('[data-redraw]') && !S.job) redrawFrames([f]);
-    if (e.target.matches('[data-unredraw]')) { delete f.redraw; delete f.unclear; renderFrames(); renderSummary(); markDirty(); }
-  });
   $('#summaryBox').addEventListener('click', async e => {
     const b = e.target.closest('.fig-tools [data-sf]');
     if (b && b.dataset.sf === 'size') {  // 不能冒泡到 document：那里的点击会把刚打开的弹出框关掉

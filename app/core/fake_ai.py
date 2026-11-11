@@ -3,7 +3,7 @@
 import json
 import time
 
-from . import asr, book, distill, frames, llm
+from . import asr, book, distill, llm
 
 
 def _payload(messages):
@@ -83,16 +83,10 @@ def stream(settings, name, messages, cancel=None, json_mode=False):
         yield piece
 
 
-def redraw(settings, name, path, frames_list, segments, cancel=None, progress=lambda f, m=None: None, lo=0.0, hi=1.0, on_part=None):
-    svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="80"><rect width="200" height="80" fill="#fff"/><path d="M10 70 L60 20 L110 50 L190 10" stroke="#000" fill="none"/></svg>'
-    return [dict(f, redraw={'kind': 'svg', 'code': svg, 'note': '假 AI 重画的走势'}) for f in frames_list]
-
-
 def install():
     asr.recognise = recognise
     llm.complete = complete
     llm.stream = stream
-    frames.redraw = redraw
     book.organize_chapter = lambda s, n, path, info, c, meta, *a, **k: f'## 一、本章主题\n\n{c["title"]}（假 AI 整理）'
     book.review_chapter = lambda s, n, info, c, md, meta, teacher=None: (md, 0, 0)
     book.verify_doubts = lambda s, n, path, info, c, md, meta, teacher=None, vision=True: (md, 0)
