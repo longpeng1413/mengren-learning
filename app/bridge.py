@@ -205,7 +205,7 @@ class Api:
         return {'job': job.snapshot(int(b.get('since') or 0))}
 
     def do_steps(self, b):
-        """界面上的整理按钮（生成字幕、AI 校对、找关键帧、翻译、课程重点、查漏补缺、新术语、
+        """界面上的整理按钮（生成字幕、AI 校对、翻译、课程重点、查漏补缺、新术语、
         整理章节、全书总览，以及一键整理）都走这里：交给任务层 workflow.process，和命令行（Agent）是同一套规则。
         结果由后台写进字幕文件，界面在任务结束后重新读取（do_doc）。job.items 里是边做边显示的内容。"""
         path, steps, redo, more = self._step_args(b)
