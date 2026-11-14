@@ -858,6 +858,40 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       TTS.stop(true); S.settings.tts_engine = oldEngine;
       S.doc.summary = oldSummary; renderSummary(); box.style.scrollBehavior = ''; box.scrollTop = oldScroll;
     }
+    {
+      const box = $('#summaryBox'), oldSummary = S.doc.summary, oldEngine = S.settings.tts_engine;
+      const rows = Array.from({ length: 30 }, (_, i) => `- 编辑后继续朗读测试第 ${i + 1} 条内容。`);
+      S.settings.tts_engine = 'system'; S.doc.summary = rows.join('\n'); renderSummary();
+      TTS.start(12);
+      const active = TTS.active(), readingText = active.segs[active.i].text;
+      toggleSummaryEdit(true);
+      const pausedDuringFullEdit = active.state === 'paused';
+      toggleSummaryEdit(false);
+      ok('课程重点：打开整段编辑再保存，朗读从原句继续',
+        pausedDuringFullEdit && TTS.active() === active && active.state === 'playing'
+        && active.segs[active.i].text === readingText && active.segs[active.i].a[0].isConnected, TTS._state());
+      openSumEditor(box.querySelectorAll('li')[12], false);
+      const pausedDuringEdit = active.state === 'paused';
+      box.querySelector('.sum-edit [data-se="save"]').click();
+      const stillReading = () => TTS.active() === active && active.state === 'playing'
+        && active.segs[active.i].text === readingText && active.segs[active.i].a[0].isConnected;
+      ok('课程重点：打开当前行编辑框再保存，朗读从原句继续', pausedDuringEdit && stillReading(), TTS._state());
+      openSumEditor(box.querySelectorAll('li')[2], false);
+      const edit = box.querySelector('.sum-edit textarea');
+      edit.value += '（已修改）';
+      box.querySelector('.sum-edit [data-se="save"]').click();
+      ok('课程重点：改动一行并保存，正在读的句子和播放状态保留', stillReading(), TTS._state());
+      const deleteText = active.segs[active.i].text, nextText = active.segs[active.i + 1].text;
+      const deleteAt = S.doc.summary.split('\n').findIndex(line => line.includes(deleteText));
+      if (deleteAt >= 0) sumDelete(deleteAt, deleteAt, 'item');
+      ok('课程重点：删除正在读的一行后，自动接着读下一行', TTS.active() === active
+        && deleteAt >= 0 && active.state === 'playing' && active.pendingNext && active.segs[active.i].text === nextText,
+        { state: TTS._state(), deleteAt, nextText, reading: active.segs[active.i] && active.segs[active.i].text,
+          summaryLines: S.doc.summary.split('\n').length, freshCount: TTS.segments(box).length,
+          rootIsSummary: active.root === box, pane: active.src.pane });
+      TTS.stop(true); S.settings.tts_engine = oldEngine;
+      S.doc.summary = oldSummary; renderSummary();
+    }
 
     // 老师工作台（mentor.js）：导入测试老师 → 提问（假 AI）→ 出处变成可点的标签 → 收藏 → 点出处跳回课程
     const coursePath = S.path;

@@ -175,10 +175,11 @@ const TTS = (() => {
       else if (s.audio) s.audio.pause();
       saveProgress(); render();
     } else if (s.state === 'ended') { s.i = 0; speak(); }
+    else if (s.pendingNext) { s.pendingNext = false; speak(); }
     else if (engine() !== 'system' && s.audio && s.audioI === s.i) { s.state = 'playing'; s.audio.play().catch(() => speak()); render(); }
     else speak();
   }
-  function step(d) { if (!s) return; s.i = Math.max(0, Math.min(s.segs.length - 1, s.i + d)); speak(); }
+  function step(d) { if (!s) return; s.pendingNext = false; s.i = Math.max(0, Math.min(s.segs.length - 1, s.i + d)); speak(); }
   function stop(quiet) {
     token++;
     if (s) { saveProgress(s.state === 'ended'); s.cleanup.forEach(f => f()); if (s.bar) s.bar.remove(); }
@@ -212,7 +213,12 @@ const TTS = (() => {
     if (engine() === 'system') speakSystem(seg, my);
     else { speakOnline(seg, my); prefetch(); }
   }
-  function next() { if (!s) return; s.i++; speak(); }
+  function next() {
+    if (!s) return;
+    if (!s.pendingNext) s.i++;
+    s.pendingNext = false;
+    speak();
+  }
   async function speakOnline(seg, my) {
     let url;
     try { url = await fetchAudio(seg.text); } catch (e) {
@@ -311,6 +317,60 @@ const TTS = (() => {
     if (rect.top >= box.top + 40 && rect.bottom <= box.bottom - BOTTOM_GAP) return;
     s.programmatic = Date.now();
     sc.scrollBy({ top: rect.top - box.top - box.height / 3, behavior: 'smooth' });
+  }
+  function beforeSummaryRender(root) {
+    if (!s || s.root !== root) return null;
+    const seg = s.segs[s.i], range = rangeOf(seg), sc = range && scrollParent(range.startContainer.parentElement);
+    return { key: s.key, root, segs: s.segs, index: s.i, text: seg && seg.text, sc: sc || root,
+      top: range && !root.hidden ? range.getBoundingClientRect().top : null, scrollTop: (sc || root).scrollTop,
+      follow: s.follow, state: s.state, pendingNext: s.pendingNext };
+  }
+  function pauseSummaryEdit(root) {
+    if (!s || s.root !== root) return;
+    if (s.summaryEditResume == null) s.summaryEditResume = s.state === 'playing';
+    if (s.state !== 'playing') return;
+    s.state = 'paused'; token++; stopAudio();
+    try { speechSynthesis.cancel(); } catch (_) { /* 没有系统朗读 */ }
+    render();
+  }
+  function resumeSummaryEdit() {
+    if (!s || s.root !== $('#summaryBox') || s.summaryEditResume == null) return;
+    const resume = s.summaryEditResume;
+    s.summaryEditResume = null;
+    if (resume && s.state !== 'ended') { s.pendingNext = false; speak(); }
+  }
+  function afterSummaryRender(snapshot) {
+    if (!snapshot || !s || s.key !== snapshot.key || s.root !== snapshot.root) return;
+    const old = snapshot.segs, fresh = segments(s.root);
+    const find = (text, near) => {
+      let best = -1, distance = Infinity;
+      fresh.forEach((seg, i) => {
+        const d = Math.abs(i - near);
+        if (seg.text === text && d < distance) { best = i; distance = d; }
+      });
+      return best;
+    };
+    let index = snapshot.text ? find(snapshot.text, snapshot.index) : -1;
+    const removed = index < 0;
+    if (removed) {
+      for (let i = snapshot.index + 1; i < old.length && index < 0; i++) index = find(old[i].text, i);
+      if (index < 0) index = fresh.length;
+    }
+    s.segs = fresh; s.i = index;
+    s.pendingNext = snapshot.pendingNext || (removed && snapshot.state === 'playing');
+    const range = rangeOf(s.segs[s.i]);
+    if (hasHighlight()) {
+      if (range && !s.pendingNext) CSS.highlights.set('tts-speaking', new Highlight(range));
+      else CSS.highlights.delete('tts-speaking');
+    }
+    if (snapshot.sc && snapshot.scrollTop != null) {
+      const behavior = snapshot.sc.style.scrollBehavior;
+      snapshot.sc.style.scrollBehavior = 'auto';
+      if (snapshot.follow && range && snapshot.top != null) {
+        snapshot.sc.scrollTop += range.getBoundingClientRect().top - snapshot.top;
+      } else snapshot.sc.scrollTop = snapshot.scrollTop;
+      snapshot.sc.style.scrollBehavior = behavior;
+    }
   }
   function listen() {
     const on = (el, type, fn, opt) => { el.addEventListener(type, fn, opt); s.cleanup.push(() => el.removeEventListener(type, fn, opt)); };
@@ -450,5 +510,6 @@ const TTS = (() => {
     speak();
   });
   if (window.speechSynthesis) speechSynthesis.getVoices();  // 系统声音列表是异步加载的，先触发一次
-  return { start, toggle, stop, button, segments, isEnglish, active: () => s, _state: () => s && { i: s.i, state: s.state, follow: s.follow, n: s.segs.length } };
+  return { start, toggle, stop, button, segments, isEnglish, beforeSummaryRender, afterSummaryRender,
+    pauseSummaryEdit, resumeSummaryEdit, active: () => s, _state: () => s && { i: s.i, state: s.state, follow: s.follow, n: s.segs.length } };
 })();
