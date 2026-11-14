@@ -23,7 +23,7 @@ from webview.dom import _dnd_state  # noqa: E402
 
 from bridge import Api  # noqa: E402
 
-VERSION = '1.14.0'
+VERSION = '1.14.1'
 
 
 _instance = None  # 保持互斥锁的句柄，进程退出时自动释放
