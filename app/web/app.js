@@ -2430,11 +2430,10 @@ function renderSummary(preservePlayback = false) {
   if (playback) TTS.afterSummaryRender(playback);
 }
 /* 课程重点重画时保留正在操作的那一块在滚动区域里的位置，避免焦点元素被替换后页面跳走 */
-function keepSumInPlace(l0, fn) {
-  const box = $('#summaryBox'), before = box.querySelector('.sum-edit') || $(`[data-l^="${l0}-"]`, box);
+function keepSumPosition(box, before, findAfter, fn) {
   const top0 = before ? before.getBoundingClientRect().top : null, st0 = box.scrollTop;
   fn();
-  const after = box.querySelector('.sum-edit') || $(`[data-l^="${l0}-"]`, box);
+  const after = findAfter();
   const behavior = box.style.scrollBehavior;
   const align = () => {
     box.style.scrollBehavior = 'auto';
@@ -2464,6 +2463,33 @@ function keepSumInPlace(l0, fn) {
   box.addEventListener('pointerdown', onUser); box.addEventListener('keydown', onUser);
   pending.forEach(img => { img.addEventListener('load', onLoad); img.addEventListener('error', onLoad); });
   timer = setTimeout(cleanup, 5000);
+}
+function keepSumInPlace(l0, fn) {
+  const box = $('#summaryBox'), before = box.querySelector('.sum-edit') || $(`[data-l^="${l0}-"]`, box);
+  return keepSumPosition(box, before, () => $(`[data-l^="${l0}-"]`, box), fn);
+}
+function keepSumViewport(fn, skipRange) {
+  const box = $('#summaryBox'), bounds = box.getBoundingClientRect(), lines = sumLines();
+  const anchors = [...box.querySelectorAll('[data-l]')].map(el => {
+    const [start, end] = el.dataset.l.split('-').map(Number), rect = el.getBoundingClientRect();
+    return { el, start, end, top: rect.top, text: lines.slice(start, end + 1).join('\n') };
+  }).filter(a => a.text && a.el.getBoundingClientRect().bottom > bounds.top && a.top < bounds.bottom
+    && (!skipRange || a.end < skipRange[0] || a.start > skipRange[1]))
+    .sort((a, b) => a.top - b.top);
+  const findAfter = () => {
+    const current = sumLines(), blocks = sumBlocks(current);
+    for (const anchor of anchors) {
+      const ranges = blocks.filter(([a, b]) => current.slice(a, b + 1).join('\n') === anchor.text);
+      ranges.sort((a, b) => Math.abs(a[0] - anchor.start) - Math.abs(b[0] - anchor.start));
+      for (const [start] of ranges) {
+        const nodes = $$(`[data-l^="${start}-"]`, box);
+        const match = nodes.find(el => el.tagName === anchor.el.tagName) || nodes[0];
+        if (match) return match;
+      }
+    }
+    return null;
+  };
+  return keepSumPosition(box, anchors.length ? anchors[0].el : null, findAfter, fn);
 }
 /* ---------- 课程重点里手动插截图（2026-11-02 用户要求，和字幕栏的「插入截图」一样）：和 AI 插的图同一种写法，一行 ![[画面 mm:ss]]
    （剪藏时 doc.place_figures 换成截图）。插在出处时间离视频现在最近（不晚于它）的那一条后面，正在编辑时插在光标那一行后面；
@@ -2551,20 +2577,26 @@ function moveSumShot(n, act) {  // n：课程重点里从上往下第几张图
   }
   if (act === 'del') {
     if (!confirm('从课程重点里删掉这张图？')) return;
-    pushSumUndo();
-    lines.splice(li, 1);
-    S.doc.sum_shots = (S.doc.sum_shots || []).filter(x => x !== t);
-    if (!lines.some(l => figTime(l) === t) && S.doc.fig_edits) delete S.doc.fig_edits[String(t)];
   } else {
     const j = act === 'up' ? k - 1 : k + 1;
     if (j < 0 || j >= blocks.length) return toast(act === 'up' ? '已经在最前面了' : '已经在最后面了');
-    const at = act === 'up' ? blocks[j][0] : blocks[j][1];  // 上移：放到上一块前面；下移：删掉这一行后下一块往前挪了一行，放在它最后一行后面
-    pushSumUndo();
-    lines.splice(li, 1);
-    lines.splice(at, 0, '', tag, '');
   }
-  S.doc.summary = sumTidy(lines);
-  markDirty(); renderSummary(true);
+  keepSumViewport(() => {
+    if (act === 'del') {
+      pushSumUndo();
+      lines.splice(li, 1);
+      S.doc.sum_shots = (S.doc.sum_shots || []).filter(x => x !== t);
+      if (!lines.some(l => figTime(l) === t) && S.doc.fig_edits) delete S.doc.fig_edits[String(t)];
+    } else {
+      const j = act === 'up' ? k - 1 : k + 1;
+      const at = act === 'up' ? blocks[j][0] : blocks[j][1];  // 上移：放到上一块前面；下移：删掉这一行后下一块往前挪了一行，放在它最后一行后面
+      pushSumUndo();
+      lines.splice(li, 1);
+      lines.splice(at, 0, '', tag, '');
+    }
+    S.doc.summary = sumTidy(lines);
+    markDirty(); renderSummary(true);
+  }, act === 'del' ? [li, li] : null);
   if (act !== 'del') scrollToSumFig(t);
 }
 /* ---------- 每条重点旁边的小工具（2026-11-02 用户要求：不进「编辑」也能改字、加一条、上移下移、合并、拆分、缩进、删除）。
@@ -2581,15 +2613,28 @@ const lineW = s => (String(s).match(/^\s*/)[0]).replace(/\t/g, '    ').length;
 const sumLines = () => (S.doc.summary || '').split('\n');
 function pushSumUndo() {
   S.sumUndo = S.sumUndo || [];
-  S.sumUndo.push(S.doc.summary || '');
+  S.sumUndo.push({
+    summary: S.doc.summary || '',
+    sum_shots: S.doc.sum_shots ? [...S.doc.sum_shots] : null,
+    fig_edits: S.doc.fig_edits ? JSON.parse(JSON.stringify(S.doc.fig_edits)) : null,
+  });
   if (S.sumUndo.length > 60) S.sumUndo.shift();
   S.undoTarget = 'sum';
+}
+function restoreSumUndo() {
+  const saved = S.sumUndo.pop();
+  if (typeof saved === 'string') { S.doc.summary = saved; return; }
+  S.doc.summary = saved.summary;
+  if (saved.sum_shots) S.doc.sum_shots = saved.sum_shots; else delete S.doc.sum_shots;
+  if (saved.fig_edits) S.doc.fig_edits = saved.fig_edits; else delete S.doc.fig_edits;
 }
 function sumUndo() {
   if (!S.doc || !(S.sumUndo || []).length) return false;
   if (summaryEditing) toggleSummaryEdit(false);
-  S.doc.summary = S.sumUndo.pop();
-  markDirty(); renderSummary(true);
+  keepSumViewport(() => {
+    restoreSumUndo();
+    markDirty(); renderSummary(true);
+  });
   toast('已撤销课程重点的上一步修改');
   return true;
 }
@@ -2726,9 +2771,11 @@ function sumIndent(l0, dir) {  // 鼠标停在某一条上按 Tab / Shift+Tab
 function sumDelete(l0, l1, kind) {
   const lines = sumLines();
   const end = kind === 'item' ? sumUnitEnd(lines, l0, 'item') : kind === 'head' ? l0 : l1;
-  pushSumUndo();
-  lines.splice(l0, end - l0 + 1);
-  setSummary(lines, kind === 'head' ? '已删除这个小标题（下面的内容留着，并到上一节）' : '已删除');
+  keepSumViewport(() => {
+    pushSumUndo();
+    lines.splice(l0, end - l0 + 1);
+    setSummary(lines, kind === 'head' ? '已删除这个小标题（下面的内容留着，并到上一节）' : '已删除');
+  }, [l0, end]);
 }
 /* ＋ 在下面加一条：先放一个占位的「…」排出位置，再打开这一条的输入框；没写内容就当没加过 */
 function sumAdd(l0, l1, kind) {
@@ -2746,7 +2793,7 @@ function sumAdd(l0, l1, kind) {
   keepSumInPlace(l0, () => {
     renderSummary(true);
     const el = $(`#summaryBox [data-l^="${nl}-"]`);
-    if (el) openSumEditor(el, true); else { S.doc.summary = S.sumUndo.pop(); renderSummary(true); }
+    if (el) openSumEditor(el, true); else { restoreSumUndo(); renderSummary(true); }
   });
 }
 /* ✎ 改这一条：只把这一块变成输入框。点别处、点「保存」保存；Esc 取消；Shift+Enter 换行（列表项里换行写的每一行变成新的一条）。
@@ -2760,8 +2807,15 @@ function openSumEditor(el, isNew, split, init, caret) {
   const value = init != null ? init : isNew ? '' : im ? im[4] : hm ? hm[2] : lines.slice(l0, l1 + 1).join('\n');
   const wrap = document.createElement('div');
   wrap.className = 'sum-edit tts-skip';
+  const formatButtons = split ? '' : `<button data-se="format-bold" title="加粗选中文字（Ctrl+B）"><b>B</b></button>
+    <button data-se="format-italic" title="斜体选中文字（Ctrl+I）"><i>I</i></button>${kind === 'item' ? '' : `
+    <button data-se="format-h2" title="把当前行设为大标题">大标题</button><button data-se="format-h3" title="把当前行设为小标题">小标题</button>`}`;
+  const help = split ? '把光标放在要断开的地方，点「在这里拆开」'
+    : 'Ctrl+B 加粗　Ctrl+I 斜体' + (kind === 'item' ? '　开头输入 ## + 空格可改成标题' : '　输入 ## + 空格为大标题，### + 空格为小标题')
+      + '　Enter 保存并在下面加一条　Shift+Enter 换行' + (kind === 'item' ? '　Tab 缩进　Shift+Tab 取消缩进' : '')
+      + '　Esc 取消　点别处保存';
   wrap.innerHTML = `<textarea spellcheck="false" rows="1"></textarea>
-    <div class="sum-edit-bar"><span class="muted small-text">${split ? '把光标放在要断开的地方，点「在这里拆开」' : 'Enter 保存并在下面加一条　Shift+Enter 换行' + (kind === 'item' ? '　Tab 缩进　Shift+Tab 取消缩进' : '') + '　Esc 取消　点别处保存'}</span><span class="grow"></span>
+    <div class="sum-edit-bar"><span class="muted small-text">${help}</span><span class="grow"></span>${formatButtons}
     ${kind === 'item' ? `<button data-se="split" class="${split ? 'primary' : ''}">在这里拆开</button>` : ''}<button data-se="cancel">取消</button><button data-se="save" class="${split ? '' : 'primary'}">保存</button></div>`;
   if (kind === 'item') { el.textContent = ''; el.appendChild(wrap); } else el.replaceWith(wrap);
   const ta = wrap.querySelector('textarea');
@@ -2791,16 +2845,22 @@ function openSumEditor(el, isNew, split, init, caret) {
     const cur = sumLines();
     let rep;
     if (kind === 'item') {
-      const m = cur[l0].match(ITEM_RE), n = parseInt(m[2], 10);
-      const parts = v.split('\n').map(t => t.trim().replace(/^([-*+]|\d+[.)])\s+/, '')).filter(Boolean);
-      rep = parts.map((t, i) => m[1] + (isNaN(n) ? m[2] : (n + i) + m[2].slice(-1)) + m[3] + t);
+      const heading = !split && v.trim().match(/^(#{1,6})\s+([\s\S]+)$/);
+      if (heading) rep = [heading[1] + ' ' + heading[2].trim()];
+      else {
+        const m = cur[l0].match(ITEM_RE), n = parseInt(m[2], 10);
+        const parts = v.split('\n').map(t => t.trim().replace(/^([-*+]|\d+[.)])\s+/, '')).filter(Boolean);
+        rep = parts.map((t, i) => m[1] + (isNaN(n) ? m[2] : (n + i) + m[2].slice(-1)) + m[3] + t);
+      }
     } else if (kind === 'head') {
-      const t = v.replace(/\s*\n\s*/g, ' ').trim();
-      rep = t ? [cur[l0].match(HEAD_RE)[1] + ' ' + t] : [];
+      const raw = v.replace(/\s*\n\s*/g, ' ').trim(), heading = raw.match(/^(#{1,6})\s+(.*)$/);
+      const t = (heading ? heading[2] : raw).trim(), prefix = heading ? heading[1] : cur[l0].match(HEAD_RE)[1];
+      rep = t ? [prefix + ' ' + t] : [];
     } else rep = v.trim() ? v.replace(/\s+$/, '').split('\n') : [];
+    const outputKind = rep.length && HEAD_RE.test(rep[0]) ? 'head' : kind;
     const old = cur.slice(l0, l1 + 1).join('\n');
     if (!save || (isNew && !rep.length)) {  // 取消，或者新加的那一条什么都没写：当没加过（连续按 Enter 加条目时，在空的那一条上再按 Enter 就结束）
-      if (isNew) S.doc.summary = S.sumUndo.pop();
+      if (isNew) restoreSumUndo();
       keepSumInPlace(l0, () => renderSummary(true));
       if (typeof TTS !== 'undefined') TTS.resumeSummaryEdit();
       return;
@@ -2813,7 +2873,7 @@ function openSumEditor(el, isNew, split, init, caret) {
     if (next && rep.length) {  // Enter：保存后在下面加一条（先不整理空行，行号才对得上）
       S.doc.summary = cur.join('\n');
       const last = l0 + rep.length - 1;
-      return kind === 'head' ? sumAdd(l0, l0, 'head') : sumAdd(kind === 'item' ? last : l0, last, kind);
+      return outputKind === 'head' ? sumAdd(l0, l0, 'head') : sumAdd(kind === 'item' ? last : l0, last, kind);
     }
     if (same) {
       keepSumInPlace(l0, () => renderSummary(true));
@@ -2825,14 +2885,23 @@ function openSumEditor(el, isNew, split, init, caret) {
   };
   ta.addEventListener('keydown', e => {
     if (e.isComposing || e.keyCode === 229) return;  // 输入法正在选字时的回车不算
+    if (e.ctrlKey && !e.altKey && (e.key.toLowerCase() === 'b' || e.key.toLowerCase() === 'i')) {
+      e.preventDefault(); applySummaryFormat(e.key.toLowerCase() === 'b' ? 'bold' : 'italic', ta); return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); finish(true, null, !split); }
     else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
-    else if (e.key === 'Tab' && kind === 'item') { e.preventDefault(); retab(e.shiftKey ? -1 : 1); }
+    else if (e.key === 'Tab' && kind === 'item') {
+      e.preventDefault();
+      if (/^#{1,6}\s+/.test(ta.value.trimStart())) toast('标题不能缩进，按 Enter 保存标题');
+      else retab(e.shiftKey ? -1 : 1);
+    }
   });
   ta.addEventListener('blur', () => setTimeout(() => finish(true), 120));
   wrap.querySelector('.sum-edit-bar').addEventListener('mousedown', e => e.preventDefault());  // 点按钮时输入框不失去焦点
   wrap.querySelector('.sum-edit-bar').addEventListener('click', e => {
     const b = e.target.closest('[data-se]'); if (!b) return;
+    const format = b.dataset.se.match(/^format-(bold|italic|h2|h3)$/);
+    if (format) { applySummaryFormat(format[1], ta); return; }
     if (b.dataset.se === 'split') finish(true, ta.selectionStart);
     else finish(b.dataset.se === 'save');
   });
@@ -3007,8 +3076,8 @@ function toggleSummaryEdit(on) {
   if (summaryEditing) { pushSumUndo(); $('#summaryEdit').value = S.doc.summary || ''; $('#summaryEdit').focus(); }
   else { renderSummary(true); if (typeof TTS !== 'undefined') TTS.resumeSummaryEdit(); }
 }
-function applySummaryFormat(action) {
-  const ta = $('#summaryEdit'), value = ta.value, start = ta.selectionStart, end = ta.selectionEnd;
+function applySummaryFormat(action, ta = $('#summaryEdit')) {
+  const value = ta.value, start = ta.selectionStart, end = ta.selectionEnd;
   let next = value, selStart = start, selEnd = end;
   if (action === 'bold' || action === 'italic') {
     const mark = action === 'bold' ? '**' : '*';

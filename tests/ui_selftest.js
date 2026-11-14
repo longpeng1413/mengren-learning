@@ -374,6 +374,28 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       && S.doc.summary.includes('## 小标题') && S.doc.summary.includes('- 测试重点 [00:10]') && document.querySelector('#summaryBox .tslink')
       && S.doc.summary.includes('*斜体测试*') && document.querySelector('#summaryBox h2') && document.querySelector('#summaryBox li')
       && document.querySelector('#summaryBox i'));
+    S.doc.summary = '- 单行加粗 斜体\n\n普通段落'; renderSummary();
+    openSumEditor(document.querySelector('#summaryBox li'), false);
+    const inlineEdit = document.querySelector('#summaryBox .sum-edit textarea');
+    ok('单行编辑显示加粗、斜体入口', !!inlineEdit && !!document.querySelector('#summaryBox [data-se="format-bold"]')
+      && !!document.querySelector('#summaryBox [data-se="format-italic"]'));
+    inlineEdit.setSelectionRange(2, 4);
+    inlineEdit.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, bubbles: true, cancelable: true }));
+    inlineEdit.setSelectionRange(9, 11);
+    inlineEdit.dispatchEvent(new KeyboardEvent('keydown', { key: 'i', ctrlKey: true, bubbles: true, cancelable: true }));
+    document.querySelector('#summaryBox [data-se="save"]').click();
+    ok('单行编辑用 Ctrl+B / Ctrl+I 后保存格式', S.doc.summary.includes('- 单行**加粗** *斜体*')
+      && !!document.querySelector('#summaryBox li b') && !!document.querySelector('#summaryBox li i'));
+    openSumEditor(document.querySelector('#summaryBox li'), false);
+    const titleEdit = document.querySelector('#summaryBox .sum-edit textarea');
+    titleEdit.value = '## 新标题'; titleEdit.dispatchEvent(new Event('input'));
+    document.querySelector('#summaryBox [data-se="save"]').click();
+    ok('单行编辑在文字前输入 ## 可变成标题', S.doc.summary.includes('## 新标题') && !!document.querySelector('#summaryBox h2'));
+    openSumEditor(document.querySelector('#summaryBox h2'), false);
+    const subTitleEdit = document.querySelector('#summaryBox .sum-edit textarea');
+    subTitleEdit.value = '### 小标题'; subTitleEdit.dispatchEvent(new Event('input'));
+    document.querySelector('#summaryBox [data-se="save"]').click();
+    ok('编辑已有标题可直接改成 ### 小标题', S.doc.summary.includes('### 小标题') && !!document.querySelector('#summaryBox h3'));
     const tb = md('前文\n\n| 模型 | 比例 |\n|---|---|\n| 金字塔 | 40% [01:02] |\n\n后文');
     ok('Markdown 表格显示成表格', tb.includes('<table>') && tb.includes('<td>金字塔</td>') && tb.includes('tslink') && tb.includes('<p>后文</p>'), tb);
 
@@ -565,7 +587,8 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('改完按 Enter 保存（换行写的那一行变成新的一条），并在下面开一条新的', S.doc.summary.includes('- 甲二改过\n- 甲三是新的一条') && $('#summaryBox .sum-edit textarea') && $('#summaryBox .sum-edit textarea').value === '', S.doc.summary);
     keyOn($('#summaryBox .sum-edit textarea'), 'Enter');
     ok('新的那一条没写字再按 Enter：结束，不留空条目', !$('#summaryBox .sum-edit') && !S.doc.summary.includes('…') && S.doc.summary.includes('- 甲三是新的一条\n\n## 二、乙'), S.doc.summary);
-    S.doc.summary = '![[画面 00:05]]\n\n' + Array.from({ length: 70 }, (_, i) => `- 长课程重点 ${i + 1}`).join('\n'); renderSummary();
+    S.doc.summary = '![[画面 00:05]]\n\n' + Array.from({ length: 70 }, (_, i) => `- 长课程重点 ${i + 1}`).join('\n');
+    S.doc.sum_shots = [5]; renderSummary();
     ok('滚动定位测试的课程重点截图已加载', await until(() => {
       const im = $('#summaryBox .shot-fig img'); return im && im.complete && im.naturalWidth > 0;
     }, 10000));
@@ -582,6 +605,21 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       return im && im.complete && im.naturalWidth > 0
         && Math.abs(savedSumTarget.getBoundingClientRect().top - sumEditorTop) < 5 && sumBox.scrollTop > 0;
     }, 10000), `${savedSumTarget.getBoundingClientRect().top} / ${sumEditorTop}`);
+    const scrollAnchorText = savedSumTarget.textContent.trim(), scrollAnchorTop = savedSumTarget.getBoundingClientRect().top;
+    sumDelete(2, 2, 'item');
+    let restoredAnchor = () => [...sumBox.querySelectorAll('[data-l]')].find(el => el.textContent.trim() === scrollAnchorText);
+    ok('删除图片上方的一行后，当前阅读位置不跳', await until(() => restoredAnchor()
+      && Math.abs(restoredAnchor().getBoundingClientRect().top - scrollAnchorTop) < 5), scrollAnchorText);
+    ctrlZ();
+    ok('Ctrl+Z 恢复删除的行后，当前阅读位置不跳', await until(() => restoredAnchor()
+      && Math.abs(restoredAnchor().getBoundingClientRect().top - scrollAnchorTop) < 5), scrollAnchorText);
+    const keepConfirmSum = window.confirm; window.confirm = () => true;
+    moveSumShot(0, 'del'); window.confirm = keepConfirmSum;
+    ok('删除图片后，当前阅读位置不跳', !S.doc.summary.includes('画面 00:05') && !S.doc.sum_shots.includes(5)
+      && await until(() => restoredAnchor() && Math.abs(restoredAnchor().getBoundingClientRect().top - scrollAnchorTop) < 5), scrollAnchorText);
+    ctrlZ();
+    ok('Ctrl+Z 恢复图片后，图片记录和阅读位置都恢复', S.doc.summary.includes('画面 00:05') && S.doc.sum_shots.includes(5)
+      && await until(() => restoredAnchor() && Math.abs(restoredAnchor().getBoundingClientRect().top - scrollAnchorTop) < 5), scrollAnchorText);
     S.doc.summary = tsum; renderSummary();
     hover(4); tool('split').click();
     sta = $('#summaryBox .sum-edit textarea'); sta.value = '前半句后半句'; sta.selectionStart = sta.selectionEnd = 3;
