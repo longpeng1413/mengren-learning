@@ -2427,6 +2427,42 @@ function renderSummary() {
   $$('.shot-fig', box).forEach((fig, n) => fig.querySelector('figcaption').insertAdjacentHTML('beforeend',
     `<span class="fig-tools tts-skip" data-n="${n}"><button data-sf="up" title="挪到上一条重点前面">↑ 上移</button><button data-sf="down" title="挪到下一条重点后面">↓ 下移</button>${fig.querySelector('.redraw-svg, .redraw-code') ? '' : '<button data-sf="edit" title="编辑截图：裁剪、画箭头方框、写字、翻译、复制、保存">✏ 编辑</button>'}${fig.querySelector('.redraw-code') ? '' : '<button data-sf="size" title="调整大小">⇲ 大小</button>'}<button data-sf="del" title="从课程重点里删掉这张图">删除</button></span>`));
 }
+/* 课程重点重画时保留正在操作的那一块在滚动区域里的位置，避免焦点元素被替换后页面跳走 */
+function keepSumInPlace(l0, fn) {
+  const box = $('#summaryBox'), before = box.querySelector('.sum-edit') || $(`[data-l^="${l0}-"]`, box);
+  const top0 = before ? before.getBoundingClientRect().top : null, st0 = box.scrollTop;
+  fn();
+  const after = box.querySelector('.sum-edit') || $(`[data-l^="${l0}-"]`, box);
+  const behavior = box.style.scrollBehavior;
+  const align = () => {
+    box.style.scrollBehavior = 'auto';
+    if (after && after.isConnected && top0 != null) box.scrollTop += after.getBoundingClientRect().top - top0;
+    else box.scrollTop = st0;
+    box.style.scrollBehavior = behavior;
+  };
+  align();
+  const pending = after && top0 != null ? $$('img', box).filter(img => !img.complete || !img.naturalWidth) : [];
+  if (!pending.length) return;
+  let left = pending.length, active = true, timer;
+  const cleanup = () => {
+    if (!active) return;
+    active = false; clearTimeout(timer);
+    box.removeEventListener('wheel', onUser); box.removeEventListener('touchstart', onUser);
+    box.removeEventListener('pointerdown', onUser); box.removeEventListener('keydown', onUser);
+    pending.forEach(img => { img.removeEventListener('load', onLoad); img.removeEventListener('error', onLoad); });
+  };
+  const onUser = () => cleanup();
+  const onLoad = () => {
+    if (!active) return;
+    if (!after.isConnected) return cleanup();
+    align();
+    if (!--left) cleanup();
+  };
+  box.addEventListener('wheel', onUser); box.addEventListener('touchstart', onUser);
+  box.addEventListener('pointerdown', onUser); box.addEventListener('keydown', onUser);
+  pending.forEach(img => { img.addEventListener('load', onLoad); img.addEventListener('error', onLoad); });
+  timer = setTimeout(cleanup, 5000);
+}
 /* ---------- 课程重点里手动插截图（2026-11-02 用户要求，和字幕栏的「插入截图」一样）：和 AI 插的图同一种写法，一行 ![[画面 mm:ss]]
    （剪藏时 doc.place_figures 换成截图）。插在出处时间离视频现在最近（不晚于它）的那一条后面，正在编辑时插在光标那一行后面；
    图下面「上移 / 下移」= 和上一块 / 下一块（一条重点、一个标题、一张表、一段代码）换位置，「删除」去掉这一行，AI 插的图也能挪。
@@ -2705,9 +2741,11 @@ function sumAdd(l0, l1, kind) {
   pushSumUndo();
   lines.splice(at, 0, ...ins);
   S.doc.summary = lines.join('\n');  // 先不整理空行，行号才对得上
-  renderSummary();
-  const el = $(`#summaryBox [data-l^="${nl}-"]`);
-  if (el) openSumEditor(el, true); else { S.doc.summary = S.sumUndo.pop(); renderSummary(); }
+  keepSumInPlace(l0, () => {
+    renderSummary();
+    const el = $(`#summaryBox [data-l^="${nl}-"]`);
+    if (el) openSumEditor(el, true); else { S.doc.summary = S.sumUndo.pop(); renderSummary(); }
+  });
 }
 /* ✎ 改这一条：只把这一块变成输入框。点别处、点「保存」保存；Esc 取消；Shift+Enter 换行（列表项里换行写的每一行变成新的一条）。
    2026-11-02 用户要求去掉「加一条」「缩进」「取消缩进」按钮、改成按键：Enter = 保存并在下面加一条（新的那一条什么都没写再按 Enter 就结束）；
@@ -2737,9 +2775,11 @@ function openSumEditor(el, isNew, split, init, caret) {
     const out = indentLines(cur, l0, dir);
     if (typeof out === 'string') toast(out);
     S.doc.summary = (typeof out === 'string' ? cur : out).join('\n');
-    renderSummary();
-    const again = $(`#summaryBox [data-l^="${l0}-"]`);
-    if (again) openSumEditor(again, isNew, false, text, pos);
+    keepSumInPlace(l0, () => {
+      renderSummary();
+      const again = $(`#summaryBox [data-l^="${l0}-"]`);
+      if (again) openSumEditor(again, isNew, false, text, pos);
+    });
   };
   const finish = (save, cut, next) => {
     if (done) return; done = true;
@@ -2758,7 +2798,7 @@ function openSumEditor(el, isNew, split, init, caret) {
     const old = cur.slice(l0, l1 + 1).join('\n');
     if (!save || (isNew && !rep.length)) {  // 取消，或者新加的那一条什么都没写：当没加过（连续按 Enter 加条目时，在空的那一条上再按 Enter 就结束）
       if (isNew) S.doc.summary = S.sumUndo.pop();
-      return renderSummary();
+      return keepSumInPlace(l0, renderSummary);
     }
     const same = !isNew && rep.join('\n') === old;
     if (!same) {
@@ -2770,8 +2810,8 @@ function openSumEditor(el, isNew, split, init, caret) {
       const last = l0 + rep.length - 1;
       return kind === 'head' ? sumAdd(l0, l0, 'head') : sumAdd(kind === 'item' ? last : l0, last, kind);
     }
-    if (same) return renderSummary();
-    setSummary(cur, !rep.length ? '已删除（内容清空了）' : rep.length > 1 && kind === 'item' ? `已拆成 ${rep.length} 条` : '');
+    if (same) return keepSumInPlace(l0, renderSummary);
+    keepSumInPlace(l0, () => setSummary(cur, !rep.length ? '已删除（内容清空了）' : rep.length > 1 && kind === 'item' ? `已拆成 ${rep.length} 条` : ''));
   };
   ta.addEventListener('keydown', e => {
     if (e.isComposing || e.keyCode === 229) return;  // 输入法正在选字时的回车不算

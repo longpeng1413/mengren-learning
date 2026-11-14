@@ -548,6 +548,23 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('改完按 Enter 保存（换行写的那一行变成新的一条），并在下面开一条新的', S.doc.summary.includes('- 甲二改过\n- 甲三是新的一条') && $('#summaryBox .sum-edit textarea') && $('#summaryBox .sum-edit textarea').value === '', S.doc.summary);
     keyOn($('#summaryBox .sum-edit textarea'), 'Enter');
     ok('新的那一条没写字再按 Enter：结束，不留空条目', !$('#summaryBox .sum-edit') && !S.doc.summary.includes('…') && S.doc.summary.includes('- 甲三是新的一条\n\n## 二、乙'), S.doc.summary);
+    S.doc.summary = '![[画面 00:05]]\n\n' + Array.from({ length: 70 }, (_, i) => `- 长课程重点 ${i + 1}`).join('\n'); renderSummary();
+    ok('滚动定位测试的课程重点截图已加载', await until(() => {
+      const im = $('#summaryBox .shot-fig img'); return im && im.complete && im.naturalWidth > 0;
+    }, 10000));
+    const sumBox = $('#summaryBox'), sumTarget = sumBox.querySelector('[data-l^="37-"]');
+    sumBox.scrollTop += sumTarget.getBoundingClientRect().top - sumBox.getBoundingClientRect().top - 80;
+    openSumEditor(sumTarget, false);
+    const sumEditor = $('#summaryBox .sum-edit textarea');
+    sumEditor.value = '编辑后的课程重点内容'; sumEditor.dispatchEvent(new Event('input', { bubbles: true }));
+    const sumEditorTop = $('#summaryBox .sum-edit').getBoundingClientRect().top;
+    $('#summaryBox [data-se="save"]').click();
+    const savedSumTarget = sumBox.querySelector('[data-l^="37-"]');
+    ok('课程重点编辑及截图加载后仍停在原来的位置', await until(() => {
+      const im = $('#summaryBox .shot-fig img');
+      return im && im.complete && im.naturalWidth > 0
+        && Math.abs(savedSumTarget.getBoundingClientRect().top - sumEditorTop) < 5 && sumBox.scrollTop > 0;
+    }, 10000), `${savedSumTarget.getBoundingClientRect().top} / ${sumEditorTop}`);
     S.doc.summary = tsum; renderSummary();
     hover(4); tool('split').click();
     sta = $('#summaryBox .sum-edit textarea'); sta.value = '前半句后半句'; sta.selectionStart = sta.selectionEnd = 3;
