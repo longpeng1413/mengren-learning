@@ -2731,17 +2731,19 @@ function sumMove(l0, l1, kind, dir) {
     if (i < 0 || !o) return toast(dir < 0 ? '已经在最前面了' : '已经在最后面了');
     out = dir < 0 ? swapRanges(lines, o[0], o[1], l0, l1) : swapRanges(lines, l0, l1, o[0], o[1]);
   }
-  pushSumUndo(); setSummary(out);
+  keepSumViewport(() => { pushSumUndo(); setSummary(out); }, [l0, e0]);
 }
 function sumMerge(l0) {
   const lines = sumLines(), k = prevSibling(lines, l0);
   if (k < 0) return toast('上面没有同一级的条目，不能合并');
   const prev = lines[k].replace(/\s+$/, ''), cur = lines[l0].match(ITEM_RE)[4].trim();
   const join = /[。！？；…．.!?;：:）)】」』"”\]]$/.test(prev) ? '' : '；';
-  pushSumUndo();
-  lines[k] = prev + join + cur;
-  lines.splice(l0, 1);
-  setSummary(lines, '已经并到上一条');
+  keepSumViewport(() => {
+    pushSumUndo();
+    lines[k] = prev + join + cur;
+    lines.splice(l0, 1);
+    setSummary(lines, '已经并到上一条');
+  }, [k, l0]);
 }
 /* 缩进 / 取消缩进第 l0 行那一条（连同它的小点）：返回改好的各行；做不了返回原因（字符串）。不改 S.doc */
 function indentLines(lines, l0, dir) {
@@ -2820,6 +2822,8 @@ function openSumEditor(el, isNew, split, init, caret) {
     ${kind === 'item' ? `<button data-se="split" class="${split ? 'primary' : ''}">在这里拆开</button>` : ''}<button data-se="cancel">取消</button><button data-se="save" class="${split ? '' : 'primary'}">保存</button></div>`;
   if (kind === 'item') { el.textContent = ''; el.appendChild(wrap); } else el.replaceWith(wrap);
   const ta = wrap.querySelector('textarea');
+  // 保存/取消时用未编辑的可见内容定位，不能把标题的外边距对齐到编辑框的外边距。
+  const keepReading = fn => keepSumViewport(fn, [l0, l1]);
   ta.value = value;
   const fit = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 2 + 'px'; };
   fit(); ta.addEventListener('input', fit);
@@ -2862,7 +2866,7 @@ function openSumEditor(el, isNew, split, init, caret) {
     const old = cur.slice(l0, l1 + 1).join('\n');
     if (!save || (isNew && !rep.length)) {  // 取消，或者新加的那一条什么都没写：当没加过（连续按 Enter 加条目时，在空的那一条上再按 Enter 就结束）
       if (isNew) restoreSumUndo();
-      keepSumInPlace(l0, () => renderSummary(true));
+      keepReading(() => renderSummary(true));
       if (typeof TTS !== 'undefined') TTS.resumeSummaryEdit();
       return;
     }
@@ -2877,11 +2881,11 @@ function openSumEditor(el, isNew, split, init, caret) {
       return outputKind === 'head' ? sumAdd(l0, l0, 'head') : sumAdd(kind === 'item' ? last : l0, last, kind);
     }
     if (same) {
-      keepSumInPlace(l0, () => renderSummary(true));
+      keepReading(() => renderSummary(true));
       if (typeof TTS !== 'undefined') TTS.resumeSummaryEdit();
       return;
     }
-    keepSumInPlace(l0, () => setSummary(cur, !rep.length ? '已删除（内容清空了）' : rep.length > 1 && kind === 'item' ? `已拆成 ${rep.length} 条` : ''));
+    keepReading(() => setSummary(cur, !rep.length ? '已删除（内容清空了）' : rep.length > 1 && kind === 'item' ? `已拆成 ${rep.length} 条` : ''));
     if (typeof TTS !== 'undefined') TTS.resumeSummaryEdit();
   };
   ta.addEventListener('keydown', e => {

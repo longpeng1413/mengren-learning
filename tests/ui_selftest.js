@@ -375,25 +375,12 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       && S.doc.summary.includes('*斜体测试*') && document.querySelector('#summaryBox h2') && document.querySelector('#summaryBox li')
       && document.querySelector('#summaryBox i'));
     S.doc.summary = '- 单行 加粗 斜体\n\n普通段落'; renderSummary();
-    const nativeTextFocus = HTMLTextAreaElement.prototype.focus;
-    let editorFocusOptions = null;
-    HTMLTextAreaElement.prototype.focus = function (options) {
-      if (this.closest('.sum-edit')) editorFocusOptions = options;
-      return nativeTextFocus.call(this, options);
-    };
-    try { openSumEditor(document.querySelector('#summaryBox li'), false); }
-    finally { HTMLTextAreaElement.prototype.focus = nativeTextFocus; }
+    openSumEditor(document.querySelector('#summaryBox li'), false);
     const inlineEdit = document.querySelector('#summaryBox .sum-edit textarea');
     ok('单行编辑显示加粗、斜体入口', !!inlineEdit && !!document.querySelector('#summaryBox [data-se="format-bold"]')
       && !!document.querySelector('#summaryBox [data-se="format-italic"]'));
-    ok('打开单行编辑时聚焦不滚动页面', !!editorFocusOptions && editorFocusOptions.preventScroll === true);
-    const formatFocus = inlineEdit.focus.bind(inlineEdit);
-    let formatFocusOptions = null;
-    inlineEdit.focus = options => { formatFocusOptions = options; return formatFocus(options); };
     inlineEdit.setSelectionRange(3, 5);
     document.querySelector('#summaryBox [data-se="format-bold"]').click();
-    ok('点加粗按钮不因恢复焦点而滚动页面',
-      !!formatFocusOptions && formatFocusOptions.preventScroll === true);
     inlineEdit.setSelectionRange(0, 2);
     inlineEdit.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, bubbles: true, cancelable: true }));
     inlineEdit.setSelectionRange(14, 16);
@@ -411,6 +398,104 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     subTitleEdit.value = '### 小标题'; subTitleEdit.dispatchEvent(new Event('input'));
     document.querySelector('#summaryBox [data-se="save"]').click();
     ok('编辑已有标题可直接改成 ### 小标题', S.doc.summary.includes('### 小标题') && !!document.querySelector('#summaryBox h3'));
+    // Trusted WebView2 input, long content, and frame-by-frame geometry. A .click()
+    // or focus-options assertion misses default mouse/focus and scroll anchoring.
+    {
+      const ready = await until(() => window.__uiNativeReady, 5000);
+      ok('真实 WebView 鼠标键盘驱动已连接', ready);
+      if (!ready) throw new Error('Native input unavailable; cannot verify scrolling');
+      const box = $('#summaryBox'), savedSummary = S.doc.summary, savedSettings = { ...S.settings };
+      S.settings.ai_dock = 'side'; S.settings.ai_w = 560; applyLayout();
+      let inputId = 0;
+      const native = async request => {
+        const id = ++inputId;
+        window.__uiNativeRequest = { ...request, id };
+        if (!await until(() => window.__uiNativeDone === id, 3000)) throw new Error('Native input timed out');
+      };
+      const click = async el => {
+        const r = el.getBoundingClientRect(), bounds = box.getBoundingClientRect();
+        if (r.top < bounds.top || r.bottom > bounds.bottom) throw new Error('Test button outside viewport: ' + el.textContent);
+        await native({ kind: 'click', x: r.left + r.width / 2, y: r.top + r.height / 2 });
+      };
+      const longText = '这是一条较长的课程重点，用来检查自动换行、编辑框高度变化以及点击工具按钮时的实际阅读位置。'.repeat(3);
+      const content = Array.from({ length: 45 }, (_, i) => `## 测试小节 ${i}\n\n- 前方稳定锚点 ${i}\n- 编辑目标 ${i} ${longText}\n- 后方稳定内容 ${i}\n`).join('\n');
+      let blurCount = 0, redraws = 0;
+      const observer = new MutationObserver(mutations => { redraws += mutations.filter(m => m.target === box).length; });
+      observer.observe(box, { childList: true });
+      const trace = async (name, action, anchor, terminal = false) => {
+        const state = () => ({ st: box.scrollTop, wy: window.scrollY, top: anchor().getBoundingClientRect().top });
+        const before = state(), samples = [], blurBefore = blurCount, rendersBefore = redraws;
+        let tracking = true;
+        const frame = () => { if (tracking) { samples.push(state()); requestAnimationFrame(frame); } };
+        requestAnimationFrame(frame);
+        await action(); await wait(350); tracking = false; samples.push(state());
+        const drift = Math.max(...samples.map(p => Math.max(Math.abs(p.st - before.st), Math.abs(p.wy - before.wy), Math.abs(p.top - before.top))));
+        const details = { before, after: state(), drift, blurs: blurCount - blurBefore, redraws: redraws - rendersBefore };
+        await api('log', { level: 'info', message: 'SCROLL ' + name + ' ' + JSON.stringify(details) });
+        ok('真实输入不跳动：' + name, drift <= 3 && redraws - rendersBefore <= 1
+          && (terminal || (blurCount === blurBefore && redraws === rendersBefore)), details);
+      };
+      try {
+        for (const dock of ['side', 'bottom']) for (const kind of ['list', 'heading']) {
+          S.settings.ai_dock = dock; S.settings.video_h = .25; applyLayout();
+          S.doc.summary = content; S.sumUndo = []; renderSummary(); await wait(100);
+          const original = kind === 'list' ? [...box.querySelectorAll('li')].find(el => el.textContent.startsWith('编辑目标 20 ')) : box.querySelectorAll('h2')[20];
+          box.scrollTop += original.getBoundingClientRect().top - box.getBoundingClientRect().top - 130;
+          const marker = kind === 'list' ? '前方稳定锚点 20' : '后方稳定内容 19';
+          const anchor = () => [...box.querySelectorAll('li')].find(el => el.textContent === marker);
+          const r = original.getBoundingClientRect();
+          await native({ kind: 'move', x: r.left + 15, y: r.top + 10 });
+          await trace(dock + ' ' + kind + ' 打开编辑', () => click($('#sumTools [data-st="edit"]')), anchor, true);
+          const edit = box.querySelector('textarea');
+          edit.addEventListener('blur', () => blurCount++);
+          const button = action => box.querySelector(`[data-se="${action}"]`);
+          for (const format of ['bold', 'italic', ...(kind === 'heading' ? ['h2', 'h3'] : [])]) {
+            edit.setSelectionRange(0, 4);
+            await trace(dock + ' ' + kind + ' ' + format, () => click(button('format-' + format)), anchor);
+          }
+          for (const key of ['b', 'i']) {
+            edit.setSelectionRange(0, 4);
+            await trace(dock + ' ' + kind + ' Ctrl+' + key, () => native({ kind: 'key', key }), anchor);
+          }
+          await trace(dock + ' ' + kind + ' 保存', () => click(button('save')), anchor, true);
+          ok('真实保存已关闭编辑框并写入格式', !box.querySelector('.sum-edit') && S.doc.summary !== content);
+          await click(anchor());
+          await trace(dock + ' ' + kind + ' Ctrl+Z', () => native({ kind: 'key', key: 'z' }), anchor, true);
+          ok('真实 Ctrl+Z 恢复原文', S.doc.summary === content);
+          const target = () => kind === 'list' ? [...box.querySelectorAll('li')].find(el => el.textContent.startsWith('编辑目标 20 ')) : box.querySelectorAll('h2')[20];
+          openSumEditor(target(), false); await wait(150);
+          await trace(dock + ' ' + kind + ' 取消', () => click(button('cancel')), anchor, true);
+          ok('真实取消保留原文', S.doc.summary === content && !box.querySelector('.sum-edit'));
+          if (kind === 'list') {
+            openSumEditor(target(), false, true); await wait(150);
+            await trace(dock + ' list 拆分', () => click(button('split')), anchor, true);
+            ok('真实拆分生成两条', S.doc.summary !== content && !box.querySelector('.sum-edit'));
+          }
+        }
+        S.settings.ai_dock = 'side'; applyLayout();
+        for (const action of ['up', 'down', 'merge', 'del']) {
+          S.doc.summary = '![[画面 00:05]]\n\n' + Array.from({ length: 65 }, (_, i) => `- 工具按钮测试 ${i}`).join('\n');
+          renderSummary(); await until(() => { const im = box.querySelector('img'); return im && im.complete && im.naturalWidth; });
+          const anchor = () => [...box.querySelectorAll('li')].find(el => el.textContent === '工具按钮测试 28');
+          const target = [...box.querySelectorAll('li')].find(el => el.textContent === '工具按钮测试 32');
+          const before = S.doc.summary;
+          box.scrollTop += anchor().getBoundingClientRect().top - box.getBoundingClientRect().top - 60;
+          const r = target.getBoundingClientRect();
+          const bounds = box.getBoundingClientRect();
+          await native({ kind: 'move', x: bounds.left + 2, y: bounds.top + 2 });
+          await native({ kind: 'move', x: r.left + 15, y: r.top + 10 });
+          await trace('悬浮工具 ' + action + '（含截图重新加载）', () => click($('#sumTools [data-st="' + action + '"]')), anchor, true);
+          const text = S.doc.summary;
+          ok('悬浮工具实际执行：' + action, text !== before && (action === 'up'
+            ? text.indexOf('- 工具按钮测试 32') < text.indexOf('- 工具按钮测试 31') : action === 'down'
+              ? text.indexOf('- 工具按钮测试 32') > text.indexOf('- 工具按钮测试 33') : action === 'merge'
+                ? text.includes('工具按钮测试 31；工具按钮测试 32') : !text.includes('工具按钮测试 32')));
+        }
+      } finally {
+        observer.disconnect(); S.settings = savedSettings; applyLayout();
+        S.doc.summary = savedSummary; S.sumUndo = []; renderSummary();
+      }
+    }
     const tb = md('前文\n\n| 模型 | 比例 |\n|---|---|\n| 金字塔 | 40% [01:02] |\n\n后文');
     ok('Markdown 表格显示成表格', tb.includes('<table>') && tb.includes('<td>金字塔</td>') && tb.includes('tslink') && tb.includes('<p>后文</p>'), tb);
 

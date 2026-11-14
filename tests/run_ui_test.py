@@ -8,7 +8,10 @@ import os
 import shutil
 import subprocess
 import sys
+import socket
 from pathlib import Path
+
+from ui_native_input import drive_input
 
 ROOT = Path(__file__).resolve().parents[1]
 TD = ROOT / '.testdata'
@@ -65,11 +68,26 @@ def main():
         cmd = [str(ROOT / 'dist-next' / '猛人学习' / '猛人学习.exe')]
     else:
         cmd = [sys.executable, str(ROOT / 'app' / 'main.py')]
-    rc = subprocess.run(cmd + [f'--selftest={SCRIPT}', '--selftest-close', '--fake-ai'], env=env, timeout=400).returncode
+    # Only the isolated test window exposes a debugging port; production is unchanged.
+    with socket.socket() as probe:
+        probe.bind(('127.0.0.1', 0))
+        port = probe.getsockname()[1]
+    env['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = f'--remote-debugging-port={port}'
+    process = subprocess.Popen(cmd + [f'--selftest={SCRIPT}', '--selftest-close', '--fake-ai'], env=env)
+    drive_input(port, process)
+    rc = process.wait(timeout=400)
     if rc:
         print('程序退出码', rc, hex(rc & 0xffffffff))
 
     results = json.loads(RESULT.read_text(encoding='utf-8')) if RESULT.exists() else ['没有结果']
+    evidence = ROOT / 'build' / 'ui-regression'
+    evidence.mkdir(parents=True, exist_ok=True)
+    label = 'packaged' if '--exe' in sys.argv else 'source'
+    (evidence / f'{label}-results.json').write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding='utf-8')
+    log_file = TD / 'store' / '日志（可随时删除）' / 'app.log'
+    if log_file.exists():
+        trace = [line for line in log_file.read_text(encoding='utf-8').splitlines() if 'SCROLL ' in line]
+        (evidence / f'{label}-scroll.log').write_text('\n'.join(trace), encoding='utf-8')
     bad = [r for r in results if not r.startswith('PASS')]
     for r in bad:
         print(r)
