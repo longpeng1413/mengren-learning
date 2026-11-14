@@ -354,9 +354,26 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     // 课程重点可以编辑
     document.querySelector('#btnEditSummary').click();
     const ta = document.querySelector('#summaryEdit');
-    ta.value = '### 一句话主题\n测试重点 [00:10]'; ta.dispatchEvent(new Event('input'));
+    ok('整篇编辑时显示常用格式按钮', !document.querySelector('#summaryFormatBar').hidden
+      && document.querySelectorAll('#summaryFormatBar [data-sum-format]').length === 7);
+    ta.value = '一句话主题\n小标题\n测试重点 [00:10]\n斜体测试'; ta.dispatchEvent(new Event('input'));
+    ta.setSelectionRange(0, 5);
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, bubbles: true, cancelable: true }));
+    ok('Ctrl+B 给选中文字加粗', ta.value.startsWith('**一句话主题**'));
+    ta.setSelectionRange(2, 7); document.querySelector('#summaryFormatBar [data-sum-format="bold"]').click();
+    ok('格式按钮能取消已加粗的文字', ta.value.startsWith('一句话主题'));
+    ta.setSelectionRange(ta.value.indexOf('小标题'), ta.value.indexOf('小标题'));
+    document.querySelector('#summaryFormatBar [data-sum-format="h2"]').click();
+    ta.setSelectionRange(ta.value.indexOf('测试重点'), ta.value.length);
+    document.querySelector('#summaryFormatBar [data-sum-format="ul"]').click();
+    const ital = ta.value.indexOf('斜体测试');
+    ta.setSelectionRange(ital, ital + 4);
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'i', ctrlKey: true, bubbles: true, cancelable: true }));
     document.querySelector('#btnEditSummary').click();
-    ok('编辑课程重点', S.doc.summary.includes('测试重点') && document.querySelector('#summaryBox .tslink'));
+    ok('编辑课程重点：标题、列表和时间戳正常显示', S.doc.summary.includes('一句话主题')
+      && S.doc.summary.includes('## 小标题') && S.doc.summary.includes('- 测试重点 [00:10]') && document.querySelector('#summaryBox .tslink')
+      && S.doc.summary.includes('*斜体测试*') && document.querySelector('#summaryBox h2') && document.querySelector('#summaryBox li')
+      && document.querySelector('#summaryBox i'));
     const tb = md('前文\n\n| 模型 | 比例 |\n|---|---|\n| 金字塔 | 40% [01:02] |\n\n后文');
     ok('Markdown 表格显示成表格', tb.includes('<table>') && tb.includes('<td>金字塔</td>') && tb.includes('tslink') && tb.includes('<p>后文</p>'), tb);
 

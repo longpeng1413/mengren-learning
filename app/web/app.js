@@ -3001,10 +3001,71 @@ function toggleSummaryEdit(on) {
   summaryEditing = on ?? !summaryEditing;
   if (summaryEditing) { if (typeof TTS !== 'undefined') TTS.pauseSummaryEdit($('#summaryBox')); }
   $('#summaryEdit').hidden = !summaryEditing; $('#summaryBox').hidden = summaryEditing;
+  $('#summaryFormatBar').hidden = !summaryEditing;
   $('#btnEditSummary').textContent = summaryEditing ? '完成编辑' : '编辑';
   $('#btnEditSummary').classList.toggle('primary', summaryEditing);
   if (summaryEditing) { pushSumUndo(); $('#summaryEdit').value = S.doc.summary || ''; $('#summaryEdit').focus(); }
   else { renderSummary(true); if (typeof TTS !== 'undefined') TTS.resumeSummaryEdit(); }
+}
+function applySummaryFormat(action) {
+  const ta = $('#summaryEdit'), value = ta.value, start = ta.selectionStart, end = ta.selectionEnd;
+  let next = value, selStart = start, selEnd = end;
+  if (action === 'bold' || action === 'italic') {
+    const mark = action === 'bold' ? '**' : '*';
+    if (start === end) {
+      const sample = '文字', wrap = mark + sample + mark;
+      next = value.slice(0, start) + wrap + value.slice(end);
+      selStart = start + mark.length; selEnd = selStart + sample.length;
+    } else {
+      const selected = value.slice(start, end);
+      const inside = selected.startsWith(mark) && selected.endsWith(mark) && selected.length >= mark.length * 2;
+      const outside = start >= mark.length && value.slice(start - mark.length, start) === mark
+        && value.slice(end, end + mark.length) === mark
+        && (mark !== '*' || (value[start - 2] !== '*' && value[end + 1] !== '*'));
+      if (inside) {
+        const replacement = selected.slice(mark.length, -mark.length);
+        next = value.slice(0, start) + replacement + value.slice(end);
+        selStart = start; selEnd = start + replacement.length;
+      } else if (outside) {
+        next = value.slice(0, start - mark.length) + selected + value.slice(end + mark.length);
+        selStart = start - mark.length; selEnd = end - mark.length;
+      } else {
+        next = value.slice(0, start) + mark + selected + mark + value.slice(end);
+        selStart = start + mark.length; selEnd = end + mark.length;
+      }
+    }
+  } else {
+    const first = value.lastIndexOf('\n', Math.max(0, start - 1)) + 1;
+    const lastChar = end > start && value[end - 1] === '\n' ? end - 1 : end;
+    const nextBreak = value.indexOf('\n', lastChar);
+    const last = nextBreak < 0 ? value.length : nextBreak;
+    const selected = value.slice(first, last), lines = selected.split('\n');
+    let formatted;
+    if (action === 'h2' || action === 'h3') {
+      const prefix = action === 'h2' ? '## ' : '### ';
+      formatted = lines.map(line => line.trim() ? prefix + line.replace(/^\s*#{1,6}\s+/, '').trimStart() : line).join('\n');
+    } else if (action === 'ul' || action === 'ol') {
+      const re = action === 'ul' ? /^(\s*)[-*+]\s+/ : /^(\s*)\d+[.)]\s+/;
+      const remove = lines.filter(line => line.trim()).every(line => re.test(line));
+      let n = 0;
+      formatted = lines.map(line => {
+        if (!line.trim()) return line;
+        const plain = line.replace(/^(\s*)(?:[-*+]|\d+[.)])\s+/, '$1');
+        if (remove) return plain;
+        const indent = plain.match(/^\s*/)[0];
+        return indent + (action === 'ul' ? '- ' : `${++n}. `) + plain.slice(indent.length);
+      }).join('\n');
+    } else if (action === 'quote') {
+      const remove = lines.filter(line => line.trim()).every(line => /^>\s?/.test(line));
+      formatted = lines.map(line => !line.trim() ? line : remove ? line.replace(/^>\s?/, '') : '> ' + line.replace(/^\s*/, '')).join('\n');
+    } else return;
+    next = value.slice(0, first) + formatted + value.slice(last);
+    selStart = first; selEnd = first + formatted.length;
+  }
+  ta.value = next;
+  ta.setSelectionRange(selStart, selEnd);
+  ta.focus();
+  ta.dispatchEvent(new Event('input', { bubbles: true }));
 }
 function renderChat() {
   const box = $('#chatBox');
@@ -3814,6 +3875,16 @@ function bind() {
   $('#btnSummaryStale').onclick = () => { if (!S.job) doSummary(); };
   $('#btnEditSummary').onclick = () => toggleSummaryEdit();
   $('#summaryEdit').addEventListener('input', e => { if (S.doc) { S.doc.summary = e.target.value; markDirty(); } });
+  $('#summaryEdit').addEventListener('keydown', e => {
+    if (!e.ctrlKey || e.altKey || e.isComposing) return;
+    const key = e.key.toLowerCase();
+    if (key === 'b' || key === 'i') { e.preventDefault(); applySummaryFormat(key === 'b' ? 'bold' : 'italic'); }
+  });
+  $('#summaryFormatBar').addEventListener('mousedown', e => { if (e.target.closest('[data-sum-format]')) e.preventDefault(); });
+  $('#summaryFormatBar').addEventListener('click', e => {
+    const b = e.target.closest('[data-sum-format]');
+    if (b) applySummaryFormat(b.dataset.sumFormat);
+  });
   $('#btnCopySummary').onclick = () => navigator.clipboard.writeText(S.doc.summary || '').then(() => toast('已复制'));
   $('#btnSend').onclick = () => { if (S.chatAbort) S.chatAbort.abort(); else sendChat($('#chatInput').value); };
   $('#chatInput').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChat(e.target.value); } });
