@@ -450,11 +450,27 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     const sumKeep = S.doc.summary;
     S.doc.summary = '## 一、开头\n\n- 要点甲 [00:03]\n- 要点乙 [00:20]\n\n## 二、后面\n\n- 要点丙 [00:30]';
     S.doc.sum_shots = []; renderSummary(); updateButtons();
-    ok('课程重点有「插入截图」「打印」「导出 PDF」按钮', !$('#btnSumShot').hidden && !$('#btnSumShot').disabled && !$('#btnPrint').hidden && !$('#btnPrint').disabled && !$('#btnPdf').hidden && !$('#btnPdf').disabled);
+    const sumShotBtn = $('#btnSumShot');
+    ok('课程重点顶部有图标式插入截图按钮、打印和 PDF 按钮', !sumShotBtn.hidden && !sumShotBtn.disabled && sumShotBtn.parentElement.classList.contains('ai-tabs')
+      && sumShotBtn.classList.contains('icon-only') && !sumShotBtn.textContent.trim()
+      && !$('#btnPrint').hidden && !$('#btnPrint').disabled && !$('#btnPdf').hidden && !$('#btnPdf').disabled);
+    $('.ai-tabs [data-tab="chat"]').click();
+    ok('切到 AI 对话时隐藏课程重点截图按钮', sumShotBtn.hidden);
+    $('.ai-tabs [data-tab="summary"]').click();
+    ok('切回课程重点时显示截图按钮', !sumShotBtn.hidden);
     v.currentTime = 25; await wait(300);
     $('#btnSumShot').click();
     ok('插入截图：插在出处时间不晚于现在、最接近的那一条后面，图片加载出来', S.doc.summary.includes('- 要点乙 [00:20]\n\n![[画面 00:25]]\n\n## 二、后面')
       && S.doc.sum_shots.includes(25) && await until(() => (document.querySelector('#summaryBox .shot-fig img') || {}).src), S.doc.summary);
+    const shotSummaryBox = $('#summaryBox'), sumFigure = $('#summaryBox .shot-fig'), sumImage = sumFigure.querySelector('img');
+    const shotSummaryStyle = getComputedStyle(shotSummaryBox), sumFigureStyle = getComputedStyle(sumFigure);
+    const shotContentWidth = shotSummaryBox.clientWidth - parseFloat(shotSummaryStyle.paddingLeft) - parseFloat(shotSummaryStyle.paddingRight);
+    const shotContentCenter = shotSummaryBox.getBoundingClientRect().left + parseFloat(shotSummaryStyle.borderLeftWidth)
+      + parseFloat(shotSummaryStyle.paddingLeft) + shotContentWidth / 2;
+    const figureRect = sumFigure.getBoundingClientRect();
+    ok('课程重点插图默认铺满内容区并居中', sumFigureStyle.maxWidth === '100%' && figureRect.width >= shotContentWidth * .95
+      && Math.abs((figureRect.left + figureRect.right) / 2 - shotContentCenter) < 3
+      && sumImage.getBoundingClientRect().width >= figureRect.width - 2, [sumFigureStyle.maxWidth, figureRect.width, shotContentWidth]);
     $('#summaryBox .fig-tools [data-sf="up"]').click();
     ok('截图上移：挪到上一条前面', S.doc.summary.includes('- 要点甲 [00:03]\n\n![[画面 00:25]]\n\n- 要点乙'), S.doc.summary);
     $('#summaryBox .fig-tools [data-sf="down"]').click(); $('#summaryBox .fig-tools [data-sf="down"]').click();
@@ -641,9 +657,10 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('按 Shift+Tab：取消缩进，回到一级', sta && /\n- …\n- 甲二/.test(S.doc.summary), S.doc.summary);
     keyOn(sta, 'Escape');
     ok('新的一条什么都没写按 Esc：当没加过', S.doc.summary.includes('  - 甲一的小点\n  - 新加的一条\n- 甲二') && !S.doc.summary.includes('…') && !$('#summaryBox .sum-edit'), S.doc.summary);
-    // 课程重点底部按钮、「已校对」带文字（2026-11-02 用户：底部按钮少、不常用，带字更直观）；标题栏其他图标按钮都有一句话的提示
+    // 课程重点底部按钮、「已校对」带文字；插入截图已移到顶部并改为图标
     ok('课程重点底部按钮带文字，「已校对」是带文字的开关', $('#btnReview').textContent.trim() === '查漏补缺' && $('#btnCopySummary').textContent.trim() === '复制'
-      && $('#btnSumShot').textContent.includes('插入截图') && $('#optReviewed').closest('label').classList.contains('switch') && $('#optReviewed').closest('label').textContent.includes('已校对'));
+      && !$('#btnSumShot').textContent.trim() && $('#btnSumShot').parentElement.classList.contains('ai-tabs')
+      && $('#optReviewed').closest('label').classList.contains('switch') && $('#optReviewed').closest('label').textContent.includes('已校对'));
     ok('标题栏的图标按钮都有提示，字幕导出 PDF 的提示是一句话', [...document.querySelectorAll('.sub-head .btn.icon-only, .ai-tabs .btn.icon-only')].every(b => b.title)
       && $('#btnSubPdf').title === '把字幕输出为PDF');
     $('#btnHelp').click();

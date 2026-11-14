@@ -477,6 +477,7 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .doubt-tag button:hover { text-decoration: underline; }
 .shot-fig img { width: 100%; border-radius: 6px; background: var(--panel2); cursor: zoom-in; display: block; }
 .shot-fig { margin: 8px 0 12px; max-width: 560px; }
+#summaryBox .shot-fig { width: 100%; max-width: 100%; margin: 8px auto 12px; }
 .shot-fig figcaption { font-size: 12px; color: var(--muted); margin-top: 3px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 /* 课程重点里的图：上移 / 下移 / 删除（2026-11-02） */
 .fig-tools { margin-left: auto; display: inline-flex; gap: 4px; }

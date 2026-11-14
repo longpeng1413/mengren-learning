@@ -1614,6 +1614,7 @@ window.addEventListener('beforeunload', () => { if (S.dirty) save(); });
 
 function updateButtons() {
   if (S.mode === 'book') {
+    $('#btnSumShot').hidden = true;
     const busy = !!S.job, done = S.doc && (S.doc.chapters || []).some(c => (c.md || '').trim());
     $('#btnSave').disabled = !S.doc;
     $('#btnClip').disabled = !done || busy;
@@ -1635,7 +1636,7 @@ function updateButtons() {
   $('#btnSubShot').disabled = !has || busy;
   $('#btnSubPrint').disabled = $('#btnSubPdf').disabled = !has;
   $('#btnReview').disabled = !has || busy || !(S.doc && (S.doc.summary || '').trim()) || !!S.chatAbort;
-  $('#btnSumShot').hidden = !vid;
+  $('#btnSumShot').hidden = !vid || !$('.ai-tabs .tab[data-tab="summary"]').classList.contains('active');
   $('#btnSumShot').disabled = !(S.doc && (S.doc.summary || '').trim()) || busy || !!S.chatAbort;
   $('#btnPrint').disabled = $('#btnPdf').disabled = !(S.doc && (S.doc.summary || '').trim()) || !!S.chatAbort;
   $('#btnTerms').disabled = !has || busy;
@@ -3924,6 +3925,7 @@ function bind() {
   $$('.ai-tabs .tab').forEach(t => t.onclick = () => {
     $$('.ai-tabs .tab').forEach(x => x.classList.toggle('active', x === t));
     $$('.ai-body').forEach(p => p.hidden = p.dataset.pane !== t.dataset.tab);
+    $('#btnSumShot').hidden = t.dataset.tab !== 'summary' || !S.info || !S.info.has_video;
     $('#btnPrint').hidden = $('#btnPdf').hidden = $('#optPrintTsSumWrap').hidden = t.dataset.tab !== 'summary';  // 只打印课程重点
   });
   $('#btnAiDock').onclick = () => savePrefs({ ai_dock: S.settings.ai_dock === 'side' ? 'bottom' : 'side' });

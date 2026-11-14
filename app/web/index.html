@@ -302,6 +302,7 @@
     <button class="tab" data-tab="chat">AI 对话</button>
     <span class="grow"></span>
     <button class="btn small tts-btn icon-only" id="btnTts" title="朗读课程重点或 AI 回答"><svg viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M3 14h3v6H4a1 1 0 0 1-1-1zM21 14h-3v6h2a1 1 0 0 0 1-1z"/></svg></button>
+    <button class="btn small video-shot icon-only" id="btnSumShot" disabled title="把当前画面截图插进课程重点"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
     <button class="btn small icon-only" id="btnPrint" disabled title="打印课程重点"><svg viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg></button>
     <button class="btn small icon-only" id="btnPdf" disabled title="把课程重点输出为PDF"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h4"/></svg></button>
     <label class="btn icon-only small icon-toggle" id="optPrintTsSumWrap" title="打印、PDF 带出处时间（亮着 = 带）"><input type="checkbox" id="optPrintTsSum" hidden><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></label>
@@ -331,7 +332,6 @@
       <button class="btn small" id="btnTerms" disabled title="找出术语表里还没有的新术语，勾选后加进术语表">新术语</button>
       <button class="btn small" id="btnEditSummary" disabled title="编辑整篇课程重点">编辑</button>
       <button class="btn small" id="btnCopySummary" disabled title="复制整篇课程重点">复制</button>
-      <button class="btn small video-shot" id="btnSumShot" disabled title="把当前画面截图插进课程重点"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>插入截图</button>
       <span class="muted small-text" id="summaryHint"></span>
     </div>
   </div>
