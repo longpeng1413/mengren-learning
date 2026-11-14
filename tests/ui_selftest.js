@@ -506,11 +506,27 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     window.confirm = keepConfirm2;
     ok('删除课程重点里的截图', !S.doc.summary.includes('00:33]]') && S.doc.sum_shots.join() === '25' && document.querySelectorAll('#summaryBox .shot-fig').length === 1, S.doc.summary);
     // 打印（2026-11-02）：打开打印预览（window.print，测试里换成假的 systemPrint，记下那时要印的内容）
+    delete S.doc.fig_edits['25'].w;
+    const printShotLayout = pa => {
+      const fig = pa && pa.querySelector('.shot-fig');
+      if (!fig) return null;
+      const oldDisplay = pa.style.display;
+      pa.style.display = 'block';
+      const paStyle = getComputedStyle(pa), paRect = pa.getBoundingClientRect(), figRect = fig.getBoundingClientRect();
+      const contentWidth = pa.clientWidth - parseFloat(paStyle.paddingLeft) - parseFloat(paStyle.paddingRight);
+      const contentCenter = paRect.left + parseFloat(paStyle.borderLeftWidth) + parseFloat(paStyle.paddingLeft) + contentWidth / 2;
+      const img = fig.querySelector('img'), imgRect = img.getBoundingClientRect();
+      const result = { width: figRect.width, contentWidth, centerDelta: Math.abs((figRect.left + figRect.right) / 2 - contentCenter), imageWidth: imgRect.width };
+      pa.style.display = oldDisplay;
+      return result;
+    };
     let printed = null; const keepSys = window.systemPrint;
-    window.systemPrint = async () => { const pa = $('#printArea'); printed = { page: ($('#printPage') || {}).textContent || '', cls: document.body.classList.contains('printing'), html: pa ? pa.innerHTML : '', imgs: pa ? [...pa.querySelectorAll('img')].filter(im => im.complete && im.naturalWidth > 0).length : 0, hidden: pa && getComputedStyle(pa).display === 'none' }; };
+    window.systemPrint = async () => { const pa = $('#printArea'); printed = { page: ($('#printPage') || {}).textContent || '', cls: document.body.classList.contains('printing'), html: pa ? pa.innerHTML : '', imgs: pa ? [...pa.querySelectorAll('img')].filter(im => im.complete && im.naturalWidth > 0).length : 0, hidden: pa && getComputedStyle(pa).display === 'none', shot: printShotLayout(pa) }; };
     $('#btnPrint').click();
     ok('打印：只印课程名和课程重点，插图加载好了，没有上移下移按钮；默认不带出处时间', await until(() => printed) && printed.cls && printed.html.includes(S.doc.title)
       && printed.html.includes('要点丙') && printed.imgs === 1 && !printed.html.includes('上移') && printed.hidden && !printed.html.includes('[00:30]'), printed);
+    ok('课程重点打印预览和 PDF：截图默认铺满版心并居中', printed.shot && printed.shot.width >= printed.shot.contentWidth * .95
+      && printed.shot.centerDelta < 3 && printed.shot.imageWidth >= printed.shot.width - 2, printed.shot);
     ok('页码印在页眉右边，左边日期、中间课程名；底部留空（不印文件地址）；上边距大、下边距小（2026-11-02）', printed.page.includes('@top-right')
       && printed.page.includes('counter(page)') && printed.page.includes(S.doc.title.slice(0, 10)) && /@top-left \{ content: "\d{4}\/\d/.test(printed.page)
       && printed.page.includes('@bottom-center { content: ""; }') && printed.page.includes('margin: 18mm 14mm 12mm'), printed.page);
@@ -526,7 +542,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     $('#optPrintTsSum').click();
     // 字幕栏「打印」：和剪藏的「完整字幕」一样排，插的截图在挂的那一句下面
     const psegs = S.doc.segments;
-    S.doc.sub_shots = [{ t: 10, at: psegs[1].start, w: 300, crop: [0, 0, 0.5, 0.5], marks: { wh: [320, 240], items: [{ k: 'rect', c: '#ff3b30', w: 4, p: [[20, 20], [100, 80]] }] } }];
+    S.doc.sub_shots = [{ t: 10, at: psegs[1].start, crop: [0, 0, 0.5, 0.5], marks: { wh: [320, 240], items: [{ k: 'rect', c: '#ff3b30', w: 4, p: [[20, 20], [100, 80]] }] } }];
     const keepTr = psegs[2].tr; psegs[2].tr = '第三句的译文';
     S.doc.doubts = [{ t: psegs[3].start, reason: '听不清' }];
     updateButtons();
@@ -535,12 +551,20 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     window.systemPrint = async () => { const pa = $('#printArea'); printed2 = pa && { html: pa.innerHTML, cues: [...pa.querySelectorAll('.print-cue')].map(x => x.textContent),
       figAfter: pa.querySelector('.shot-fig') && pa.querySelector('.shot-fig').previousElementSibling.textContent,
       w: pa.querySelector('.shot-fig') && pa.querySelector('.shot-fig').style.maxWidth,
+      shot: printShotLayout(pa),
       img: [...pa.querySelectorAll('img')].filter(im => im.complete && im.naturalWidth > 0 && /_e[0-9a-f]{10}\.jpg/.test(im.src)).length }; };
     $('#btnSubPrint').click();
     ok('打印字幕：课程名、每句 [时间] 原文、译文、存疑原因，截图（裁剪、标注、大小照旧）在挂的那一句下面', await until(() => printed2) && printed2.html.includes('完整字幕')
       && printed2.html.includes(S.doc.title) && printed2.cues.length === psegs.length && printed2.cues[0].startsWith(`[${fmt(psegs[0].start)}]`)
       && printed2.cues[2].includes('第三句的译文') && printed2.cues[3].includes('〔存疑：听不清〕') && printed2.figAfter === printed2.cues[1]
-      && printed2.w === '300px' && printed2.img === 1, printed2);
+      && !printed2.w && printed2.shot && printed2.shot.width >= printed2.shot.contentWidth * .95
+      && printed2.shot.centerDelta < 3 && printed2.shot.imageWidth >= printed2.shot.width - 2 && printed2.img === 1, printed2);
+    await until(() => !$('#printArea'));
+    S.doc.sub_shots[0].w = 300; printed2 = null;
+    $('#btnSubPrint').click();
+    ok('字幕截图手动设为 300 像素后，打印预览和 PDF 仍保留大小并居中', await until(() => printed2)
+      && printed2.w === '300px' && printed2.shot && Math.abs(printed2.shot.width - 300) < 3
+      && printed2.shot.centerDelta < 3 && printed2.shot.imageWidth >= printed2.shot.width - 2, printed2);
     await until(() => !$('#printArea'));
     ok('字幕的「带时间」开关默认开', $('#optPrintTsSubs').checked);
     $('#optPrintTsSubs').click(); printed2 = null;
