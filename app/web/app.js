@@ -2823,7 +2823,7 @@ function openSumEditor(el, isNew, split, init, caret) {
   ta.value = value;
   const fit = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 2 + 'px'; };
   fit(); ta.addEventListener('input', fit);
-  ta.focus(); ta.selectionStart = ta.selectionEnd = caret != null ? caret : split ? Math.floor(value.length / 2) : value.length;
+  ta.focus({ preventScroll: true }); ta.selectionStart = ta.selectionEnd = caret != null ? caret : split ? Math.floor(value.length / 2) : value.length;
   let done = false;
   const retab = dir => {  // Tab / Shift+Tab：先把打的字写进去（空的先放占位），缩进后在同一条上重新打开编辑框
     done = true; S.sumEditing = false;
@@ -3134,7 +3134,7 @@ function applySummaryFormat(action, ta = $('#summaryEdit')) {
   }
   ta.value = next;
   ta.setSelectionRange(selStart, selEnd);
-  ta.focus();
+  ta.focus({ preventScroll: true });
   ta.dispatchEvent(new Event('input', { bubbles: true }));
 }
 function renderChat() {

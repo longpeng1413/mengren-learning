@@ -374,17 +374,32 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       && S.doc.summary.includes('## 小标题') && S.doc.summary.includes('- 测试重点 [00:10]') && document.querySelector('#summaryBox .tslink')
       && S.doc.summary.includes('*斜体测试*') && document.querySelector('#summaryBox h2') && document.querySelector('#summaryBox li')
       && document.querySelector('#summaryBox i'));
-    S.doc.summary = '- 单行加粗 斜体\n\n普通段落'; renderSummary();
-    openSumEditor(document.querySelector('#summaryBox li'), false);
+    S.doc.summary = '- 单行 加粗 斜体\n\n普通段落'; renderSummary();
+    const nativeTextFocus = HTMLTextAreaElement.prototype.focus;
+    let editorFocusOptions = null;
+    HTMLTextAreaElement.prototype.focus = function (options) {
+      if (this.closest('.sum-edit')) editorFocusOptions = options;
+      return nativeTextFocus.call(this, options);
+    };
+    try { openSumEditor(document.querySelector('#summaryBox li'), false); }
+    finally { HTMLTextAreaElement.prototype.focus = nativeTextFocus; }
     const inlineEdit = document.querySelector('#summaryBox .sum-edit textarea');
     ok('单行编辑显示加粗、斜体入口', !!inlineEdit && !!document.querySelector('#summaryBox [data-se="format-bold"]')
       && !!document.querySelector('#summaryBox [data-se="format-italic"]'));
-    inlineEdit.setSelectionRange(2, 4);
+    ok('打开单行编辑时聚焦不滚动页面', !!editorFocusOptions && editorFocusOptions.preventScroll === true);
+    const formatFocus = inlineEdit.focus.bind(inlineEdit);
+    let formatFocusOptions = null;
+    inlineEdit.focus = options => { formatFocusOptions = options; return formatFocus(options); };
+    inlineEdit.setSelectionRange(3, 5);
+    document.querySelector('#summaryBox [data-se="format-bold"]').click();
+    ok('点加粗按钮不因恢复焦点而滚动页面',
+      !!formatFocusOptions && formatFocusOptions.preventScroll === true);
+    inlineEdit.setSelectionRange(0, 2);
     inlineEdit.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, bubbles: true, cancelable: true }));
-    inlineEdit.setSelectionRange(9, 11);
+    inlineEdit.setSelectionRange(14, 16);
     inlineEdit.dispatchEvent(new KeyboardEvent('keydown', { key: 'i', ctrlKey: true, bubbles: true, cancelable: true }));
     document.querySelector('#summaryBox [data-se="save"]').click();
-    ok('单行编辑用 Ctrl+B / Ctrl+I 后保存格式', S.doc.summary.includes('- 单行**加粗** *斜体*')
+    ok('单行编辑的工具栏与 Ctrl+B / Ctrl+I 保存格式', S.doc.summary.includes('- **单行** **加粗** *斜体*')
       && !!document.querySelector('#summaryBox li b') && !!document.querySelector('#summaryBox li i'));
     openSumEditor(document.querySelector('#summaryBox li'), false);
     const titleEdit = document.querySelector('#summaryBox .sum-edit textarea');
