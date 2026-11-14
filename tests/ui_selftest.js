@@ -829,6 +829,35 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       ok('朗读：关闭后播放条消失', !TTS.active() && !document.querySelector('.tts-bar'));
       savePrefs({ tts_engine: 'edge', tts_rate: 1 });
     }
+    {
+      const box = $('#summaryBox'), oldSummary = S.doc.summary, oldScroll = box.scrollTop, oldEngine = S.settings.tts_engine;
+      S.doc.summary = Array.from({ length: 80 }, (_, i) => `- 跟随测试第 ${i + 1} 条内容。`).join('\n');
+      renderSummary(); box.style.scrollBehavior = 'auto'; box.scrollTop = 0; await wait(50);
+      S.settings.tts_engine = 'system';
+      TTS.start('start');
+      const active = TTS.active(), boxRect = box.getBoundingClientRect();
+      const range = seg => {
+        const r = document.createRange();
+        r.setStart(seg.a[0], seg.a[1]); r.setEnd(seg.b[0], seg.b[1]);
+        return r;
+      };
+      const lastVisible = active.segs.findLastIndex(seg => range(seg).getBoundingClientRect().bottom <= boxRect.bottom);
+      const speakAt = lastVisible - 2, target = range(active.segs[speakAt - 2]);
+      TTS.toggle(); active.i = speakAt; TTS.toggle();
+      await until(async () => {
+        const top = target.getBoundingClientRect().top;
+        if (Math.abs(top - boxRect.top - 4) > 5) { await wait(80); return false; }
+        await wait(120);
+        return Math.abs(target.getBoundingClientRect().top - top) < 1;
+      }, 4000);
+      const aligned = Math.abs(target.getBoundingClientRect().top - boxRect.top - 4) <= 5
+        && range(active.segs[speakAt]).getBoundingClientRect().top >= boxRect.top
+        && range(active.segs[speakAt]).getBoundingClientRect().bottom <= boxRect.bottom;
+      ok('课程重点朗读：下方不足三句时滚动，让当前句回到屏幕顶部第三句', speakAt >= 3 && lastVisible >= 6 && aligned,
+        { speakAt, lastVisible, targetTop: target.getBoundingClientRect().top, boxTop: boxRect.top, scrollTop: box.scrollTop });
+      TTS.stop(true); S.settings.tts_engine = oldEngine;
+      S.doc.summary = oldSummary; renderSummary(); box.style.scrollBehavior = ''; box.scrollTop = oldScroll;
+    }
 
     // 老师工作台（mentor.js）：导入测试老师 → 提问（假 AI）→ 出处变成可点的标签 → 收藏 → 点出处跳回课程
     const coursePath = S.path;

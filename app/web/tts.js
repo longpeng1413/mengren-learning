@@ -300,6 +300,14 @@ const TTS = (() => {
     const sc = scrollParent(r.startContainer.parentElement);
     if (!sc) return;
     const rect = r.getBoundingClientRect(), box = sc.getBoundingClientRect();
+    if (s.src.pane === 'summary' && sc === s.root) {
+      const below = rangeOf(s.segs[Math.min(s.i + 3, s.segs.length - 1)]);
+      if (rect.top >= box.top && below && below.getBoundingClientRect().bottom <= box.bottom) return;
+      const top = rangeOf(s.segs[Math.max(0, s.i - 2)]) || r;
+      s.programmatic = Date.now();
+      sc.scrollTo({ top: sc.scrollTop + top.getBoundingClientRect().top - box.top - 4, behavior: 'smooth' });
+      return;
+    }
     if (rect.top >= box.top + 40 && rect.bottom <= box.bottom - BOTTOM_GAP) return;
     s.programmatic = Date.now();
     sc.scrollBy({ top: rect.top - box.top - box.height / 3, behavior: 'smooth' });
