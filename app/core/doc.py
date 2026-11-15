@@ -177,6 +177,11 @@ def summary_changes(doc) -> int:
     return len({f.get('after') for f in doc.get('fixes') or [] if f.get('by') == 'manual' and f.get('after') in now})
 
 
+def summary_outdated(doc) -> bool:
+    """Whether changed subtitles should mark the course summary as needing an update."""
+    return not doc.get('summary_stale_dismissed') and summary_changes(doc) >= SUMMARY_STALE_AT
+
+
 def clip_stale(doc) -> bool:
     """剪藏后又改过要写进笔记的内容。1.7.2 以前剪藏的没有指纹，不判断。"""
     clip = doc.get('clip') if isinstance(doc.get('clip'), dict) else {}

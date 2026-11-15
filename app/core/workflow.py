@@ -95,7 +95,7 @@ def library_items():
                 'state': _state(it, kind), 'todo': _todo(it, kind), 'pending_steps': list(it.get('pending') or []),
                 'subtitles': it.get('subs', 0),
                 'summary': bool(it.get('summary')), 'reviewed': bool(it.get('reviewed')), 'clipped': bool(it.get('clipped')),
-                'summary_outdated': (it.get('summary_changes') or 0) >= docs.SUMMARY_STALE_AT,
+                'summary_outdated': bool(it.get('summary_outdated')),
                 'teacher': it.get('teacher') or '',
             })
     return out
@@ -718,6 +718,7 @@ def st_summary(ctx):
         if doc.get('sum_shots'):  # 用户在旧课程重点里手动插的截图放回去
             doc['summary'], doc['sum_shots'] = docs.keep_sum_shots(old, text, doc['sum_shots'])
         doc['summary_src'] = docs.summary_basis(d['segments'])  # 记下用的是哪一版字幕：之后字幕改多了会提醒重新生成
+        doc.pop('summary_stale_dismissed', None)
         _steps(doc).pop('review', None)
         _steps(doc)['summary'] = tasks.now()
     _apply(ctx.path, apply)

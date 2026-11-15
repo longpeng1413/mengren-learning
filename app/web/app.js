@@ -325,7 +325,9 @@ function itemHTML(it, depth = 0, parent = '') {
   if (it.book) tags.push(`<span class="tag ${it.book.done ? 'ok' : ''}">整理 ${it.book.done}/${it.book.total}</span>`);
   if (it.subs) tags.push(`<span class="tag ok" title="这节课的字幕有 ${it.subs} 句">字幕 ${it.subs} 句</span>`);
   if (it.doubts && !it.reviewed) tags.push(`<span class="tag warn" title="AI 校对标出 ${it.doubts} 句存疑、还没确认。打开这节课，点字幕栏上方的「存疑」逐句回听，改好或点「已确认」">存疑 ${it.doubts}</span>`);
-  if (it.summary) tags.push((it.summary_changes || 0) >= SUMMARY_STALE_AT
+  const summaryOutdated = it.summary_outdated == null
+    ? !it.summary_stale_dismissed && (it.summary_changes || 0) >= SUMMARY_STALE_AT : it.summary_outdated;
+  if (it.summary) tags.push(summaryOutdated
     ? `<span class="tag warn" title="生成课程重点之后，字幕又改了 ${it.summary_changes} 句。打开这节课，在课程重点上方点「重新生成」">重点待更新</span>`
     : '<span class="tag acc">重点</span>');
   if (pendingTag(it)) tags.push(pendingTag(it));
@@ -431,7 +433,8 @@ function syncLibFromDoc() {
     return;
   }
   patchLib(S.path, { subs: S.doc.segments.length, summary: !!(S.doc.summary || '').trim(), clipped: !!S.doc.clip, stale: !!S.docStale, reviewed: !!S.doc.reviewed, duration: S.doc.duration, doubts: (S.doc.doubts || []).length,
-    summary_changes: S.summaryChanges || 0, pending: S.pending || [] });
+    summary_changes: S.summaryChanges || 0, summary_outdated: !S.doc.summary_stale_dismissed && (S.summaryChanges || 0) >= SUMMARY_STALE_AT,
+    pending: S.pending || [] });
 }
 function showCtx(x, y, html, bindings) {
   const m = $('#ctxMenu');
@@ -1319,7 +1322,7 @@ function placeSubShots(old) {
       <img alt="" title="点击看大图">
       <div class="sub-shot-bar"><a class="tslink" data-t="${x.t}">[${fmt(x.t)}]</a> 截图
         <span class="grow"></span>
-        <button data-ss="up" title="挪到上一句后面">↑ 上移</button><button data-ss="down" title="挪到下一句后面">↓ 下移</button><button data-ss="edit" title="编辑截图：裁剪、画箭头方框、写字、翻译、复制、保存">✏ 编辑</button><button data-ss="size" title="调整大小">⇲ 大小</button><button data-ss="del" title="删掉这张截图">删除</button></div>
+        <button data-ss="up" title="挪到上一句后面">↑ 上移</button><button data-ss="down" title="挪到下一句后面">↓ 下移</button><button data-ss="edit" title="编辑截图：裁剪、画箭头方框、写字、翻译、复制、保存">✏ 编辑</button><button data-ss="size" title="调整大小">⇲ 大小</button><button data-ss="copy" title="复制这张截图到剪贴板">复制</button><button data-ss="save" title="另存为这张截图">另存为</button><button data-ss="del" title="删掉这张截图">删除</button></div>
     </div>`;
       el = tpl.content.firstElementChild;
       const img = $('img', el);
@@ -2365,6 +2368,19 @@ function setFigEdit(t, k, v) {
   const e = setShotProp(all[key] || {}, k, v);
   if (Object.keys(e).length) all[key] = e; else delete all[key];
 }
+async function exportShot(kind, t, edit) {
+  edit = edit || {};
+  const body = { path: S.path, t, crop: edit.crop || null, marks: edit.marks || null };
+  try {
+    if (kind === 'copy') {
+      await api('shot_copy', body);
+      toast('已复制到剪贴板，可以直接粘贴');
+    } else {
+      const r = await api('shot_save', Object.assign(body, { name: `${(S.doc && S.doc.title) || '截图'}_${fmt(t).replace(/:/g, '-')}` }));
+      if (r.path) toast('已保存：' + r.path);
+    }
+  } catch (e) { fail(e); }
+}
 const SIZE_PRESETS = [['小', 240], ['中', 400], ['大', 600], ['自动', 0]];
 /* 「大小」弹出框：w 现在的宽度（没有 = 自动），cur 图现在实际显示多宽（自动时滑块从这里开始），
    set(w) 改一张图并马上显示，all(w) 这节课所有图都用这个大小 */
@@ -2410,7 +2426,7 @@ let summaryEditing = false;
 const SUMMARY_STALE_AT = 3;  // 和 core/doc.py 的 SUMMARY_STALE_AT 一致
 function renderSummaryStale() {
   const n = S.summaryChanges || 0;
-  const show = !!(S.doc && S.mode !== 'book' && (S.doc.summary || '').trim() && n >= SUMMARY_STALE_AT);
+  const show = !!(S.doc && S.mode !== 'book' && (S.doc.summary || '').trim() && !S.doc.summary_stale_dismissed && n >= SUMMARY_STALE_AT);
   $('#summaryStale').hidden = !show;
   if (show) $('#summaryStaleText').textContent = `生成课程重点之后，字幕又改了 ${n} 句，重点里可能还是改之前的说法。建议重新生成（不另花钱，约 1～2 分钟）。`;
   syncLibFromDoc();
@@ -2430,7 +2446,7 @@ function renderSummary(preservePlayback = false) {
   if (s) refreshCoverage();
   hydrateFigures(box);
   $$('.shot-fig', box).forEach((fig, n) => fig.querySelector('figcaption').insertAdjacentHTML('beforeend',
-    `<span class="fig-tools tts-skip" data-n="${n}"><button data-sf="drag" title="拖动图片到其他位置">⠿ 拖动</button><button data-sf="up" title="挪到上一条重点前面">↑ 上移</button><button data-sf="down" title="挪到下一条重点后面">↓ 下移</button>${fig.querySelector('.redraw-svg, .redraw-code') ? '' : '<button data-sf="edit" title="编辑截图：裁剪、画箭头方框、写字、翻译、复制、保存">✏ 编辑</button>'}${fig.querySelector('.redraw-code') ? '' : '<button data-sf="size" title="调整大小">⇲ 大小</button>'}<button data-sf="del" title="从课程重点里删掉这张图">删除</button></span>`));
+    `<span class="fig-tools tts-skip" data-n="${n}"><button data-sf="drag" title="拖动图片到其他位置">⠿ 拖动</button><button data-sf="up" title="挪到上一条重点前面">↑ 上移</button><button data-sf="down" title="挪到下一条重点后面">↓ 下移</button>${fig.querySelector('.redraw-svg, .redraw-code') ? '' : '<button data-sf="edit" title="编辑截图：裁剪、画箭头方框、写字、翻译、复制、保存">✏ 编辑</button><button data-sf="copy" title="复制这张截图到剪贴板">复制</button><button data-sf="save" title="另存为这张截图">另存为</button>'}${fig.querySelector('.redraw-code') ? '' : '<button data-sf="size" title="调整大小">⇲ 大小</button>'}<button data-sf="del" title="从课程重点里删掉这张图">删除</button></span>`));
   if (playback) TTS.afterSummaryRender(playback);
 }
 /* 课程重点重画时保留正在操作的那一块在滚动区域里的位置，避免焦点元素被替换后页面跳走 */
@@ -3951,6 +3967,11 @@ function bind() {
     const ss = e.target.closest('.sub-shot');  // 字幕里插的截图：上移 / 下移 / 删除、点图看大图
     if (ss) {
       const b = e.target.closest('[data-ss]');
+      if (b && (b.dataset.ss === 'copy' || b.dataset.ss === 'save')) {
+        const x = S.doc.sub_shots[+ss.dataset.sk];
+        if (x) exportShot(b.dataset.ss, x.t, x);
+        return;
+      }
       if (b && b.dataset.ss === 'size') {  // 不能冒泡到 document：那里的点击会把刚打开的弹出框关掉
         e.stopPropagation();
         const k = +ss.dataset.sk, x = S.doc.sub_shots[k];
@@ -4039,6 +4060,17 @@ function bind() {
   };
   $('#btnSummary').onclick = doSummary;
   $('#btnSummaryStale').onclick = () => { if (!S.job) doSummary(); };
+  $('#btnSummaryStaleDismiss').onclick = async () => {
+    if (!S.doc) return;
+    const doc = S.doc, wasDismissed = !!doc.summary_stale_dismissed;
+    doc.summary_stale_dismissed = true;
+    markDirty();
+    await save();
+    if (S.doc !== doc) return;
+    if (S.dirty) doc.summary_stale_dismissed = wasDismissed;
+    renderSummaryStale();
+    if (!S.dirty) toast('已取消提醒；重新生成课程重点后会恢复提醒');
+  };
   $('#btnEditSummary').onclick = () => toggleSummaryEdit();
   $('#summaryEdit').addEventListener('input', e => { if (S.doc) { S.doc.summary = e.target.value; markDirty(); } });
   $('#summaryEdit').addEventListener('keydown', e => {
@@ -4133,6 +4165,11 @@ function bind() {
   $('#summaryBox').addEventListener('click', async e => {
     const b = e.target.closest('.fig-tools [data-sf]');
     if (b && b.dataset.sf === 'drag') return;
+    if (b && (b.dataset.sf === 'copy' || b.dataset.sf === 'save')) {
+      const t = +b.closest('.shot-fig').dataset.ft;
+      exportShot(b.dataset.sf, t, (S.doc.fig_edits || {})[String(t)] || {});
+      return;
+    }
     if (b && b.dataset.sf === 'size') {  // 不能冒泡到 document：那里的点击会把刚打开的弹出框关掉
       e.stopPropagation();
       const fig = b.closest('.shot-fig'), t = +fig.dataset.ft;

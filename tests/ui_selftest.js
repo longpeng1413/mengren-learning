@@ -7,6 +7,17 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     api('log', { level: 'info', message: '自测 ' + line }).catch(() => {});  // 程序中途退出时，日志里能看到测到哪一步
   };
   const wait = ms => new Promise(r => setTimeout(r, ms));
+  const withFakeShotExports = async fn => {
+    const realApi = api, requests = [];
+    api = async (name, body = {}) => {
+      if (name === 'shot_copy' || name === 'shot_save') {
+        requests.push({ name, body: JSON.parse(JSON.stringify(body)) });
+        return name === 'shot_save' ? { ok: true, path: '测试截图.png' } : { ok: true };
+      }
+      return realApi(name, body);
+    };
+    try { await fn(requests); } finally { api = realApi; }
+  };
   const until = async (fn, ms = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { try { if (await fn()) return true; } catch (e) {} await wait(100); } return false; };
   const v = document.querySelector('#video');
   const toasts = () => [...document.querySelectorAll('.toast')].map(t => t.innerText);
@@ -125,6 +136,15 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     const subX = S.doc.sub_shots[0], subEl = () => document.querySelector('#cues .sub-shot');
     ok('完成：记下裁剪和标注，字幕栏显示编辑后的图', near(subX.crop, [0.1, 0.25, 0.6, 0.65]) && subX.marks && subX.marks.items.length >= 3 && subX.marks.wh[0] === SE.W && !subX.marks.flip
       && await until(() => /_e[0-9a-f]{10}\.jpg/.test((subEl().querySelector('img') || {}).src || '')), [subX, (subEl().querySelector('img') || {}).src]);
+    ok('字幕截图删除按钮前有复制和另存为', !!subEl().querySelector('[data-ss="copy"]') && !!subEl().querySelector('[data-ss="save"]'));
+    await withFakeShotExports(async requests => {
+      subEl().querySelector('[data-ss="copy"]').click(); await wait(20);
+      subEl().querySelector('[data-ss="save"]').click(); await wait(20);
+      ok('字幕截图可直接复制和另存，使用当前截图的时间、裁剪和标注',
+        requests.length === 2 && requests[0].name === 'shot_copy' && requests[1].name === 'shot_save'
+          && requests.every(r => r.body.path === S.path && r.body.t === subX.t
+            && JSON.stringify(r.body.crop) === JSON.stringify(subX.crop) && JSON.stringify(r.body.marks) === JSON.stringify(subX.marks)));
+    });
     // 「大小」是单独的按钮（2026-11-02 用户：裁剪和调整大小是两个功能）：拖滑块马上变，不用点确定
     subEl().querySelector('[data-ss="size"]').click();
     const ctxM = $('#ctxMenu');
@@ -698,6 +718,15 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('课程重点的图：按时间记下裁剪、标注和宽度，显示编辑后的图、马上变成 300 像素宽', fe && fe.w === 300 && fe.crop && Math.abs(fe.crop[2] - 0.5) < 0.02
       && fe.marks && fe.marks.items[0].k === 'rect' && sumFig().style.maxWidth === '300px'
       && await until(() => /_e[0-9a-f]{10}\.jpg/.test((sumFig().querySelector('img') || {}).src || '')), [fe, S.doc.summary]);
+    ok('课程重点截图删除按钮前有复制和另存为', !!sumFig().querySelector('[data-sf="copy"]') && !!sumFig().querySelector('[data-sf="save"]'));
+    await withFakeShotExports(async requests => {
+      sumFig().querySelector('[data-sf="copy"]').click(); await wait(20);
+      sumFig().querySelector('[data-sf="save"]').click(); await wait(20);
+      ok('课程重点截图可直接复制和另存，使用当前截图的时间、裁剪和标注',
+        requests.length === 2 && requests[0].name === 'shot_copy' && requests[1].name === 'shot_save'
+          && requests.every(r => r.body.path === S.path && r.body.t === 25
+            && JSON.stringify(r.body.crop) === JSON.stringify(fe.crop) && JSON.stringify(r.body.marks) === JSON.stringify(fe.marks)));
+    });
     S.doc.sub_shots = [{ t: 10, at: S.doc.segments[1].start }]; placeSubShots();
     $('#ctxMenu [data-a=all]').click();
     ok('「这节课的图都用这个大小」：课程重点和字幕栏的截图一起改', S.doc.sub_shots[0].w === 300 && S.doc.fig_edits['25'].w === 300 && $('#ctxMenu').hidden
@@ -1042,6 +1071,17 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       && document.querySelector('#summaryStaleText').textContent.includes('改了 3 句'));
     document.querySelector('#btnSummaryStale').click();
     ok('点提醒里的「重新生成」：用改好的字幕重新写，提醒消失', await until(() => !S.job && S.summaryChanges === 0 && document.querySelector('#summaryStale').hidden, 15000));
+    S.doc.segments.slice(0, 3).forEach(s => { s.text += '（再改）'; }); markDirty(); await save();
+    ok('下一次字幕改动仍会出现提醒', !document.querySelector('#summaryStale').hidden && S.summaryChanges === 3);
+    document.querySelector('#btnSummaryStaleDismiss').click();
+    ok('取消提醒后隐藏并保存', await until(() => document.querySelector('#summaryStale').hidden && !S.dirty, 5000)
+      && S.doc.summary_stale_dismissed);
+    const dismissedDoc = await api('open', { path: S.path });
+    ok('重新读取课程仍记得取消提醒', !!dismissedDoc.doc.summary_stale_dismissed);
+    ok('取消后媒体库不再显示「重点待更新」',
+      !itemHTML({ path: 'x.mp4', name: 'x', summary: true, summary_changes: 5, summary_outdated: false }).includes('重点待更新'));
+    ok('重新生成课程重点后恢复提醒判断',
+      await doSummary() && !S.doc.summary_stale_dismissed && S.summaryChanges === 0 && document.querySelector('#summaryStale').hidden);
     ok('媒体库标「重点待更新」', itemHTML({ path: 'x.mp4', name: 'x', summary: true, summary_changes: 5 }).includes('重点待更新')
       && !itemHTML({ path: 'x.mp4', name: 'x', summary: true, summary_changes: 2 }).includes('重点待更新'));
     const dragT0 = performance.now();

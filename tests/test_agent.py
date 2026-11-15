@@ -446,9 +446,17 @@ docs.save(L1, d)
 d = docs.load(L1)
 check('之后改了 3 句：提醒重新生成（媒体库也标出来）', docs.summary_changes(d) == 3 and wf.summarize(L1)['summary_changes'] == 3
       and next(x for x in wf.find(course='峰级') if x['path'] == L1)['summary_outdated'])
+d['summary_stale_dismissed'] = True
+docs.save(L1, d)
+d = docs.load(L1)
+check('取消提醒：保留字幕改动计数，但媒体库和任务结果不再标记待更新',
+      docs.summary_changes(d) == 3 and not docs.summary_outdated(d)
+      and not next(x for x in wf.find(course='峰级') if x['path'] == L1)['summary_outdated'])
 check('保存时把「改了几句」告诉界面', docs.save(L1, d)['summary_changes'] == 3)
 wf.run_step(L1, 'summary', force=True)
-check('重新生成后不再提醒', docs.summary_changes(docs.load(L1)) == 0 and not next(x for x in wf.find(course='峰级') if x['path'] == L1)['summary_outdated'])
+check('重新生成后不再提醒', docs.summary_changes(docs.load(L1)) == 0
+      and not docs.load(L1).get('summary_stale_dismissed')
+      and not next(x for x in wf.find(course='峰级') if x['path'] == L1)['summary_outdated'])
 # 课程重点里手动插的截图（2026-11-02）：重新生成后放回去，按出处时间找位置；用户已经删掉的不放回
 d = docs.load(L1)
 d['summary'] = d['summary'].replace('## 一、峰级', '![[画面 00:05]]\n\n## 一、峰级') + '\n\n![[画面 00:03]]'

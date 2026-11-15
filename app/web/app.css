@@ -258,10 +258,10 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .summary-edit { flex: 1; min-height: 0; resize: none; border: 0; outline: none; background: var(--panel2); padding: 14px 16px; font: 13px/1.7 var(--mono); }
 .ai-foot { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--line); flex: none; flex-wrap: wrap; }
 .ai-empty { color: var(--muted); text-align: center; margin-top: 30px; line-height: 1.8; }
-.summary-stale { display: flex; align-items: center; gap: 10px; padding: 7px 12px; margin: 0 0 6px; border-radius: 6px; font-size: 13px; flex: none;
+.summary-stale { display: flex; align-items: center; gap: 10px; padding: 7px 12px; margin: 0 0 6px; border-radius: 6px; font-size: 13px; flex: none; flex-wrap: wrap;
   color: #f0a030; border: 1px solid color-mix(in srgb, #f0a030 55%, transparent); background: color-mix(in srgb, #f0a030 12%, transparent); }
 .summary-stale[hidden] { display: none; }
-.summary-stale span { flex: 1; }
+.summary-stale span { flex: 1; min-width: 180px; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; padding: 6px 12px; flex: none; }
 .chips button { border: 1px solid var(--line); background: var(--panel2); border-radius: 20px; padding: 3px 11px; font-size: 12px; cursor: pointer; color: var(--muted); }
 .chips button:hover { color: var(--text); border-color: var(--accent-line); }
@@ -326,7 +326,7 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 /* 字幕里手动插的截图：缩进到和字幕文字对齐，下面一排「上移 / 下移 / 删除」 */
 .sub-shot { margin: 4px var(--cue-pr) 8px 94px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel2); }
 .sub-shot img { display: block; width: 100%; max-height: 360px; object-fit: contain; background: #000; cursor: zoom-in; min-height: 60px; }
-.sub-shot-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 12px; color: var(--muted); }
+.sub-shot-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
 .sub-shot-bar button { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 6px; padding: 2px 8px; font-size: 12px; cursor: pointer; }
 .sub-shot-bar button:hover { border-color: var(--accent-line); color: var(--accent); }
 .sub-shot-bar button[data-ss="del"]:hover { color: var(--danger); border-color: var(--danger); }
