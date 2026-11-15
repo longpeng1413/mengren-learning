@@ -43,15 +43,18 @@ def drive_input(port, process):
                 if request and request.get('finished'):
                     break
                 if request:
-                    if request['kind'] in ('click', 'move'):
+                    if request['kind'] in ('click', 'move', 'down', 'up'):
                         point = {'x': request['x'], 'y': request['y']}
-                        call('Input.dispatchMouseEvent', dict(type='mouseMoved', **point))
-                        if request['kind'] == 'click':
-                            call('Input.dispatchMouseEvent', dict(type='mousePressed', button='left', clickCount=1, **point))
+                        if request['kind'] in ('click', 'move'):
+                            call('Input.dispatchMouseEvent', dict(type='mouseMoved', buttons=request.get('buttons', 0), **point))
+                        if request['kind'] in ('click', 'down'):
+                            call('Input.dispatchMouseEvent', dict(type='mousePressed', button='left', buttons=1, clickCount=1, **point))
+                        if request['kind'] in ('click', 'up'):
                             call('Input.dispatchMouseEvent', dict(type='mouseReleased', button='left', clickCount=1, **point))
                     else:
                         key = request['key']
-                        params = {'key': key, 'code': 'Key' + key.upper(), 'windowsVirtualKeyCode': ord(key.upper()), 'modifiers': 2}
+                        params = {'key': key, 'code': 'Escape' if key == 'Escape' else 'Key' + key.upper(),
+                                  'windowsVirtualKeyCode': 27 if key == 'Escape' else ord(key.upper()), 'modifiers': request.get('modifiers', 2)}
                         call('Input.dispatchKeyEvent', dict(type='keyDown', **params))
                         call('Input.dispatchKeyEvent', dict(type='keyUp', **params))
                     evaluate('window.__uiNativeRequest = null; window.__uiNativeDone = ' + str(request['id']))

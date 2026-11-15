@@ -444,6 +444,8 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
           const marker = kind === 'list' ? '前方稳定锚点 20' : '后方稳定内容 19';
           const anchor = () => [...box.querySelectorAll('li')].find(el => el.textContent === marker);
           const r = original.getBoundingClientRect();
+          const editBounds = box.getBoundingClientRect();
+          await native({ kind: 'move', x: editBounds.left + 2, y: editBounds.top + 2 });
           await native({ kind: 'move', x: r.left + 15, y: r.top + 10 });
           await trace(dock + ' ' + kind + ' 打开编辑', () => click($('#sumTools [data-st="edit"]')), anchor, true);
           const edit = box.querySelector('textarea');
@@ -545,6 +547,112 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     S.doc.summary = '## 一、开头\n- 要点 [00:05]\n![[画面 00:05]]';
     renderSummary();
     ok('课程重点里的插图能显示', await until(() => { const im = document.querySelector('#summaryBox .shot-fig img'); return im && im.complete && im.naturalWidth > 0; }, 15000));
+    ok('课程重点图片默认只显示图片和工具，不生成时间或「画面」说明', !document.querySelector('#summaryBox .shot-fig .tslink')
+      && ![...document.querySelector('#summaryBox .shot-fig figcaption').childNodes].some(n => n.nodeType === 3 && n.textContent.includes('画面')));
+    ok('课程重点朗读跳过整张图和图下自动说明', !TTS.segments($('#summaryBox')).some(x => /画面|00:05/.test(x.text)));
+    {  // Native pointer input: move across blocks, auto-scroll, cancel and undo.
+      const box = $('#summaryBox'), saved = { summary: S.doc.summary, edits: S.doc.fig_edits, shots: S.doc.sum_shots,
+        settings: { ...S.settings }, undo: S.sumUndo };
+      const available = !!box.querySelector('[data-sf="drag"]');
+      ok('课程重点图片提供拖动入口', available);
+      if (available) {
+        let sequence = Date.now();
+        const native = async request => {
+          const id = ++sequence; window.__uiNativeRequest = { ...request, id };
+          if (!await until(() => window.__uiNativeDone === id, 3000)) throw new Error('Image drag input timed out');
+        };
+        const point = (kind, x, y) => native({ kind, x, y, buttons: kind === 'move' ? 1 : 0 });
+        const first = () => box.querySelector('.shot-fig[data-ft="5"]');
+        const events = [];
+        const record = e => events.push({ type: e.type, tag: e.target.tagName, buttons: e.buttons, id: e.pointerId,
+          capture: e.target.hasPointerCapture && e.target.hasPointerCapture(e.pointerId), dragging: document.body.classList.contains('sum-dragging') });
+        for (const type of ['pointerdown', 'pointermove', 'pointerup', 'lostpointercapture']) box.addEventListener(type, record);
+        const center = el => { const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
+        const press = async el => {
+          // Earlier cases leave notifications over the lower right of the page.
+          // Clear that fixture state and verify the pointer will hit the image itself.
+          document.querySelectorAll('.toast').forEach(toast => toast.remove());
+          const [x, y] = center(el);
+          const hit = document.elementFromPoint(x, y);
+          if (hit !== el && !el.contains(hit)) throw new Error('Drag source is covered: ' + (hit && hit.className));
+          events.push({ type: 'test-press', x, y, height: el.getBoundingClientRect().height, scroll: box.scrollTop,
+            time: el.closest('[data-ft]').dataset.ft, hit: (document.elementFromPoint(x, y) || {}).className });
+          await native({ kind: 'move', x, y });
+          await point('down', x, y);
+          await point('move', x + 8, y + 8);
+        };
+        const fixture = '## 拖动开始\n\n- 前面的重点\n\n![[画面 00:05]]\n\n'
+          + Array.from({ length: 24 }, (_, i) => `- 中间重点 ${i}`).join('\n')
+          + '\n\n## 拖动目标\n\n| 项目 | 说明 |\n|---|---|\n| 甲 | 保持完整 |\n\n```txt\n代码第一行\n代码第二行\n```\n\n![[画面 00:10]]\n\n最后一段';
+        try {
+          S.settings.ai_dock = 'side'; S.settings.ai_w = 560; applyLayout();
+          S.doc.summary = fixture; S.doc.sum_shots = [5, 10]; S.doc.fig_edits = { '5': { w: 160, crop: [.1, 0, .9, 1] }, '10': { w: 160 } };
+          S.sumUndo = []; renderSummary(); box.scrollTop = 0;
+          ok('拖动测试的两张图片已加载', await until(() => [...box.querySelectorAll('img')].every(im => im.complete && im.naturalWidth), 15000));
+          const metadata = JSON.stringify([S.doc.sum_shots, S.doc.fig_edits]);
+          document.querySelectorAll('.toast').forEach(toast => toast.remove());
+          await native({ kind: 'click', ...(() => { const [x, y] = center(first().querySelector('img')); return { x, y }; })() });
+          ok('不拖动时，单击图片仍然打开大图', !!document.querySelector('.lightbox'));
+          const lightbox = document.querySelector('.lightbox'); if (lightbox) lightbox.click();
+          await press(first().querySelector('img'));
+          const bounds = box.getBoundingClientRect(), initialScroll = box.scrollTop;
+          await point('move', bounds.left + bounds.width / 2, bounds.bottom - 10);
+          ok('拖动图片显示落位线，靠近边缘自动滚动', await until(() => box.scrollTop > initialScroll + 100 && document.querySelector('.sum-drop-line'), 4000),
+            { events: events.slice(-12), scroll: box.scrollTop, bounds: { top: bounds.top, bottom: bounds.bottom } });
+          ok('持续拖动可以跨过多条重点到达目标表格', await until(() => box.querySelector('table').getBoundingClientRect().bottom < bounds.bottom - 60, 5000));
+          // Leave the edge before measuring the target. Native input is asynchronous:
+          // otherwise the table can keep scrolling away while those coordinates are queued.
+          await point('move', bounds.left + bounds.width / 2, (bounds.top + bounds.bottom) / 2);
+          const stoppedScroll = box.scrollTop;
+          await wait(250);
+          ok('拖动离开边缘后，自动滚动停止', box.scrollTop === stoppedScroll, { before: stoppedScroll, after: box.scrollTop });
+          const table = box.querySelector('table').getBoundingClientRect(), x = table.left + 25, y = table.bottom - 3;
+          await point('move', x, y);
+          await wait(100);
+          const dropLine = document.querySelector('.sum-drop-line');
+          ok('松手前落位线指向表格后、代码前', dropLine && Math.abs(dropLine.getBoundingClientRect().top - box.querySelector('pre').getBoundingClientRect().top) < 3);
+          await point('up', x, y); await wait(300);
+          ok('松手后图片落在表格后、代码前，表格和代码保持完整', S.doc.summary.includes('| 甲 | 保持完整 |\n\n![[画面 00:05]]\n\n```txt')
+            && !!box.querySelector('table tbody td') && box.querySelector('pre').textContent.includes('代码第二行'), S.doc.summary);
+          ok('拖动不改变截图、裁剪和大小，只记录一步撤销，不弹大图', JSON.stringify([S.doc.sum_shots, S.doc.fig_edits]) === metadata
+            && S.sumUndo.length === 1 && !document.querySelector('.sum-drop-line') && !document.querySelector('.lightbox'));
+          const moved = S.sumUndo.length === 1;
+          if (moved) await native({ kind: 'key', key: 'z' });
+          await wait(200);
+          ok('真实 Ctrl+Z 撤销整次图片拖动', moved && S.doc.summary === fixture && JSON.stringify([S.doc.sum_shots, S.doc.fig_edits]) === metadata);
+          await until(() => [...box.querySelectorAll('img')].every(im => im.complete && im.naturalWidth), 10000);
+          await wait(50);
+          box.scrollTop = box.scrollHeight;
+          await press(box.querySelector('.shot-fig[data-ft="10"] img'));
+          await point('move', bounds.left + 30, bounds.top + 10);
+          ok('向上拖动也会自动滚动到开头', await until(() => box.scrollTop === 0, 5000),
+            { events: events.slice(-18), scroll: box.scrollTop, editing: S.sumEditing, fullEdit: summaryEditing, dragging: document.body.classList.contains('sum-dragging') });
+          await point('move', bounds.left + 30, bounds.top + 15); await point('up', bounds.left + 30, bounds.top + 15); await wait(200);
+          ok('第二张图可以一次拖到整篇开头，两张图和原文都保留', S.doc.summary.startsWith('![[画面 00:10]]\n\n## 拖动开始')
+            && (S.doc.summary.match(/!\[\[画面/g) || []).length === 2 && JSON.stringify([S.doc.sum_shots, S.doc.fig_edits]) === metadata);
+          if (S.sumUndo.length) await native({ kind: 'key', key: 'z' });
+          ok('向上拖动也可整步撤销', S.doc.summary === fixture && S.sumUndo.length === 0);
+          await until(() => [...box.querySelectorAll('img')].every(im => im.complete && im.naturalWidth), 10000);
+          await wait(50);
+          box.scrollTop = 0;
+          await press(first().querySelector('[data-sf="drag"]'));
+          ok('真实鼠标拖动手柄确实启动拖动', document.body.classList.contains('sum-dragging'));
+          await point('move', bounds.left + 30, bounds.top + 220);
+          await native({ kind: 'key', key: 'Escape', modifiers: 0 });
+          await point('up', bounds.left + 30, bounds.top + 220); await wait(200);
+          ok('拖动手柄也能拖图，Esc 取消不改内容、不增加撤销', S.doc.summary === fixture && S.sumUndo.length === 0
+            && !document.body.classList.contains('sum-dragging') && !document.querySelector('.sum-drop-line'));
+          await press(first().querySelector('img'));
+          await point('move', bounds.left + 30, bounds.top - 20); await point('up', bounds.left + 30, bounds.top - 20); await wait(200);
+          ok('把图片放到课程重点区外会取消移动', S.doc.summary === fixture && S.sumUndo.length === 0 && !document.querySelector('.sum-drop-line'));
+        } finally {
+          for (const type of ['pointerdown', 'pointermove', 'pointerup', 'lostpointercapture']) box.removeEventListener(type, record);
+          await native({ kind: 'key', key: 'Escape', modifiers: 0 });
+          S.doc.summary = saved.summary; S.doc.fig_edits = saved.edits; S.doc.sum_shots = saved.shots;
+          S.settings = saved.settings; S.sumUndo = saved.undo; applyLayout(); renderSummary();
+        }
+      }
+    }
     document.querySelectorAll('.ai-tabs .tab')[0].click();
     // 课程重点里手动插截图、上移 / 下移 / 删除、打印（2026-11-02）
     const sumKeep = S.doc.summary;
@@ -624,7 +732,8 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     window.systemPrint = async () => { const pa = $('#printArea'); printed = { page: ($('#printPage') || {}).textContent || '', cls: document.body.classList.contains('printing'), html: pa ? pa.innerHTML : '', imgs: pa ? [...pa.querySelectorAll('img')].filter(im => im.complete && im.naturalWidth > 0).length : 0, hidden: pa && getComputedStyle(pa).display === 'none', shot: printShotLayout(pa) }; };
     $('#btnPrint').click();
     ok('打印：只印课程名和课程重点，插图加载好了，没有上移下移按钮；默认不带出处时间', await until(() => printed) && printed.cls && printed.html.includes(S.doc.title)
-      && printed.html.includes('要点丙') && printed.imgs === 1 && !printed.html.includes('上移') && printed.hidden && !printed.html.includes('[00:30]'), printed);
+      && printed.html.includes('要点丙') && printed.imgs === 1 && !printed.html.includes('上移') && printed.hidden
+      && !printed.html.includes('[00:30]') && !printed.html.includes('[00:25]') && !printed.html.includes('画面'), printed);
     ok('课程重点打印预览和 PDF：截图默认铺满版心并居中', printed.shot && printed.shot.width >= printed.shot.contentWidth * .95
       && printed.shot.centerDelta < 3 && printed.shot.imageWidth >= printed.shot.width - 2, printed.shot);
     ok('页码印在页眉右边，左边日期、中间课程名；底部留空（不印文件地址）；上边距大、下边距小（2026-11-02）', printed.page.includes('@top-right')
@@ -637,7 +746,8 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('课程重点的「带时间」开关在打印按钮旁边，默认关', !$('#optPrintTsSumWrap').hidden && !$('#optPrintTsSum').checked);
     $('#optPrintTsSum').click(); printed = null;
     $('#btnPrint').click();
-    ok('打开「带时间」：打印带出处时间，开关记住了', await until(() => printed) && printed.html.includes('[00:30]') && S.settings.print_ts_summary === true, printed && printed.html.slice(-200));
+    ok('打开「带时间」：正文和图片都打印时间，但不写「画面」', await until(() => printed) && printed.html.includes('[00:30]')
+      && printed.html.includes('[00:25]') && !printed.html.includes('画面') && S.settings.print_ts_summary === true, printed && printed.html.slice(-200));
     await until(() => !$('#printArea'));
     $('#optPrintTsSum').click();
     // 字幕栏「打印」：和剪藏的「完整字幕」一样排，插的截图在挂的那一句下面
@@ -683,6 +793,12 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     window.askPdfPath = async () => cacheDir + '/打印测试2.pdf';
     $('#btnPdf').click();
     ok('课程重点「导出 PDF」也能直接存', await until(() => [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('打印测试2.pdf')), 30000));
+    await until(() => !$('#printArea'));
+    $('#optPrintTsSum').click();
+    window.askPdfPath = async () => cacheDir + '/课程重点-带时间.pdf';
+    await printSummary(true);
+    ok('打开带时间后也能实际导出 PDF', [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('课程重点-带时间.pdf')));
+    $('#optPrintTsSum').click();
     window.askPdfPath = keepAsk;
     psegs[2].tr = keepTr; S.doc.sub_shots = []; S.doc.doubts = []; renderCues();
     document.querySelectorAll('.ai-tabs .tab')[1].click();

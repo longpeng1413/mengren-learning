@@ -117,7 +117,10 @@ function md(src, opts = {}) {
       flushPara(); flushList();
       out.push(`<figure class="book-fig"${L(li)} data-pn="${m[1]}" data-reg="${esc((m[3] || '').trim())}"><img alt="" title="点击看大图"><figcaption class="tts-skip">原书图示　第 ${m[1]} 页　${esc(m[2] || '')}</figcaption></figure>`);
     }
-    else if ((m = line.trim().match(/^!\[\[\s*画面\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*\]\]$/))) { flushPara(); flushList(); const t = parseTs(m[1]); out.push(`<figure class="shot-fig"${L(li)} data-ft="${t}"><img alt=""><figcaption><a class="tslink" data-t="${t}">[${m[1]}]</a> 画面</figcaption></figure>`); }
+    else if ((m = line.trim().match(/^!\[\[\s*画面\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*\]\]$/))) {
+      flushPara(); flushList(); const t = parseTs(m[1]);
+      out.push(`<figure class="shot-fig tts-skip"${L(li)} data-ft="${t}"><img alt="" draggable="false" title="点击看大图，拖动调整位置"><figcaption class="tts-skip">${opts.figureTimes ? `<a class="tslink" data-t="${t}">[${m[1]}]</a>` : ''}</figcaption></figure>`);
+    }
     else if ((m = line.match(/^(#{1,6})\s+(.*)/))) { flushPara(); flushList(); const n = Math.min(4, m[1].length); out.push(`<h${n}${L(li)}>${inline(m[2])}</h${n}>`); }
     else if ((m = line.match(/^(\s*)[-*+]\s+(.*)/))) { flushPara(); addItem('ul', m[2], li, indentW(m[1])); }
     else if ((m = line.match(/^(\s*)(\d+)[.)]\s+(.*)/))) { flushPara(); addItem('ol', m[3], li, indentW(m[1]), +m[2]); }
@@ -2427,7 +2430,7 @@ function renderSummary(preservePlayback = false) {
   if (s) refreshCoverage();
   hydrateFigures(box);
   $$('.shot-fig', box).forEach((fig, n) => fig.querySelector('figcaption').insertAdjacentHTML('beforeend',
-    `<span class="fig-tools tts-skip" data-n="${n}"><button data-sf="up" title="挪到上一条重点前面">↑ 上移</button><button data-sf="down" title="挪到下一条重点后面">↓ 下移</button>${fig.querySelector('.redraw-svg, .redraw-code') ? '' : '<button data-sf="edit" title="编辑截图：裁剪、画箭头方框、写字、翻译、复制、保存">✏ 编辑</button>'}${fig.querySelector('.redraw-code') ? '' : '<button data-sf="size" title="调整大小">⇲ 大小</button>'}<button data-sf="del" title="从课程重点里删掉这张图">删除</button></span>`));
+    `<span class="fig-tools tts-skip" data-n="${n}"><button data-sf="drag" title="拖动图片到其他位置">⠿ 拖动</button><button data-sf="up" title="挪到上一条重点前面">↑ 上移</button><button data-sf="down" title="挪到下一条重点后面">↓ 下移</button>${fig.querySelector('.redraw-svg, .redraw-code') ? '' : '<button data-sf="edit" title="编辑截图：裁剪、画箭头方框、写字、翻译、复制、保存">✏ 编辑</button>'}${fig.querySelector('.redraw-code') ? '' : '<button data-sf="size" title="调整大小">⇲ 大小</button>'}<button data-sf="del" title="从课程重点里删掉这张图">删除</button></span>`));
   if (playback) TTS.afterSummaryRender(playback);
 }
 /* 课程重点重画时保留正在操作的那一块在滚动区域里的位置，避免焦点元素被替换后页面跳走 */
@@ -2563,7 +2566,95 @@ function insertSumShot() {
   markDirty();
   if (summaryEditing) { $('#summaryEdit').value = S.doc.summary; return toast('截图插在光标那一行后面了'); }
   renderSummary(true); scrollToSumFig(t);
-  toast('截图插在出处时间最接近的那一条后面了；位置不对可以点图下面的「上移 / 下移」', { ms: 5000 });
+  toast('截图插好了；拖动图片可以调整位置，也可以点「上移 / 下移」', { ms: 5000 });
+}
+/* 拖放只移动图片标记，不改图片数据；目标以 Markdown 块为边界，表格、代码不会被拆开。 */
+function dropSumShot(n, at) {
+  if (!S.doc || summaryEditing || S.sumEditing || S.chatAbort) return;
+  const lines = sumLines(), images = sumBlocks(lines).filter(([a]) => FIG_LINE.test(lines[a]));
+  const block = images[n]; if (!block) return;
+  const from = block[0], tag = lines[from];
+  lines.splice(from, 1);
+  lines.splice(Math.max(0, Math.min(lines.length, at > from ? at - 1 : at)), 0, '', tag, '');
+  const summary = sumTidy(lines);
+  if (summary === S.doc.summary) return;
+  keepSumViewport(() => { pushSumUndo(); S.doc.summary = summary; markDirty(); renderSummary(true); }, block);
+}
+function bindSumShotDrag() {
+  const box = $('#summaryBox');
+  let drag = null, frame = 0, suppressClick = 0;
+  const finish = (apply = false) => {
+    const d = drag; if (!d) return;
+    drag = null; cancelAnimationFrame(frame);
+    d.fig.classList.remove('sum-drag-source');
+    document.body.classList.remove('sum-dragging');
+    if (d.line) d.line.remove();
+    try { d.source.releasePointerCapture(d.id); } catch (_) { /* 已取消或节点被替换 */ }
+    if (!d.active) return;
+    suppressClick = Date.now() + 250;
+    const unchanged = S.doc === d.doc && S.path === d.path && S.doc.summary === d.summary;
+    if (apply && unchanged && d.at != null) dropSumShot(d.n, d.at);
+    if (typeof TTS !== 'undefined') TTS.resumeSummaryEdit();
+  };
+  const locate = () => {
+    if (!drag || !drag.active) return;
+    const d = drag, r = box.getBoundingClientRect();
+    d.at = null; d.line.hidden = true;
+    if (!d.fig.isConnected || S.doc !== d.doc || S.doc.summary !== d.summary) return finish();
+    if (d.x < r.left || d.x > r.right || d.y < r.top || d.y > r.bottom) return;
+    const nodes = $$('[data-l]', box).filter(el => el !== d.fig);
+    const next = nodes.find(el => { const b = el.getBoundingClientRect(); return d.y < (b.top + b.bottom) / 2; });
+    const last = nodes[nodes.length - 1];
+    d.at = next ? +next.dataset.l.split('-')[0] : sumLines().length;
+    const y = next ? next.getBoundingClientRect().top : last ? last.getBoundingClientRect().bottom : r.top + 14;
+    d.line.style.cssText = `left:${r.left + 10}px;top:${Math.max(r.top + 2, Math.min(r.bottom - 3, y))}px;width:${r.width - 20}px`;
+    d.line.hidden = false;
+  };
+  const tick = () => {
+    if (!drag || !drag.active) return;
+    const r = box.getBoundingClientRect(), y = drag.y;
+    if (drag.x >= r.left && drag.x <= r.right && y >= r.top && y <= r.bottom) {
+      const speed = y < r.top + 44 ? -Math.ceil((r.top + 44 - y) / 2) : y > r.bottom - 44 ? Math.ceil((y - r.bottom + 44) / 2) : 0;
+      if (speed) box.scrollTop += speed;
+    }
+    locate();
+    if (drag) frame = requestAnimationFrame(tick);
+  };
+  box.addEventListener('pointerdown', e => {
+    const source = e.target.closest('.shot-fig img, .fig-tools [data-sf="drag"]');
+    if (!source || e.button !== 0 || e.isPrimary === false || !S.doc || summaryEditing || S.sumEditing || S.chatAbort) return;
+    finish();
+    const fig = source.closest('.shot-fig');
+    drag = { source, fig, id: e.pointerId, n: $$('.shot-fig', box).indexOf(fig), doc: S.doc, path: S.path,
+      summary: S.doc.summary, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, active: false };
+    e.preventDefault();
+    try { source.setPointerCapture(e.pointerId); } catch (_) { /* 自测的模拟指针 */ }
+  });
+  document.addEventListener('pointermove', e => {
+    const d = drag; if (!d || e.pointerId !== d.id) return;
+    if (!(e.buttons & 1)) return finish();  // 在窗口外松手后回来，不继续移动图片。
+    d.x = e.clientX; d.y = e.clientY;
+    if (!d.active && Math.hypot(d.x - d.x0, d.y - d.y0) >= 5) {
+      d.active = true; hideSumTools();
+      if (typeof TTS !== 'undefined') TTS.pauseSummaryEdit(box);
+      d.fig.classList.add('sum-drag-source'); document.body.classList.add('sum-dragging');
+      d.line = document.createElement('div'); d.line.className = 'sum-drop-line tts-skip';
+      document.body.appendChild(d.line); frame = requestAnimationFrame(tick);
+    }
+    if (d.active) { e.preventDefault(); locate(); }
+  });
+  document.addEventListener('pointerup', e => { if (drag && e.pointerId === drag.id) { drag.x = e.clientX; drag.y = e.clientY; locate(); finish(true); } });
+  document.addEventListener('pointercancel', e => { if (drag && e.pointerId === drag.id) finish(); });
+  box.addEventListener('lostpointercapture', () => { if (drag && !drag.source.isConnected) finish(); });
+  box.addEventListener('scroll', locate, { passive: true });
+  box.addEventListener('dragstart', e => { if (e.target.closest('.shot-fig')) e.preventDefault(); });
+  box.addEventListener('click', e => {
+    if (e.isTrusted && Date.now() < suppressClick && e.target.closest('.shot-fig img, [data-sf="drag"]')) {
+      suppressClick = 0; e.preventDefault(); e.stopImmediatePropagation();
+    }
+  }, true);
+  document.addEventListener('keydown', e => { if (drag && e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); finish(); } }, true);
+  window.addEventListener('blur', () => finish());
 }
 function moveSumShot(n, act) {  // n：课程重点里从上往下第几张图
   const lines = S.doc.summary.split('\n'), blocks = sumBlocks(lines);
@@ -3017,7 +3108,7 @@ async function printDoc(sub, html, prepare, pdf) {
 }
 function printSummary(pdf) {
   if (!S.doc || !(S.doc.summary || '').trim()) return;
-  return printDoc('课程重点', md(S.settings.print_ts_summary ? S.doc.summary : stripTs(S.doc.summary)), hydrateFigures, pdf);
+  return printDoc('课程重点', md(S.settings.print_ts_summary ? S.doc.summary : stripTs(S.doc.summary), { figureTimes: !!S.settings.print_ts_summary }), hydrateFigures, pdf);
 }
 /* 打印课程重点时去掉出处时间（2026-11-02 用户：软件里点时间能跳转，印在纸上没用；「带时间」开关可以留着）。
    只去方括号里的时间 [03:57]、[03:57–04:14]，连着的几个（[03:57]–[04:14]、[01:02]、[03:04]），和括号里只有时间的（（[03:57]）、（03:57））；
@@ -4041,6 +4132,7 @@ function bind() {
   $('#btnSubPdf').onclick = () => printSubs(true);
   $('#summaryBox').addEventListener('click', async e => {
     const b = e.target.closest('.fig-tools [data-sf]');
+    if (b && b.dataset.sf === 'drag') return;
     if (b && b.dataset.sf === 'size') {  // 不能冒泡到 document：那里的点击会把刚打开的弹出框关掉
       e.stopPropagation();
       const fig = b.closest('.shot-fig'), t = +fig.dataset.ft;
@@ -4055,6 +4147,7 @@ function bind() {
   $('#btnPrint').onclick = () => printSummary(false);
   $('#btnPdf').onclick = () => printSummary(true);
   bindSumTools();
+  bindSumShotDrag();
   $('#btnReview').onclick = () => { if (!S.job) runReview(); };
   $('#btnTerms').onclick = () => { if (S.job) return; if (S.doc.terms_pending) openTerms(); else findTerms(false); };
   $('#tDelete').onclick = deleteTeacher;

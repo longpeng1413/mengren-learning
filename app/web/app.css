@@ -479,8 +479,14 @@ select { height: 30px; border-radius: var(--radius); border: 1px solid var(--lin
 .shot-fig { margin: 8px 0 12px; max-width: 560px; }
 #summaryBox .shot-fig { width: 100%; max-width: 100%; margin: 8px auto 12px; }
 .shot-fig figcaption { font-size: 12px; color: var(--muted); margin-top: 3px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.shot-fig figcaption:empty { display: none; }
+#summaryBox .shot-fig img, #summaryBox [data-sf="drag"] { touch-action: none; }
+#summaryBox [data-sf="drag"] { cursor: grab; }
+.sum-drag-source { opacity: .45; outline: 2px dashed var(--accent); }
+body.sum-dragging, body.sum-dragging * { cursor: grabbing !important; user-select: none !important; }
+.sum-drop-line { position: fixed; height: 3px; background: var(--accent); z-index: 1000; pointer-events: none; }
 /* 课程重点里的图：上移 / 下移 / 删除（2026-11-02） */
-.fig-tools { margin-left: auto; display: inline-flex; gap: 4px; }
+.fig-tools { margin-left: auto; display: inline-flex; flex-wrap: wrap; justify-content: flex-end; max-width: 100%; gap: 4px; }
 .fig-tools button { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 6px; padding: 1px 8px; font-size: 12px; cursor: pointer; }
 .fig-tools button:hover { border-color: var(--accent-line); color: var(--accent); }
 .fig-tools button[data-sf="del"]:hover { color: var(--danger); border-color: var(--danger); }

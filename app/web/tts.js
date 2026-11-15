@@ -16,7 +16,7 @@ const TTS = (() => {
   const CACHE_LIMIT = 8, PREFETCH = 4, RESUME_FOLLOW = 6000, RETRY = [600, 1500], BOTTOM_GAP = 60;
   const PROGRESS_KEY = 'tts-progress', PROGRESS_LIMIT = 200, PROGRESS_DAYS = 180;
   const BLOCK = /^(P|LI|H[1-6]|TD|TH|BLOCKQUOTE|DIV|DT|DD|TR|UL|OL|TABLE|SECTION|BR|HR)$/;
-  const SKIP = 'a.tslink, a.cite, a.pglink, pre, img, svg, button, script, style, .msg.user, .doubt-tag, .msg-actions, .tts-skip';
+  const SKIP = 'a.tslink, a.cite, a.pglink, pre, img, svg, figure.shot-fig, button, script, style, .msg.user, .doubt-tag, .msg-actions, .tts-skip';
   const ICON = {
     prev: '<path d="M19 20L9 12l10-8z"/><path d="M5 19V5"/>', next: '<path d="M5 4l10 8-10 8z"/><path d="M19 5v14"/>',
     play: '<path d="M7 4l13 8-13 8z"/>', pause: '<path d="M7 4h4v16H7zM14 4h4v16h-4z"/>', again: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',

@@ -83,6 +83,27 @@ def main():
     evidence = ROOT / 'build' / 'ui-regression'
     evidence.mkdir(parents=True, exist_ok=True)
     label = 'packaged' if '--exe' in sys.argv else 'source'
+    # Read the PDFs produced by the actual WebView, not just the print HTML.
+    import pypdfium2 as pdfium
+    for filename, with_time in [('打印测试2.pdf', False), ('课程重点-带时间.pdf', True)]:
+        paths = list(TD.rglob(filename))
+        if len(paths) != 1:
+            results.append('FAIL 实际课程重点 PDF 缺失：' + filename)
+            continue
+        destination = evidence / f'{label}-figure-time-{"on" if with_time else "off"}.pdf'
+        shutil.copy2(paths[0], destination)
+        with pdfium.PdfDocument(destination) as document:
+            text = ''
+            for page in document:
+                textpage = page.get_textpage()
+                text += textpage.get_text_range()
+                textpage.close()
+                page.close()
+            page = document[0]
+            page.render(scale=1.3).to_pil().save(destination.with_suffix('.png'))
+            page.close()
+        passed = ('[00:25]' in text) == with_time and '画面' not in text
+        results.append(('PASS ' if passed else 'FAIL ') + '实际 PDF 的图片时间随开关显示且没有画面字样：' + filename)
     (evidence / f'{label}-results.json').write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding='utf-8')
     log_file = TD / 'store' / '日志（可随时删除）' / 'app.log'
     if log_file.exists():
