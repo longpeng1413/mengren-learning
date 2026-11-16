@@ -16,7 +16,7 @@ const TTS = (() => {
   const CACHE_LIMIT = 8, PREFETCH = 4, RESUME_FOLLOW = 6000, RETRY = [600, 1500], BOTTOM_GAP = 60;
   const PROGRESS_KEY = 'tts-progress', PROGRESS_LIMIT = 200, PROGRESS_DAYS = 180;
   const BLOCK = /^(P|LI|H[1-6]|TD|TH|BLOCKQUOTE|DIV|DT|DD|TR|UL|OL|TABLE|SECTION|BR|HR)$/;
-  const SKIP = 'a.tslink, a.cite, a.pglink, pre, img, svg, figure.shot-fig, button, script, style, .msg.user, .doubt-tag, .msg-actions, .tts-skip';
+  const SKIP = 'a.tslink, a.cite, a.pglink, pre, img, svg, figure.shot-fig, button, script, style, .msg.user, .mentor-intro, .doubt-tag, .msg-actions, .tts-skip';
   const ICON = {
     prev: '<path d="M19 20L9 12l10-8z"/><path d="M5 19V5"/>', next: '<path d="M5 4l10 8-10 8z"/><path d="M19 5v14"/>',
     play: '<path d="M7 4l13 8-13 8z"/>', pause: '<path d="M7 4h4v16H7zM14 4h4v16h-4z"/>', again: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
@@ -102,6 +102,10 @@ const TTS = (() => {
   /* ---------- 读哪里：课程重点页读课程重点，AI 对话页读 AI 的回答（不读你自己的提问） ---------- */
   function source() {
     if (S.view === 'mentor') {  // 老师工作台：读老师的回答（mentor.js）
+      if (typeof R !== 'undefined' && R.mode === 'round' && R.round)
+        return { root: $('#mentorMsgs'), pane: 'round:' + R.round.id, name: '圆桌讨论', anchor: $('.mentor-head') };
+      if (typeof R !== 'undefined' && R.mode === 'topic' && R.topic)
+        return { root: $('#mentorMsgs'), pane: 'topic:' + R.topic.topic.id, name: '主题蒸馏', anchor: $('.mentor-head') };
       const cid = typeof M !== 'undefined' && M.chat ? M.chat.id : 'new';
       return { root: $('#mentorMsgs'), pane: 'mentor:' + cid, name: '老师的回答', anchor: $('.mentor-head') };
     }
@@ -431,6 +435,12 @@ const TTS = (() => {
     if (bk) { bk.classList.toggle('primary', !!s && s.state === 'playing' && s.root === $('#bkView')); bk.title = s && s.state === 'playing' ? '暂停朗读' : '朗读这一章笔记'; }
     const bs = $('#bkSrcTts');
     if (bs) bs.classList.toggle('primary', !!s && s.state === 'playing' && s.root === $('#bkSrcText'));
+    const bm = $('#mentorTts');
+    if (bm) {
+      const reading = !!s && s.root === $('#mentorMsgs');
+      bm.classList.toggle('primary', reading && s.state === 'playing');
+      bm.title = reading ? (s.state === 'playing' ? '暂停朗读' : s.state === 'ended' ? '重新朗读' : '继续朗读') : '朗读老师的回答';
+    }
   }
   const menuItem = (label, on, attr) => `<button class="menu-item" ${attr}>${on ? '✓ ' : '<span class="tts-pad"></span>'}${esc(label)}</button>`;
   function rateMenu(r) {
@@ -496,7 +506,7 @@ const TTS = (() => {
     }
     return segs.findIndex(seg => { const r = rangeOf(seg); return !!r && [...r.getClientRects()].some(b => x >= b.left - 2 && x <= b.right + 2 && y >= b.top - 2 && y <= b.bottom + 2); });
   }
-  for (const id of ['#summaryBox', '#chatBox', '#bkView', '#bkSrcText']) $(id).addEventListener('dblclick', e => {
+  for (const id of ['#summaryBox', '#chatBox', '#bkView', '#bkSrcText', '#mentorMsgs']) $(id).addEventListener('dblclick', e => {
     if (e.target.closest('a.tslink, a.pglink, button, img, svg, pre, .msg.user, .tts-skip')) return;
     const root = $(id), src = sourceFor(root);
     if (!src) return;

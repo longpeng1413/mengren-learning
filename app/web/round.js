@@ -189,8 +189,9 @@ function roundMsgHTML(x, i) {
     + (i >= 0 ? `<button class="btn small" data-rcopy="${i}">复制</button>` : '') + '</div></div>';
 }
 function renderRoundMsgs() {
-  if (R.mode === 'topic') return renderTopic();
   const box = $('#mentorMsgs'), c = R.round;
+  if (typeof TTS !== 'undefined' && TTS.active() && TTS.active().root === box) TTS.stop();
+  if (R.mode === 'topic') return renderTopic();
   if (!c.messages.length) {
     const names = c.people.map(p => p.name).join('、');
     const egs = ['交易系统应该包括哪些部分？', '单笔风险应该怎么定？', '连续亏损的时候该怎么办？'];
@@ -295,6 +296,7 @@ async function openTopic(tid) {
 }
 function renderTopic() {
   const box = $('#mentorMsgs'), t = R.topic.topic, d = R.tjobs[t.id];
+  if (typeof TTS !== 'undefined' && TTS.active() && TTS.active().root === box) TTS.stop();
   if (d) {
     box.innerHTML = `<div class="mentor-intro"><h3>主题蒸馏：${esc(t.topic)}</h3>
       <p>正在后台蒸馏 ${Math.round((d.progress || 0) * 100)}%：${esc(d.message || '')}</p>

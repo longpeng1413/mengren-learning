@@ -1263,6 +1263,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('导入老师：列表里有他，找到了课程的视频，开场介绍列出课程和示例问题', added.mentor.sources[0].found
       && document.querySelector('#mentorList').textContent.includes('测试老师') && document.querySelectorAll('#mentorMsgs [data-eg]').length === 4
       && document.querySelector('#mentorMsgs').textContent.includes('演示课'), added.mentor.sources);
+    ok('老师开场说明不算老师回答，不会被朗读', TTS.segments(document.querySelector('#mentorMsgs')).length === 0);
     const ans = document.createElement('div');
     ans.innerHTML = answerHTML('先算风险［S01 00:02］，见［S01-01］；还有［S09 00:01］。\n\n> 【AI 推测：测试老师可能的看法，不是课程内容】这里是推测。');
     markLabels(ans);
@@ -1273,6 +1274,37 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('点示例问题就提问；回答写完存进对话记录，列表里出现这个对话（标题是问题）', await until(() => !M.job && M.chat && M.chat.messages.length === 2
       && M.chat.messages[1].role === 'assistant' && ((document.querySelector('#mentorList .mt-chat.active') || {}).textContent || '').includes('交易系统包括哪些方面'), 20000),
       [String(M.chat), M.chat && M.chat.messages.length, M.seq, M.cur && M.cur.mentor.id, M.job, toasts().slice(-3), (document.querySelector('#mentorList') || {}).textContent]);
+    {
+      const box = $('#mentorMsgs'), oldEngine = S.settings.tts_engine;
+      const progressKey = 'tts-progress', savedProgress = localStorage.getItem(progressKey);
+      const progressMap = JSON.parse(savedProgress || '{}');
+      delete progressMap['|mentor:' + M.chat.id];
+      localStorage.setItem(progressKey, JSON.stringify(progressMap));
+      box.innerHTML = '<div class="msg assistant"><div class="bubble md">第一句朗读测试。第二句朗读测试。</div></div>';
+      S.settings.tts_engine = 'system';
+      const mentorSegs = TTS.segments(box);
+      $('#mentorTts').click();
+      const started = await until(() => TTS.active() && TTS.active().root === box && TTS._state().i === 0
+        && $('#mentorTts').classList.contains('primary'));
+      const rg = document.createRange(), second = mentorSegs[1];
+      rg.setStart(second.a[0], second.a[1]); rg.setEnd(second.b[0], second.b[1]);
+      const rect = rg.getClientRects()[0];
+      const x = rect.left + rect.width * 0.7, y = rect.top + rect.height / 2;
+      const caret = document.caretRangeFromPoint(x, y);
+      const hit = caret && mentorSegs.findIndex(seg => {
+        const range = document.createRange();
+        range.setStart(seg.a[0], seg.a[1]); range.setEnd(seg.b[0], seg.b[1]);
+        try { return range.comparePoint(caret.startContainer, caret.startOffset) === 0; } catch (_) { return false; }
+      });
+      box.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: x, clientY: y }));
+      ok('老师回答朗读：双击其他句跳到该句继续读，按钮显示播放状态',
+        started && hit === 1 && TTS._state().i === 1 && TTS._state().state === 'playing' && $('#mentorTts').classList.contains('primary'),
+        { started, hit, texts: mentorSegs.map(x => x.text), rect: [rect.left, rect.top, rect.width, rect.height], state: TTS._state() });
+      renderMentorMsgs();
+      ok('老师对话内容重绘时会停止旧内容朗读，避免继续读已替换的句子', !TTS.active() && box.innerHTML !== '');
+      S.settings.tts_engine = oldEngine;
+      if (savedProgress == null) localStorage.removeItem(progressKey); else localStorage.setItem(progressKey, savedProgress);
+    }
     document.querySelector('#mentorMsgs [data-save="1"]').click();
     ok('收藏到 Obsidian：按钮变成「已收藏」', await until(() => M.chat.messages[1].saved && document.querySelector('#mentorMsgs [data-save="1"]').disabled));
     const cite = document.createElement('a');
@@ -1341,6 +1373,16 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     await roundAction('round_reply');
     ok('让老师们互相回应：多了两段回应和新的总结', RT.round.messages.filter(x => x.round === 2).length === 2 && document.querySelectorAll('#mentorMsgs .rt-teacher').length === 4
       && RT.round.messages[RT.round.messages.length - 1].role === 'summary');
+    {
+      const oldEngine = S.settings.tts_engine;
+      S.settings.tts_engine = 'system';
+      $('#mentorTts').click();
+      const roundId = RT.round.id, progress = JSON.parse(localStorage.getItem('tts-progress') || '{}');
+      ok('圆桌朗读使用独立的进度，不和老师对话串在一起',
+        await until(() => TTS.active() && TTS.active().root === $('#mentorMsgs'))
+        && Object.keys(progress).some(k => k.endsWith('|round:' + roundId)));
+      TTS.stop(); S.settings.tts_engine = oldEngine;
+    }
     document.querySelector('#rtSave').click();
     ok('收藏菜单列出六个主题文件夹', await until(() => document.querySelectorAll('#ctxMenu [data-f]').length === 6));
     document.querySelector('#ctxMenu [data-f]').click();

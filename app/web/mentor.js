@@ -143,6 +143,7 @@ function markLabels(root) {
 }
 function renderMentorMsgs() {
   const box = $('#mentorMsgs');
+  if (typeof TTS !== 'undefined' && TTS.active() && TTS.active().root === box) TTS.stop();
   if (roundOn()) return renderRoundMsgs();
   if (!M.cur) {
     box.innerHTML = '<div class="mentor-intro"><h3>老师工作台</h3><p>先点左上方的人像加号按钮：从媒体库的课蒸馏一位新老师（AI 逐节提取观点库、合并成课程蒸馏、写老师画像），或导入 Obsidian「04、外部知识转化库/01、老师分身蒸馏资料」里已经蒸馏好的老师文件夹。之后就能按老师画像和他对话：课程里讲过的都带出处，点出处跳到那节课那一秒；超出课程的会标「AI 推测」。</p></div>';
