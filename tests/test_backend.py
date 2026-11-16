@@ -84,6 +84,16 @@ again = api.call('open', {'path': r['path']})['doc']
 check('保存后能读回修改', again['segments'][0]['text'] == 'Edited line')
 check('保存时按时间排序', [x['start'] for x in again['segments']] == sorted(x['start'] for x in again['segments']))
 check('留有上一版备份', Path(s['stored'] + '.bak').exists())
+stale_doc = {'summary': '重点', 'segments': [{'text': '甲'}, {'text': '乙'}, {'text': '丙'}]}
+stale_doc['summary_src'] = docs.summary_basis(stale_doc['segments'])
+stale_doc['segments'][0]['text'] += '改'
+stale_doc['segments'][1]['text'] += '改'
+stale_doc['segments'][2]['text'] += '改'
+stale_doc['summary_stale_dismissed'] = True
+stale_doc['summary_stale_dismissed_src'] = docs.summary_basis(stale_doc['segments'])
+check('取消提醒：只确认当时的字幕版本', not docs.summary_outdated(stale_doc))
+stale_doc['segments'][0]['text'] += '新改'
+check('取消后任一字幕变化都会再次提醒', docs.summary_outdated(stale_doc))
 
 # 播放进度
 api.call('position', {'path': r['path'], 't': 12.5})

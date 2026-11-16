@@ -72,6 +72,8 @@ def load(media_path: str):
         try:
             d = json.loads(path.read_text(encoding='utf-8'))
             if isinstance(d, dict) and isinstance(d.get('segments'), list):
+                if d.get('summary_stale_dismissed') and not isinstance(d.get('summary_stale_dismissed_src'), list):
+                    d['summary_stale_dismissed_src'] = summary_basis(d['segments'])
                 d['_stored'] = str(path)
                 return d
         except (OSError, ValueError):
@@ -179,7 +181,10 @@ def summary_changes(doc) -> int:
 
 def summary_outdated(doc) -> bool:
     """Whether changed subtitles should mark the course summary as needing an update."""
-    return not doc.get('summary_stale_dismissed') and summary_changes(doc) >= SUMMARY_STALE_AT
+    if doc.get('summary_stale_dismissed'):
+        baseline = doc.get('summary_stale_dismissed_src')
+        return isinstance(baseline, list) and summary_basis(doc.get('segments')) != baseline
+    return summary_changes(doc) >= SUMMARY_STALE_AT
 
 
 def clip_stale(doc) -> bool:
@@ -212,6 +217,8 @@ def save(media_path: str, doc: dict, base_rev=None) -> dict:
         data['version'] = VERSION
         data['media'] = os.path.abspath(media_path)
         data['segments'] = clean_segments(data.get('segments'))
+        if data.get('summary_stale_dismissed') and not isinstance(data.get('summary_stale_dismissed_src'), list):
+            data['summary_stale_dismissed_src'] = summary_basis(data['segments'])
         data['updated'] = time.strftime('%Y-%m-%d %H:%M:%S')
         data['rev'] = disk_rev + 1
         try:
@@ -229,7 +236,8 @@ def save(media_path: str, doc: dict, base_rev=None) -> dict:
             _write(fallback(media_path), data)
             where = fallback(media_path)
     return {'updated': data['updated'], 'rev': data['rev'], 'stored': str(where), 'stale': clip_stale(data),
-            'summary_changes': summary_changes(data)}
+            'summary_changes': summary_changes(data), 'summary_outdated': summary_outdated(data),
+            'summary_stale_dismissed_src': data.get('summary_stale_dismissed_src')}
 
 
 # ------------------------------------------------------------------ 导出 ----

@@ -1075,11 +1075,18 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('下一次字幕改动仍会出现提醒', !document.querySelector('#summaryStale').hidden && S.summaryChanges === 3);
     document.querySelector('#btnSummaryStaleDismiss').click();
     ok('取消提醒后隐藏并保存', await until(() => document.querySelector('#summaryStale').hidden && !S.dirty, 5000)
-      && S.doc.summary_stale_dismissed);
+      && S.doc.summary_stale_dismissed && Array.isArray(S.doc.summary_stale_dismissed_src));
     const dismissedDoc = await api('open', { path: S.path });
-    ok('重新读取课程仍记得取消提醒', !!dismissedDoc.doc.summary_stale_dismissed);
+    ok('重新读取课程仍记得取消提醒', !!dismissedDoc.doc.summary_stale_dismissed
+      && Array.isArray(dismissedDoc.doc.summary_stale_dismissed_src) && !dismissedDoc.summary_outdated);
     ok('取消后媒体库不再显示「重点待更新」',
       !itemHTML({ path: 'x.mp4', name: 'x', summary: true, summary_changes: 5, summary_outdated: false }).includes('重点待更新'));
+    S.doc.segments[0].text += '（取消后改动）'; markDirty(); await save();
+    ok('取消后只改 1 句也会再次提醒', S.summaryOutdated && !document.querySelector('#summaryStale').hidden);
+    document.querySelector('#btnSummaryStaleDismiss').click();
+    ok('再次取消后隐藏提醒且不重新生成重点',
+      await until(() => !S.dirty && document.querySelector('#summaryStale').hidden, 5000)
+      && S.summaryOutdated === false);
     ok('重新生成课程重点后恢复提醒判断',
       await doSummary() && !S.doc.summary_stale_dismissed && S.summaryChanges === 0 && document.querySelector('#summaryStale').hidden);
     ok('媒体库标「重点待更新」', itemHTML({ path: 'x.mp4', name: 'x', summary: true, summary_changes: 5 }).includes('重点待更新')

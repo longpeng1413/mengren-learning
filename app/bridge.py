@@ -168,7 +168,8 @@ class Api:
         if not d.get('teacher'):
             d['teacher'] = library.folder_teacher(path)
         out = {'path': path, 'info': info, 'doc': d, 'plan': plan, 'position': config.get_position(path),
-               'busy': tasks.busy(docs.media_key(path)), 'summary_changes': docs.summary_changes(d), 'pending': workflow.pending_now(path, d),
+               'busy': tasks.busy(docs.media_key(path)), 'summary_changes': docs.summary_changes(d),
+               'summary_outdated': docs.summary_outdated(d), 'pending': workflow.pending_now(path, d),
                'no_summary': library.folder_no_summary(path), 'folder_asr': library.folder_asr(path)}
         cached = media.playable_path(path, info)
         if plan == 'direct':
@@ -540,7 +541,8 @@ class Api:
             raise ValueError('文件不见了：' + path)
         d = workflow.load_doc(path)
         return {'doc': d, 'stale': docs.clip_stale(d) if d.get('kind') != 'book' else False, 'busy': tasks.busy(docs.media_key(path)),
-                'summary_changes': docs.summary_changes(d), 'pending': workflow.pending_now(path, d)}
+                'summary_changes': docs.summary_changes(d), 'summary_outdated': docs.summary_outdated(d),
+                'pending': workflow.pending_now(path, d)}
 
     def do_cancel(self, b):
         job = jobs.get(b.get('id'))

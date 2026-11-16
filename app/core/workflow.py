@@ -719,6 +719,7 @@ def st_summary(ctx):
             doc['summary'], doc['sum_shots'] = docs.keep_sum_shots(old, text, doc['sum_shots'])
         doc['summary_src'] = docs.summary_basis(d['segments'])  # 记下用的是哪一版字幕：之后字幕改多了会提醒重新生成
         doc.pop('summary_stale_dismissed', None)
+        doc.pop('summary_stale_dismissed_src', None)
         _steps(doc).pop('review', None)
         _steps(doc)['summary'] = tasks.now()
     _apply(ctx.path, apply)

@@ -453,9 +453,30 @@ check('取消提醒：保留字幕改动计数，但媒体库和任务结果不�
       docs.summary_changes(d) == 3 and not docs.summary_outdated(d)
       and not next(x for x in wf.find(course='峰级') if x['path'] == L1)['summary_outdated'])
 check('保存时把「改了几句」告诉界面', docs.save(L1, d)['summary_changes'] == 3)
+check('取消提醒时保存当前字幕版本', isinstance(d.get('summary_stale_dismissed_src'), list)
+      and d['summary_stale_dismissed_src'] == docs.summary_basis(d['segments']))
+d['segments'][3]['text'] += '（取消后改动）'
+saved = docs.save(L1, d)
+d = docs.load(L1)
+check('取消后只改 1 句也会再次提醒，不必重新生成课程重点',
+      docs.summary_changes(d) == 4 and saved['summary_outdated'] and docs.summary_outdated(d)
+      and next(x for x in wf.find(course='峰级') if x['path'] == L1)['summary_outdated'])
+d.pop('summary_stale_dismissed_src', None)
+saved = docs.save(L1, d)
+d = docs.load(L1)
+check('再次取消只确认这次提醒之前的改动', not saved['summary_outdated'] and not docs.summary_outdated(d)
+      and docs.summary_changes(d) == 4)
+legacy_data = {k: v for k, v in d.items() if not k.startswith('_')}
+legacy_data.pop('summary_stale_dismissed_src', None)
+Path(d['_stored']).write_text(json.dumps(legacy_data, ensure_ascii=False), encoding='utf-8')
+d = docs.load(L1)
+check('旧版本已取消的提醒：升级后以当前字幕为基准，之后的改动仍会提醒',
+      d.get('summary_stale_dismissed_src') == docs.summary_basis(d['segments'])
+      and not docs.summary_outdated(d))
 wf.run_step(L1, 'summary', force=True)
 check('重新生成后不再提醒', docs.summary_changes(docs.load(L1)) == 0
       and not docs.load(L1).get('summary_stale_dismissed')
+      and not docs.load(L1).get('summary_stale_dismissed_src')
       and not next(x for x in wf.find(course='峰级') if x['path'] == L1)['summary_outdated'])
 # 课程重点里手动插的截图（2026-11-02）：重新生成后放回去，按出处时间找位置；用户已经删掉的不放回
 d = docs.load(L1)

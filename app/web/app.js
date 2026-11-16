@@ -7,7 +7,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const S = {
   settings: null, doubaoModels: {}, chatProviders: [], providerNames: {}, teachers: [], defaultTemplate: '',
   path: null, doc: null, info: null,
-  dirty: false, saving: null, saveTimer: null, lastSaved: null,
+  dirty: false, saving: null, saveTimer: null, lastSaved: null, summaryOutdated: false,
   active: -1, editing: null, userScrollAt: 0, undo: [], job: null,
   hits: [], hitPos: -1, chatAbort: null, lib: [], resumeAt: 0, resumePending: false, loopIdx: null, frameUrls: {},
 };
@@ -433,7 +433,7 @@ function syncLibFromDoc() {
     return;
   }
   patchLib(S.path, { subs: S.doc.segments.length, summary: !!(S.doc.summary || '').trim(), clipped: !!S.doc.clip, stale: !!S.docStale, reviewed: !!S.doc.reviewed, duration: S.doc.duration, doubts: (S.doc.doubts || []).length,
-    summary_changes: S.summaryChanges || 0, summary_outdated: !S.doc.summary_stale_dismissed && (S.summaryChanges || 0) >= SUMMARY_STALE_AT,
+    summary_changes: S.summaryChanges || 0, summary_outdated: S.summaryOutdated,
     pending: S.pending || [] });
 }
 function showCtx(x, y, html, bindings) {
@@ -711,7 +711,8 @@ window.openPath = async function (path) {
     // 换课时关掉单句循环：「存疑 / 回听」会自动打开它，以前一直开着，换到别的课就一直循环同一句
     $('#optLoop').checked = false; S.loopIdx = null; updateLoopHint();
     S.docStale = libFiles().some(it => it.stale && it.path.toLowerCase() === d.path.toLowerCase());
-    S.lastSaved = d.doc.updated || null; S.rev = d.doc.rev || 0; S.summaryChanges = d.summary_changes || 0; S.pending = d.pending || [];
+    S.lastSaved = d.doc.updated || null; S.rev = d.doc.rev || 0; S.summaryChanges = d.summary_changes || 0;
+    S.summaryOutdated = !!d.summary_outdated; S.pending = d.pending || [];
     S.noSummary = !!d.no_summary;
     S.folderAsr = d.folder_asr || '';
     $('#btnUndo').disabled = true;
@@ -1583,7 +1584,13 @@ async function save(quiet = true) {
       const r = await api('save', { path: S.path, doc: S.doc, base_rev: S.rev || 0, force: !!S.forceSave });
       if (r.conflict) { S.dirty = true; conflict = true; return; }
       S.rev = r.rev; S.lastSaved = r.updated; S.docStale = !!r.stale;
-      if ('summary_changes' in r && r.summary_changes !== S.summaryChanges) { S.summaryChanges = r.summary_changes; renderSummaryStale(); }
+      if (Array.isArray(r.summary_stale_dismissed_src)) S.doc.summary_stale_dismissed_src = r.summary_stale_dismissed_src;
+      else delete S.doc.summary_stale_dismissed_src;
+      const staleChanged = 'summary_outdated' in r && !!r.summary_outdated !== S.summaryOutdated;
+      if ('summary_outdated' in r) S.summaryOutdated = !!r.summary_outdated;
+      const changesChanged = 'summary_changes' in r && r.summary_changes !== S.summaryChanges;
+      if ('summary_changes' in r) S.summaryChanges = r.summary_changes;
+      if (staleChanged || changesChanged) renderSummaryStale();
       syncLibFromDoc();
       if (!quiet) toast('已保存');
     } catch (e) { S.dirty = true; fail(new Error('保存失败：' + e.message)); }
@@ -1731,7 +1738,7 @@ async function reloadDoc() {
   if (S.dirty) await save();
   const r = await api('doc', { path: S.path });
   S.doc = r.doc; S.rev = r.doc.rev || 0; S.lastSaved = r.doc.updated || S.lastSaved; S.dirty = false; S.docStale = !!r.stale;
-  S.summaryChanges = r.summary_changes || 0; S.pending = r.pending || [];
+  S.summaryChanges = r.summary_changes || 0; S.summaryOutdated = !!r.summary_outdated; S.pending = r.pending || [];
   syncLibFromDoc();
 }
 function renderDoc() {
@@ -2426,7 +2433,7 @@ let summaryEditing = false;
 const SUMMARY_STALE_AT = 3;  // 和 core/doc.py 的 SUMMARY_STALE_AT 一致
 function renderSummaryStale() {
   const n = S.summaryChanges || 0;
-  const show = !!(S.doc && S.mode !== 'book' && (S.doc.summary || '').trim() && !S.doc.summary_stale_dismissed && n >= SUMMARY_STALE_AT);
+  const show = !!(S.doc && S.mode !== 'book' && (S.doc.summary || '').trim() && S.summaryOutdated);
   $('#summaryStale').hidden = !show;
   if (show) $('#summaryStaleText').textContent = `生成课程重点之后，字幕又改了 ${n} 句，重点里可能还是改之前的说法。建议重新生成（不另花钱，约 1～2 分钟）。`;
   syncLibFromDoc();
@@ -4062,14 +4069,18 @@ function bind() {
   $('#btnSummaryStale').onclick = () => { if (!S.job) doSummary(); };
   $('#btnSummaryStaleDismiss').onclick = async () => {
     if (!S.doc) return;
-    const doc = S.doc, wasDismissed = !!doc.summary_stale_dismissed;
+    const doc = S.doc, wasDismissed = !!doc.summary_stale_dismissed, oldBaseline = doc.summary_stale_dismissed_src;
     doc.summary_stale_dismissed = true;
+    delete doc.summary_stale_dismissed_src;
     markDirty();
     await save();
     if (S.doc !== doc) return;
-    if (S.dirty) doc.summary_stale_dismissed = wasDismissed;
+    if (S.dirty) {
+      doc.summary_stale_dismissed = wasDismissed;
+      if (oldBaseline) doc.summary_stale_dismissed_src = oldBaseline;
+    }
     renderSummaryStale();
-    if (!S.dirty) toast('已取消提醒；重新生成课程重点后会恢复提醒');
+    if (!S.dirty) toast('已取消当前提醒；之后再改字幕时还会提醒');
   };
   $('#btnEditSummary').onclick = () => toggleSummaryEdit();
   $('#summaryEdit').addEventListener('input', e => { if (S.doc) { S.doc.summary = e.target.value; markDirty(); } });
