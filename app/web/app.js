@@ -1285,16 +1285,23 @@ const cueToolsHTML = () => `<button data-act="split" title="在光标处拆成�
   + `<button data-act="del" title="删除这一句">${ICONS.del}</button>`;
 function renderCues() {
   const box = $('#cues');
+  const playbackTop = cuePlaybackTop();
   const segs = S.doc ? S.doc.segments : [];
   const oldShots = [...$$('.sub-shot', box)];  // 截图元素留着接着用（见 placeSubShots）
   box.innerHTML = segs.length ? `<div class="cues-inner">${segs.map(cueHTML).join('')}</div>`
     : `<div class="cues-empty">这个文件还没有字幕。<br>点上方的「生成字幕」或「一键整理」开始。</div>`;
-  placeSubShots(oldShots);
+  placeSubShots(oldShots, false);
   S.active = -1;
   $('#cueCount').textContent = segs.length ? `${segs.length} 句` : '';
   updateDoubtBtn();
   runSearch(false);
-  updateActive(true);
+  const behavior = box.style.scrollBehavior;
+  if (playbackTop != null) box.style.scrollBehavior = 'auto';
+  updateActive(true, playbackTop != null);
+  if (playbackTop != null) {
+    restoreCuePlayback(playbackTop);
+    box.style.scrollBehavior = behavior;
+  }
 }
 function cuesInner() {
   let inner = $('.cues-inner', $('#cues'));
@@ -1302,12 +1309,32 @@ function cuesInner() {
   return inner;
 }
 function cueEl(i) { return $(`.cue[data-i="${i}"]`, $('#cues')); }
+function cuePlaybackTop() {
+  const v = $('#video');
+  if (v.paused || !S.settings.follow || isEditing() || Date.now() - S.userScrollAt < 2500) return null;
+  const el = cueEl(S.active) || cueEl(findIndex(v.currentTime || 0));
+  if (!el) return null;
+  const box = $('#cues').getBoundingClientRect(), rect = el.getBoundingClientRect();
+  return rect.bottom > box.top && rect.top < box.bottom ? rect.top : null;
+}
+function restoreCuePlayback(top) {
+  const v = $('#video'), box = $('#cues');
+  if (top == null || v.paused || !S.settings.follow) return;
+  const i = findIndex(v.currentTime || 0), el = cueEl(i);
+  if (!el) return;
+  const behavior = box.style.scrollBehavior;
+  box.style.scrollBehavior = 'auto';
+  box.scrollTop += el.getBoundingClientRect().top - top;
+  box.style.scrollBehavior = behavior;
+  followCue(i);
+}
 /* ---------- 字幕里手动插的截图（2026-10-30 用户要求）：S.doc.sub_shots = [{t: 截图时间, at: 挂在哪一句后面（那一句的开始时间）}]。
    位置按 at 找「开始时间不晚于它的最后一句」（findIndex），句子删了、拆了也找得到；上移 / 下移就是换挂到上一句 / 下一句
    （语音识别断句不准时，图会落在不对的句子后面）。剪藏时 doc.sub_shot_images 插进「完整字幕」对应的位置。 ---------- */
 /* old：重画字幕前取下来的截图元素。已经显示着的截图原样挪到新位置、不重新加载：
    重新加载的那一下图片高度是 0，整列字幕会跟着上下跳（2026-11-10 用户：合并、拆分后字幕跳走） */
-function placeSubShots(old) {
+function placeSubShots(old, preservePlayback = true) {
+  const playbackTop = preservePlayback ? cuePlaybackTop() : null;
   const inner = $('.cues-inner', $('#cues'));
   if (!inner) return;
   const pool = new Map();
@@ -1327,6 +1354,8 @@ function placeSubShots(old) {
     </div>`;
       el = tpl.content.firstElementChild;
       const img = $('img', el);
+      img.onload = refollowActiveCue;
+      img.onerror = refollowActiveCue;
       frameUrl(x.t, false, x.crop, x.marks).then(u => { if (u && img) img.src = u; });
     }
     el.dataset.sk = k;
@@ -1338,9 +1367,12 @@ function placeSubShots(old) {
       after.after(el);
     } else inner.prepend(el);  // 挂在第一句前面
   });
+  if (playbackTop != null) restoreCuePlayback(playbackTop);
 }
 /* 改动字幕后重画，正在操作的那一句（第 i 句）留在屏幕上原来的位置，列表不跳 */
 function keepCueInPlace(i, fn) {
+  const playbackTop = cuePlaybackTop();
+  if (playbackTop != null) { fn(); return; }
   const box = $('#cues'), a = cueEl(i), top0 = a ? a.getBoundingClientRect().top : null, st0 = box.scrollTop;
   fn();
   const segs = S.doc.segments, el = cueEl(Math.min(i, segs.length - 1));
@@ -1365,7 +1397,7 @@ function insertSubShot() {
 }
 function moveSubShot(k, act) {
   const x = (S.doc.sub_shots || [])[k], segs = S.doc.segments; if (!x) return;
-  if (act === 'edit') return openShotEdit(x.t, x).then(r => { if (r) { setShotProp(x, 'crop', r.crop); setShotProp(x, 'marks', r.marks); placeSubShots(); markDirty(); } });
+  if (act === 'edit') return openShotEdit(x.t, x).then(r => { if (r) { setShotProp(x, 'crop', r.crop); setShotProp(x, 'marks', r.marks); placeSubShots(); markDirty(); refollowActiveCue(); } });
   if (act === 'del') {
     if (!confirm('删掉这张截图？')) return;
     S.doc.sub_shots.splice(k, 1);
@@ -1375,7 +1407,9 @@ function moveSubShot(k, act) {
     x.at = j < 0 ? -1 : segs[j].start;  // -1：挂在第一句前面
   }
   placeSubShots(); markDirty();
-  const el = $(`.sub-shot[data-sk="${k}"]`); if (el) el.scrollIntoView({ block: 'nearest' });
+  const el = $(`.sub-shot[data-sk="${k}"]`);
+  if (el && $('#video').paused) el.scrollIntoView({ block: 'nearest' });
+  else refollowActiveCue();
 }
 function findIndex(t) {
   const segs = S.doc ? S.doc.segments : [];
@@ -1383,7 +1417,7 @@ function findIndex(t) {
   while (lo <= hi) { const mid = (lo + hi) >> 1; if (segs[mid].start <= t + 0.05) { ans = mid; lo = mid + 1; } else hi = mid - 1; }
   return ans;
 }
-function updateActive(force) {
+function updateActive(force, preservePlayback = false) {
   if (!S.doc) return;
   const v = $('#video'), t = v.currentTime || 0;
   const segs = S.doc.segments;
@@ -1400,7 +1434,7 @@ function updateActive(force) {
     if (el) {
       el.classList.add('active');
       const recentlyScrolled = Date.now() - S.userScrollAt < 2500;
-      if (S.settings.follow && !isEditing() && !recentlyScrolled && !v.paused) followCue(i);
+      if (S.settings.follow && !isEditing() && !recentlyScrolled && !v.paused && !preservePlayback) followCue(i);
     }
   }
   updateLoopHint();
@@ -1418,15 +1452,27 @@ function isEditing() {
   S.editing = null;
   return false;
 }
-/* 字幕跟随（2026-11-10 用户要求，以前每换一句就滚到正中间）：正在播放的这句下面只剩不到 3 句（或者已经在画面外）时，
-   一下翻上去，让它上面留 3 句，接着往下播；画面里还看得到下面 3 句时不动 */
+let cueFollowFrame = 0;
+function refollowActiveCue() {
+  const v = $('#video'), box = $('#cues');
+  if (!v || v.paused || !S.settings.follow || isEditing() || Date.now() - S.userScrollAt < 2500 || cueFollowFrame) return;
+  cueFollowFrame = requestAnimationFrame(() => {
+    cueFollowFrame = 0;
+    if (v.paused || !S.settings.follow || isEditing()) return;
+    const behavior = box.style.scrollBehavior;
+    box.style.scrollBehavior = 'auto';
+    updateActive(true);
+    box.style.scrollBehavior = behavior;
+  });
+}
+/* 字幕跟随：下面不足 3 句（或当前句已在画面外）时，滚动到当前句位于画面上数第三句。 */
 const FOLLOW_KEEP = 3;
 function followCue(i) {
   const box = $('#cues'), el = cueEl(i); if (!el) return;
   const B = box.getBoundingClientRect(), r = el.getBoundingClientRect();
   const below = cueEl(Math.min(i + FOLLOW_KEEP, S.doc.segments.length - 1)) || el;
   if (r.top >= B.top && below.getBoundingClientRect().bottom <= B.bottom) return;
-  const top = cueEl(Math.max(0, i - FOLLOW_KEEP)) || el;
+  const top = cueEl(Math.max(0, i - FOLLOW_KEEP + 1)) || el;
   box.scrollTo({ top: box.scrollTop + top.getBoundingClientRect().top - B.top - 4, behavior: 'smooth' });
 }
 // 单句循环开着时，开关旁边写明在循环哪一句，点一下关掉
@@ -2418,7 +2464,7 @@ function sizeAllShots(w) {
   const ts = new Set((S.doc.summary || '').split('\n').map(figTime).filter(t => t !== null));
   ts.forEach(t => setFigEdit(t, 'w', w));
   (S.doc.sub_shots || []).forEach(x => setShotProp(x, 'w', w));
-  renderSummary(); placeSubShots();
+  renderSummary(); placeSubShots(); refollowActiveCue();
 }
 function showLightbox(url) {
   if (!url) return;
@@ -3949,7 +3995,7 @@ function bind() {
   v.addEventListener('ended', () => savePosition(true));
   document.addEventListener('visibilitychange', () => { if (document.hidden) savePosition(true); });
   v.addEventListener('seeked', () => updateActive(true));
-  v.addEventListener('play', () => { if (S.loopIdx == null) S.loopIdx = S.active >= 0 ? S.active : null; tick(); });
+  v.addEventListener('play', () => { if (S.loopIdx == null) S.loopIdx = S.active >= 0 ? S.active : null; S.userScrollAt = 0; updateActive(true); tick(); });
   v.addEventListener('error', () => { if (v.getAttribute('src')) fail(new Error('这个文件无法在软件里播放，字幕功能仍然可以使用')); });
   let raf = null;
   function tick() { cancelAnimationFrame(raf); if (!v.paused) { updateActive(); raf = requestAnimationFrame(tick); } }
@@ -3985,6 +4031,7 @@ function bind() {
         openSizeMenu(b, { w: x.w, cur: ss.querySelector('img').clientWidth, all: sizeAllShots, set: w => {
           setShotProp(x, 'w', w);
           ss.classList.toggle('sized', !!w); ss.style.maxWidth = w ? `${w + 2}px` : '';
+          refollowActiveCue();
         } });
       } else if (b) moveSubShot(+ss.dataset.sk, b.dataset.ss);
       else if (e.target.matches('img') && e.target.src) showLightbox(e.target.src);
@@ -4011,6 +4058,7 @@ function bind() {
       if (e.target.matches('.src') && S.doc) recordFix(S.doc, S.doc.segments[+cue.dataset.i], e.target._orig, e.target.textContent, 'manual');
       lastCaret = { i: +cue.dataset.i, field: e.target.classList.contains('src') ? 'src' : 'tr', pos: e.target._caret ?? null };
       S.editing = null;
+      refollowActiveCue();
     }
   });
   document.addEventListener('selectionchange', () => { const el = S.editing; if (el && el.isConnected) el._caret = caretOffset(el); });

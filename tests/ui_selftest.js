@@ -254,7 +254,7 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     undo(); undo(); undo();
     ok('撤销回到原样', S.doc.segments.length === n0);
 
-    // 字幕跟随（2026-11-10）：快到底部（下面不到 3 句）时翻上去，上面留 3 句；画面里还看得到下面 3 句时不动
+    // 字幕跟随：下面不足 3 句时翻上去，让当前句位于画面上数第三句
     {
       const keepSegs = S.doc.segments, box = $('#cues');
       S.doc.segments = Array.from({ length: 120 }, (_, k) => ({ start: k * 0.3, end: k * 0.3 + 0.29, text: `跟随测试第${k}句`, tr: '' }));
@@ -265,11 +265,58 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       const still = box.scrollTop === 0;
       followCue(lastIn - 1); await until(async () => { const a = box.scrollTop; await wait(120); return a === box.scrollTop && a > 0; }, 3000);
       const topIdx = S.doc.segments.findIndex((_, k) => cueEl(k).getBoundingClientRect().top >= B.top - 1);
-      ok('字幕跟随：画面里还看得到下面 3 句时不动；快到底部时翻上去，这句上面留 3 句', still && topIdx === lastIn - 1 - 3, [still, lastIn, topIdx]);
+      ok('字幕跟随：画面里还看得到下面 3 句时不动；快到底部时翻上去，让当前句位于上数第三句', still && topIdx === lastIn - 1 - 2, [still, lastIn, topIdx]);
       const fake = document.createElement('div'); S.editing = fake;
       ok('字幕跟随：记下的「正在编辑」那一句已经不在页面上了，不算在编辑（以前跟随会一直停住）', !isEditing() && S.editing === null);
-      box.style.scrollBehavior = '';
-      S.doc.segments = keepSegs; renderCues();
+      const keepShots = S.doc.sub_shots, keepTime = v.currentTime, keepPaused = v.paused;
+      const keepFollow = S.settings.follow, keepLoop = S.loopIdx, loopChecked = $('#optLoop').checked;
+      try {
+        S.settings.follow = true; S.loopIdx = null; $('#optLoop').checked = false;
+        S.doc.sub_shots = [];
+        v.pause(); v.currentTime = 24;
+        await wait(100);
+        S.userScrollAt = 0;
+        const started = await v.play().then(() => true, () => false);
+        const visibleCue = () => {
+          const el = cueEl(findIndex(v.currentTime)), rect = el && el.getBoundingClientRect(), bounds = box.getBoundingClientRect();
+          return !!rect && rect.bottom > bounds.top && rect.top < bounds.bottom;
+        };
+        const settled = started && await until(async () => {
+          if (!visibleCue()) return false;
+          const top = box.scrollTop; await wait(200);
+          return visibleCue() && Math.abs(box.scrollTop - top) < 1;
+        }, 5000);
+        const beforeEdit = findIndex(v.currentTime), beforeTop = cueEl(beforeEdit).getBoundingClientRect().top;
+        S.doc.segments[Math.max(0, beforeEdit - 1)].text += '；字幕编辑后产生换行'.repeat(12);
+        renderCues();
+        await until(async () => {
+          if (!visibleCue()) return false;
+          const top = box.scrollTop; await wait(200);
+          return visibleCue() && Math.abs(box.scrollTop - top) < 1;
+        }, 5000);
+        const afterEdit = cueEl(findIndex(v.currentTime)).getBoundingClientRect();
+        const bounds = box.getBoundingClientRect();
+        ok('播放中字幕编辑重画后，当前播放句仍留在画面内', settled && afterEdit.bottom > bounds.top
+          && afterEdit.top < bounds.bottom, [beforeEdit, beforeTop, afterEdit.top, bounds.top, bounds.bottom]);
+        const active = findIndex(v.currentTime);
+        S.doc.sub_shots.push({ t: +v.currentTime.toFixed(2), at: S.doc.segments[Math.max(0, active - 1)].start });
+        placeSubShots();
+        const loaded = await until(() => { const img = $('#cues .sub-shot img'); return img && img.complete && img.naturalWidth > 0; }, 12000);
+        await until(async () => {
+          if (!visibleCue()) return false;
+          const top = box.scrollTop; await wait(200);
+          return visibleCue() && Math.abs(box.scrollTop - top) < 1;
+        }, 5000);
+        const afterImage = cueEl(findIndex(v.currentTime)).getBoundingClientRect();
+        const afterImageBounds = box.getBoundingClientRect();
+        ok('播放中插图加载改变字幕高度后，当前播放句仍在画面内', loaded && afterImage.bottom > afterImageBounds.top
+          && afterImage.top < afterImageBounds.bottom, [loaded, afterImage.top, afterImage.bottom, afterImageBounds.top, afterImageBounds.bottom]);
+      } finally {
+        v.pause(); S.doc.segments = keepSegs; S.doc.sub_shots = keepShots;
+        S.settings.follow = keepFollow; S.loopIdx = keepLoop; $('#optLoop').checked = loopChecked;
+        v.currentTime = keepTime; box.style.scrollBehavior = ''; S.userScrollAt = 0; renderCues();
+        if (!keepPaused) await v.play().catch(() => {});
+      }
     }
 
     // 文字设置（Aa）
