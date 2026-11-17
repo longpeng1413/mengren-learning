@@ -22,11 +22,59 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
   const v = document.querySelector('#video');
   const toasts = () => [...document.querySelectorAll('.toast')].map(t => t.innerText);
   const base = window.__TEST_BASE;  // 项目里的 test-media\ui\（由 main.py 传进来）
+  let textCaptureId = 100000;
+  const checkAreaText = async (button, area, selector) => {
+    const styles = JSON.parse(JSON.stringify(S.settings.text_styles)), cueSize = S.settings.font_size;
+    const el = document.querySelector(selector), before = parseFloat(getComputedStyle(el).fontSize);
+    document.querySelector(button).click();
+    const menu = document.querySelector('#areaTextMenu'), bounds = menu.getBoundingClientRect();
+    ok(TEXT_AREAS[area][0] + '：Aa 菜单可见且没有超出窗口', menu.classList.contains('open') && menu.dataset.area === area
+      && bounds.left >= 0 && bounds.right <= innerWidth + 1 && bounds.top >= 0 && bounds.bottom <= innerHeight + 1, bounds.toJSON());
+    if (['summary', 'book_note', 'mentor', 'distill', 'prompts'].includes(area) && window.__uiNativeReady) {
+      const id = ++textCaptureId;
+      window.__uiNativeRequest = { kind: 'screenshot', area, id };
+      await until(() => window.__uiNativeDone === id);
+    }
+    menu.querySelector('[data-area-step="font_size:1"]').click();
+    await wait(650);
+    const persisted = (await api('settings', {})).settings;
+    ok(TEXT_AREAS[area][0] + '：正文实际变大，刷新后记住，字幕和其他分区不变',
+      parseFloat(getComputedStyle(el).fontSize) === before + 1 && S.settings.font_size === cueSize
+      && persisted.text_styles[area].font_size === before + 1
+      && Object.keys(styles).every(k => k === area || JSON.stringify(styles[k]) === JSON.stringify(persisted.text_styles[k])), persisted.text_styles[area]);
+    menu.querySelector('[data-area-step="line_height:0.1"]').click();
+    menu.querySelector('[data-area-step="gap:2"]').click();
+    const font = menu.querySelector('[data-area-value="font_family"]'); font.value = 'kai'; font.dispatchEvent(new Event('change', { bubbles: true }));
+    const computed = getComputedStyle(el), st = areaTextStyle(area);
+    ok(TEXT_AREAS[area][0] + '：行距和字体也实际作用于正文', computed.fontFamily.includes('Kai')
+      && Math.abs(parseFloat(computed.lineHeight) / parseFloat(computed.fontSize) - st.line_height) < .01
+      && st.gap === styles[area].gap + 2, { font: computed.fontFamily, line: computed.lineHeight, st });
+    if (area === 'summary') {
+      menu.querySelector('[data-area-step="width:-60"]').click();
+      const width = areaTextStyle(area).width, paragraph = document.querySelector('#summaryBox > p');
+      ok('课程重点宽度设置实际约束正文并居中', width > 0 && paragraph && paragraph.getBoundingClientRect().width <= width + 1
+        && Math.abs(parseFloat(getComputedStyle(paragraph).marginLeft) - parseFloat(getComputedStyle(paragraph).marginRight)) < 1);
+      const theme = S.settings.theme, sel = menu.querySelector('[data-area-value="theme"]');
+      sel.value = theme === 'light' ? 'dark' : 'light'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+      ok('分区文字菜单里的主题设置仍为全软件共用', document.documentElement.dataset.theme === sel.value && S.settings.theme === sel.value);
+      savePrefs({ theme });
+    }
+    menu.querySelector('[data-area-reset]').click();
+    ok(TEXT_AREAS[area][0] + '：可重新采用当前字幕设置', areaTextStyle(area).font_size === S.settings.font_size
+      && areaTextStyle(area).line_height === S.settings.line_height && areaTextStyle(area).gap === S.settings.cue_gap);
+    savePrefs({ text_styles: styles }); closeMenus();
+  };
   try {
     await until(() => S.settings);
     ok('后台已连接', !!(window.pywebview && window.pywebview.api));
     ok('空状态页', !document.querySelector('#empty').hidden);
     ok('媒体库默认显示', !document.querySelector('#library').hidden);
+    ok('全部内容区的初始字号、行距、间距、宽度、字体与当前字幕一致',
+      Object.keys(TEXT_AREAS).every(k => {
+        const st = areaTextStyle(k), s = S.settings;
+        return st.font_size === s.font_size && st.line_height === s.line_height && st.gap === s.cue_gap
+          && st.width === s.cue_width && st.font_family === s.font_family;
+      }));
 
     // 媒体库
     const lib = await api('library_add_folder', { path: base });
@@ -328,6 +376,12 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     const txLabel = txRow.querySelector('span').getBoundingClientRect();
     ok('文字设置：左右按钮一样宽、标签一行', Math.abs(txMinus.getBoundingClientRect().width - txPlus.getBoundingClientRect().width) < 1 && txLabel.height < 24,
        [txMinus.getBoundingClientRect().width, txPlus.getBoundingClientRect().width, txLabel.height]);
+    closeMenus();
+    await checkAreaText('[data-area-text="course"]', 'summary', '#summaryBox');
+    document.querySelector('.ai-tabs [data-tab="chat"]').click();
+    await checkAreaText('[data-area-text="course"]', 'course_chat', '#chatBox');
+    document.querySelector('.ai-tabs [data-tab="summary"]').click();
+    await checkAreaText('.lib-search.course-only [data-area-text]', 'course_library', '#libBody .lib-name');
     // 中文课开着「译文」、这句没有译文：不留空行（以前每句下面多一行高）
     const trShown = S.settings.show_tr;
     savePrefs({ show_tr: true });
@@ -351,6 +405,13 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     for (const mode of ['grid', 'row']) {
       toolsSel.value = mode; toolsSel.dispatchEvent(new Event('change'));
       const cue = document.querySelector('.cue'), src = cue.querySelector('.src');
+      // 鼠标若停在别的句子上，软件会按正常规则隐藏这一句的工具；先真实移到被检查的句子。
+      if (window.__uiNativeReady) {
+        cue.scrollIntoView({ block: 'center', behavior: 'instant' });
+        const rect = src.getBoundingClientRect(), id = ++textCaptureId;
+        window.__uiNativeRequest = { kind: 'move', x: rect.left + 20, y: rect.top + Math.min(10, rect.height / 2), id };
+        await until(() => window.__uiNativeDone === id);
+      }
       src.focus();
       const tb = cue.querySelector('.cue-tools').getBoundingClientRect(), cb = cue.getBoundingClientRect();
       const textRight = cb.right - parseFloat(getComputedStyle(cue).paddingRight);
@@ -1310,6 +1371,8 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('导入老师：列表里有他，找到了课程的视频，开场介绍列出课程和示例问题', added.mentor.sources[0].found
       && document.querySelector('#mentorList').textContent.includes('测试老师') && document.querySelectorAll('#mentorMsgs [data-eg]').length === 4
       && document.querySelector('#mentorMsgs').textContent.includes('演示课'), added.mentor.sources);
+    await checkAreaText('[data-area-text="mentor"]', 'mentor', '#mentorMsgs .mentor-intro p');
+    await checkAreaText('.lib-search.mentor-only [data-area-text]', 'teacher_list', '#mentorList .mt-teacher');
     ok('老师开场说明不算老师回答，不会被朗读', TTS.segments(document.querySelector('#mentorMsgs')).length === 0);
     const ans = document.createElement('div');
     ans.innerHTML = answerHTML('先算风险［S01 00:02］，见［S01-01］；还有［S09 00:01］。\n\n> 【AI 推测：测试老师可能的看法，不是课程内容】这里是推测。');
@@ -1370,6 +1433,8 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       && !!document.querySelector('#ctxMenu [data-a=distill]') && !!document.querySelector('#ctxMenu [data-a=import]'));
     document.querySelector('#ctxMenu [data-a=distill]').click();
     ok('蒸馏窗口：列出媒体库文件夹里的课', await until(() => document.querySelector('#dlgDistill').open && document.querySelectorAll('#dsList input').length > 0));
+    await checkAreaText('#dlgDistill [data-area-text]', 'distill', '#dlgDistill .ds-name');
+    ok('蒸馏窗口调文字不会提交或关闭窗口', document.querySelector('#dlgDistill').open);
     document.querySelector('#dsName').value = '蒸馏测试老师';
     document.querySelector('#dsName').dispatchEvent(new Event('input'));
     ok('蒸馏窗口：显示结果写到 Obsidian 的哪个文件夹', await until(() => document.querySelector('#dsTarget').textContent.includes('04、外部知识转化库\\01、老师分身蒸馏资料\\蒸馏测试老师')),
@@ -1444,6 +1509,8 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     document.querySelector('#mentorPrompts').click();
     ok('提示词：显示 11 种，第一种是逐节提取观点库', await until(() => document.querySelector('#dlgPrompts').open && document.querySelectorAll('#prList details').length === 11
       && document.querySelector('#prList pre').textContent.includes('观点库')));
+    document.querySelector('#prList details').open = true;
+    await checkAreaText('#dlgPrompts [data-area-text]', 'prompts', '#prList pre');
     document.querySelector('#dlgPrompts').close();
     document.querySelector('#mentorList .mt-teacher').click();
     ok('点老师：回到和一位老师对话，圆桌的按钮藏起来', await until(() => !RT.mode && document.querySelector('#roundTools').hidden && document.querySelector('#topicTools').hidden
@@ -1684,19 +1751,13 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
     ok('点 P2 跳到 PDF 第 4 页', document.querySelector('#bookPdf').src.endsWith('#page=4'));
     // 书籍朗读（2026-10-29）：和课程重点一样，页码不读；换一章朗读停下
     const bkSegs = TTS.segments(document.querySelector('#bkView')).map(x => x.text);
-    // 书的文字设置（Aa）：整理笔记和原文文字版共用、和字幕分开；两列的「Aa」打开同一个菜单
-    const bkFs0 = parseFloat(getComputedStyle(document.querySelector('#bkView')).fontSize), cueFs0 = S.settings.font_size;
-    document.querySelector('#bookNote [data-bktx]').click();
-    ok('书的文字设置：整理笔记的「Aa」打开菜单', document.querySelector('#menuBookText').classList.contains('open') && document.querySelector('#bookNote').contains(document.querySelector('#menuBookText')));
-    document.querySelector('[data-btx="book_font_size:1"]').click();
-    document.querySelector('[data-btx="book_line_height:0.1"]').click();
-    ok('书的文字设置：字号、行距变大，字幕的字号不变', parseFloat(getComputedStyle(document.querySelector('#bkView')).fontSize) === bkFs0 + 1
-      && S.settings.book_line_height === 1.9 && S.settings.font_size === cueFs0 && document.querySelector('#bkTxSize').textContent === String(bkFs0 + 1));
-    document.querySelector('#bookLeft [data-bktx]').click();
-    ok('书的文字设置：原书的「Aa」打开同一个菜单', document.querySelector('#menuBookText').classList.contains('open') && document.querySelector('#bookLeft').contains(document.querySelector('#menuBookText')));
-    document.querySelector('#bkTxFont').value = 'kai'; document.querySelector('#bkTxFont').dispatchEvent(new Event('change'));
-    ok('书的文字设置：换字体，原文文字版也跟着变', getComputedStyle(document.querySelector('#bkSrcText')).fontFamily.includes('Kai'), getComputedStyle(document.querySelector('#bkSrcText')).fontFamily);
-    savePrefs({ book_font_size: 15, book_line_height: 1.8, book_font_family: 'yahei' }); closeMenus();
+    await checkAreaText('[data-area-text="book"]', 'book_note', '#bkView');
+    await checkAreaText('[data-area-text="book_source"]', 'book_source', '#bkSrcText');
+    await checkAreaText('[data-area-text="book_toc"]', 'book_toc', '#bkChapters input[data-f="title"]');
+    await checkAreaText('.lib-search.course-only [data-area-text]', 'book_library', '#libBody .lib-name');
+    setNoteMode(true);
+    await checkAreaText('[data-area-text="book"]', 'book_chat', '#bkChatBox');
+    setNoteMode(false);
     ok('朗读：英文句子自动换英文声音，中文句子夹英文词还是中文声音', TTS.isEnglish('Research is a craft.') && !TTS.isEnglish('研究是一门 craft。'));
     ok('书籍朗读：按句子切，页码（P2、PDF 第 5 页）不读', bkSegs.join('|').includes('讲趋势') && !/P2|PDF|第 5 页/.test(bkSegs.join('')), bkSegs);
     savePrefs({ tts_engine: 'system', tts_rate: 2 });

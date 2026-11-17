@@ -12,7 +12,7 @@ const S = {
   hits: [], hitPos: -1, chatAbort: null, lib: [], resumeAt: 0, resumePending: false, loopIdx: null, frameUrls: {},
 };
 const LAYOUT_KEYS = ['font_size', 'line_height', 'cue_gap', 'cue_width', 'font_family', 'cue_tools', 'split', 'sidebar', 'lib_w', 'ai_dock', 'ai_hidden', 'ai_w', 'video_h',
-  'video_hidden', 'subs_hidden'];
+  'video_hidden', 'subs_hidden', 'text_styles'];
 
 /* ---------------------------------------------------------------- 工具 ---- */
 async function api(name, body = {}) {
@@ -149,6 +149,112 @@ const FONTS = {
   fang: 'FangSong, STFangsong, serif',
 };
 
+/* 各分区独立记住文字设置。初始值由后台从当前字幕设置复制，不改正文内容。 */
+const TEXT_AREAS = {
+  course_library: ['课程列表', '#libBody, #libSearch'],
+  book_library: ['书籍列表', '#libBody, #libSearch'],
+  teacher_list: ['老师列表', '#mentorList, #mentorSearch'],
+  summary: ['课程重点', '#summaryBox, #summaryEdit'],
+  course_chat: ['课程 AI 对话', '#chatBox, #chatInput'],
+  book_source: ['原书文字版', '#bookText, #bkSrcText'],
+  book_toc: ['书籍目录', '#bookToc .bk-toc-body'],
+  book_note: ['书籍笔记', '#bkView, #bkEditor'],
+  book_chat: ['书籍 AI 对话', '#bkChatBox, #bkChatInput'],
+  mentor: ['老师内容（对话、圆桌、主题）', '#mentorMsgs, #mentorInput, #mentorDistill'],
+  distill: ['老师蒸馏设置', '#dlgDistill > form, #dlgMulti > form'],
+  prompts: ['蒸馏和对话提示词', '#dlgPrompts > form'],
+};
+function areaTextStyle(area) {
+  const s = S.settings;
+  return { font_size: s.font_size || 17, line_height: s.line_height || 1.6, gap: s.cue_gap ?? 9,
+    width: s.cue_width || 0, font_family: s.font_family || 'yahei', ...(s.text_styles || {})[area] };
+}
+function applyAreaText() {
+  if (!S.settings) return;
+  for (const [area, [, selector]] of Object.entries(TEXT_AREAS)) {
+    if (area === 'course_library' && S.view === 'book' || area === 'book_library' && S.view !== 'book') continue;
+    const st = areaTextStyle(area);
+    $$(selector).forEach(el => {
+      el.classList.add('text-area');
+      el.style.setProperty('--area-size', st.font_size + 'px');
+      el.style.setProperty('--area-line', st.line_height);
+      el.style.setProperty('--area-gap', st.gap + 'px');
+      el.style.setProperty('--area-width', st.width ? st.width + 'px' : 'none');
+      el.style.setProperty('--area-figure-width', st.width ? st.width + 'px' : '100%');
+      el.style.setProperty('--area-font', FONTS[st.font_family] || FONTS.yahei);
+    });
+  }
+  const m = $('#areaTextMenu');
+  if (m && m.dataset.area) {
+    const st = areaTextStyle(m.dataset.area);
+    $$('[data-area-value]', m).forEach(el => {
+      const k = el.dataset.areaValue;
+      if (el.tagName === 'SELECT') el.value = k === 'theme' ? S.settings.theme : st[k];
+      else el.textContent = k === 'width' && !st[k] ? '全宽' : k === 'line_height' ? (+st[k]).toFixed(1) : st[k];
+    });
+  }
+}
+function setAreaText(area, patch) {
+  savePrefs({ text_styles: { ...S.settings.text_styles, [area]: { ...areaTextStyle(area), ...patch } } });
+}
+function areaTextScope(button) {
+  const area = button.dataset.areaText;
+  if (area === 'library') return S.view === 'book' ? 'book_library' : S.view === 'mentor' ? 'teacher_list' : 'course_library';
+  if (area === 'course') return $('[data-pane="chat"]').hidden ? 'summary' : 'course_chat';
+  if (area === 'book') return $('#bkChat').hidden ? 'book_note' : 'book_chat';
+  return area;
+}
+function bindAreaText() {
+  const m = document.createElement('div');
+  m.id = 'areaTextMenu'; m.className = 'menu text-menu area-text-menu';
+  m.setAttribute('role', 'dialog'); m.setAttribute('aria-label', '文字设置');
+  m.innerHTML = '<div class="menu-label" id="areaTextTitle"></div>'
+    + [['font_size', '字号', 1], ['line_height', '行距', 0.1], ['gap', '段间距', 2], ['width', '宽度', 60]].map(([key, label, d]) =>
+      `<div class="tm-row"><span>${label}</span><button type="button" data-area-step="${key}:${-d}" aria-label="减小${label}">－</button><output data-area-value="${key}"></output><button type="button" data-area-step="${key}:${d}" aria-label="增大${label}">＋</button></div>`).join('')
+    + `<div class="tm-row"><span>字体</span><select data-area-value="font_family" aria-label="字体">${Object.keys(FONTS).map((k, i) => `<option value="${k}">${['微软雅黑', '黑体', '等线', '宋体', '楷体', '仿宋'][i]}</option>`).join('')}</select></div>`
+    + `<div class="tm-row"><span>主题</span><select data-area-value="theme" aria-label="主题">${THEMES.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}</select></div>`
+    + '<button type="button" class="btn small" data-area-reset>采用当前字幕设置</button><div class="hint">只调整这一内容区；主题全软件共用。</div>';
+  document.body.appendChild(m);
+  const place = button => {
+    const r = button.getBoundingClientRect(), w = m.offsetWidth, h = m.offsetHeight;
+    m.style.left = clamp(r.right - w, 8, Math.max(8, innerWidth - w - 8)) + 'px';
+    m.style.top = clamp(r.bottom + 4, 8, Math.max(8, innerHeight - h - 8)) + 'px';
+  };
+  $$('[data-area-text]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const area = areaTextScope(b), open = !m.classList.contains('open') || m.dataset.area !== area;
+    closeMenus();
+    if (!open) return;
+    (b.closest('dialog') || document.body).appendChild(m);  // 模态窗口内的菜单也在最上层，仍然能点击
+    m.dataset.area = area; $('#areaTextTitle').textContent = TEXT_AREAS[area][0];
+    m.classList.add('open'); applyAreaText(); place(b);
+  });
+  m.addEventListener('click', e => {
+    e.stopPropagation();
+    const area = m.dataset.area, b = e.target.closest('[data-area-step]');
+    if (b) {
+      const [key, delta] = b.dataset.areaStep.split(':'), st = areaTextStyle(area), d = +delta;
+      const bounds = { font_size: [12, 36], line_height: [1.2, 2.8], gap: [0, 40] };
+      if (key === 'width') {
+        const el = $$(TEXT_AREAS[area][1]).find(x => x.getClientRects().length && x.clientWidth > 0);
+        const full = Math.max(160, (el ? el.clientWidth : 800) - 32);
+        const w = clamp((st.width || full) + d, Math.min(160, full), 2400);
+        setAreaText(area, { width: w >= full ? 0 : Math.round(w) });
+      } else setAreaText(area, { [key]: +clamp(st[key] + d, ...bounds[key]).toFixed(1) });
+    }
+    if (e.target.closest('[data-area-reset]')) {
+      const s = S.settings;
+      setAreaText(area, { font_size: s.font_size, line_height: s.line_height, gap: s.cue_gap, width: s.cue_width, font_family: s.font_family });
+    }
+  });
+  m.addEventListener('change', e => {
+    const key = e.target.dataset.areaValue;
+    if (key === 'theme') savePrefs({ theme: e.target.value });
+    else if (key === 'font_family') setAreaText(m.dataset.area, { font_family: e.target.value });
+  });
+  window.addEventListener('resize', closeMenus);
+}
+
 function applyLook() {
   const s = S.settings, root = document.documentElement.style;
   document.documentElement.dataset.theme = s.theme || 'dark';
@@ -166,18 +272,7 @@ function applyLook() {
   $('#txTheme').value = s.theme;
   document.documentElement.dataset.cueTools = s.cue_tools === 'grid' ? 'grid' : 'row';  // 每句右边按钮：一排 / 2×2
   $('#txTools').value = document.documentElement.dataset.cueTools;
-  // 书的整理笔记、原文文字版（和字幕分开设）
-  root.setProperty('--bk-size', (s.book_font_size || 15) + 'px');
-  root.setProperty('--bk-line', s.book_line_height || 1.8);
-  root.setProperty('--bk-gap', (s.book_gap ?? 8) + 'px');
-  root.setProperty('--bk-width', s.book_width ? s.book_width + 'px' : 'none');
-  root.setProperty('--bk-font', FONTS[s.book_font_family] || FONTS.yahei);
-  $('#bkTxSize').textContent = s.book_font_size || 15;
-  $('#bkTxLine').textContent = (+(s.book_line_height || 1.8)).toFixed(1);
-  $('#bkTxGap').textContent = s.book_gap ?? 8;
-  $('#bkTxWidth').textContent = s.book_width ? s.book_width : '全宽';
-  $('#bkTxFont').value = s.book_font_family || 'yahei';
-  $('#bkTxTheme').value = s.theme;
+  applyAreaText();
   $('#optFollow').checked = !!s.follow;
   $('#optTr').checked = !!s.show_tr;
   $('#optPrintTsSum').checked = !!s.print_ts_summary;
@@ -3966,28 +4061,7 @@ function bind() {
   $('#txTheme').onchange = e => savePrefs({ theme: e.target.value });
   $('#txTools').onchange = e => savePrefs({ cue_tools: e.target.value });
   $('#menuText').addEventListener('click', e => e.stopPropagation());
-  // 书的文字设置：整理笔记、原书两列各有一个「Aa」，打开同一个菜单（挪到点的那个按钮下面）
-  $('#bkTxTheme').innerHTML = $('#txTheme').innerHTML;
-  $$('[data-bktx]').forEach(b => b.onclick = e => {
-    e.stopPropagation();
-    const m = $('#menuBookText'), wrap = b.closest('.menu-wrap'), o = !(m.classList.contains('open') && m.parentElement === wrap);
-    closeMenus();
-    if (o) { wrap.appendChild(m); m.classList.add('open'); }
-  });
-  $$('[data-btx]').forEach(b => b.onclick = () => {
-    const [k, d] = b.dataset.btx.split(':'); const delta = +d; const s = S.settings;
-    if (k === 'book_font_size') savePrefs({ book_font_size: clamp((s.book_font_size || 15) + delta, 12, 32) });
-    if (k === 'book_line_height') savePrefs({ book_line_height: +clamp((s.book_line_height || 1.8) + delta, 1.2, 2.8).toFixed(1) });
-    if (k === 'book_gap') savePrefs({ book_gap: clamp((s.book_gap ?? 8) + delta, 0, 40) });
-    if (k === 'book_width') {
-      const col = b.closest('.bk-col'), full = ((col && col.querySelector('.bk-text:not([hidden])')) || $('#bkView')).clientWidth - 32;
-      const next = clamp((s.book_width || full) + delta, 360, 2400);
-      savePrefs({ book_width: next >= full ? 0 : next });
-    }
-  });
-  $('#bkTxFont').onchange = e => savePrefs({ book_font_family: e.target.value });
-  $('#bkTxTheme').onchange = e => savePrefs({ theme: e.target.value });
-  $('#menuBookText').addEventListener('click', e => e.stopPropagation());
+  bindAreaText();
 
   // 播放器
   v.addEventListener('timeupdate', () => { updateActive(); if (!v.paused) savePosition(false); });

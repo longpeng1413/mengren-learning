@@ -794,3 +794,35 @@ a.cite.bad { background: color-mix(in srgb, var(--danger) 14%, transparent); bor
 .help-map .hm-ai { grid-area: ai; } .help-map .hm-subs { grid-area: subs; }
 .help-go { color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 kbd { display: inline-block; min-width: 18px; padding: 0 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--panel); font: 12px/1.6 var(--mono); text-align: center; }
+
+/* 内容区文字设置只影响屏幕阅读，打印和 PDF 保持各自的排版。 */
+.area-text-menu { position: fixed; right: auto; z-index: 2000; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: auto; font: 14px/1.5 var(--font); }
+.area-text-menu .hint { margin-top: 8px; font-size: 12px; }
+.area-text-dialog-btn { position: absolute; top: 18px; right: 20px; }
+#dlgDistill h2, #dlgMulti h2, #dlgPrompts h2 { padding-right: 40px; }
+.lib-search { display: flex; align-items: center; gap: 4px; }
+.lib-search input { min-width: 0; flex: 1; }
+.lib-search > .btn { flex: none; }
+.mentor-head { flex-wrap: wrap; }
+@media screen {
+  .text-area, .text-area .md { font-size: var(--area-size); line-height: var(--area-line); font-family: var(--area-font); }
+  .text-area:is(textarea, input) { font-size: var(--area-size); line-height: var(--area-line); font-family: var(--area-font); }
+  .text-area > :is(p, ul, ol, blockquote, pre, table, h1, h2, h3, h4, .msg, .mentor-intro, .mentor-doc, .bpage),
+  .text-area .bubble > :is(p, ul, ol, blockquote, pre, table), .text-area .bpage > * {
+    max-width: var(--area-width); margin-left: auto; margin-right: auto;
+  }
+  .text-area:is(.lib-body, .bk-toc-body) > * { max-width: var(--area-width); }
+  .text-area :is(p, ul, ol, blockquote, pre, table), .text-area > .msg { margin-top: 0; margin-bottom: var(--area-gap); }
+  .text-area li { margin-bottom: calc(var(--area-gap) / 2); }
+  .text-area .msg.assistant .bubble, .text-area .mentor-doc, .text-area .mentor-intro { max-width: 100%; }
+  .text-area :is(.lib-name, .lib-gname, .lib-empty, .mt-chat, .mt-empty, .ch-part, .bk-meta summary, input[data-f="title"]) {
+    font-size: 1em; line-height: var(--area-line); font-family: var(--area-font);
+  }
+  .text-area :is(.lib-item, .lib-group, .mt-teacher, .mt-chat, .ch-row, .ds-item, .ds-status li) { margin-bottom: var(--area-gap); }
+  .text-area .bpage { white-space: pre-wrap; line-height: var(--area-line); }
+  .text-area :is(.ds-note, .prompts-list pre) { font-size: 1em; line-height: var(--area-line); }
+  .text-area .prompts-list pre { font-family: var(--area-font); }
+  .text-area .field :is(input, select), .text-area .ds-row :is(input, select) { font-size: 1em; }
+  .text-area .sum-edit textarea { font-size: inherit; line-height: var(--area-line); font-family: inherit; }
+  #summaryBox.text-area > figure.shot-fig { max-width: var(--area-figure-width); }
+}

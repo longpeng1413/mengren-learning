@@ -1,8 +1,10 @@
 """Test-only CDP input driver: trusted mouse/keyboard events in the actual WebView2."""
 import json
+import base64
 import threading
 import time
 import urllib.request
+from pathlib import Path
 
 import websocket
 
@@ -51,6 +53,15 @@ def drive_input(port, process):
                             call('Input.dispatchMouseEvent', dict(type='mousePressed', button='left', buttons=1, clickCount=1, **point))
                         if request['kind'] in ('click', 'up'):
                             call('Input.dispatchMouseEvent', dict(type='mouseReleased', button='left', clickCount=1, **point))
+                    elif request['kind'] == 'screenshot':
+                        area = request['area']
+                        if area not in ('summary', 'book_note', 'mentor', 'distill', 'prompts'):
+                            raise ValueError('Unknown text-area screenshot')
+                        label = 'source' if any(str(arg).endswith('main.py') for arg in process.args) else 'packaged'
+                        output = Path(__file__).resolve().parents[1] / 'build' / 'ui-regression'
+                        output.mkdir(parents=True, exist_ok=True)
+                        png = call('Page.captureScreenshot', {'format': 'png'})['data']
+                        (output / f'text-{label}-{area}.png').write_bytes(base64.b64decode(png))
                     else:
                         key = request['key']
                         params = {'key': key, 'code': 'Escape' if key == 'Escape' else 'Key' + key.upper(),

@@ -155,6 +155,7 @@ DEFAULTS = {
     'font_family': 'yahei',
     'cue_tools': 'row',  # 每句右边四个按钮：row 一排（右边空白加宽）/ grid 2×2 方块（空白不加宽）；2026-11-09 用户要能自己选
     # 书的整理笔记、原文文字版的文字设置（2026-10-29 用户要求「像字幕一样能设」；和字幕分开记）
+    'text_styles': {},  # 各内容区的文字设置；首次从当前字幕设置取值，之后分别保存
     'book_font_size': 15,
     'book_line_height': 1.8,
     'book_gap': 8,
@@ -280,9 +281,24 @@ def _write_json(path, data, indent=2):
     os.replace(tmp, path)
 
 
+TEXT_AREAS = ('course_library', 'book_library', 'teacher_list', 'summary', 'course_chat',
+              'book_source', 'book_toc', 'book_note', 'book_chat', 'mentor', 'distill', 'prompts')
+
+
+def text_styles(settings: dict) -> dict:
+    """缺少分区设置的旧电脑，以这台电脑当前字幕的文字设置作为起点。"""
+    base = {k: settings[src] for k, src in (
+        ('font_size', 'font_size'), ('line_height', 'line_height'), ('gap', 'cue_gap'),
+        ('width', 'cue_width'), ('font_family', 'font_family'))}
+    saved = settings.get('text_styles') or {}
+    return {area: dict(base, **(saved.get(area) or {})) for area in TEXT_AREAS}
+
+
 def load() -> dict:
     with _lock:
-        return _merge(DEFAULTS, _read_json(SETTINGS_FILE, {}))
+        settings = _merge(DEFAULTS, _read_json(SETTINGS_FILE, {}))
+        settings['text_styles'] = text_styles(settings)
+        return settings
 
 
 def save(settings: dict) -> None:
@@ -379,7 +395,7 @@ def update(patch: dict) -> dict:
     for k, v in patch.items():
         if k == 'providers' or k not in DEFAULTS:
             continue
-        current[k] = _merge(DEFAULTS[k], v) if isinstance(DEFAULTS[k], dict) else v
+        current[k] = _merge(current[k] if k == 'text_styles' else DEFAULTS[k], v) if isinstance(DEFAULTS[k], dict) else v
     save(current)
     return current
 
@@ -447,6 +463,10 @@ def migrate() -> list:
     s = load()
     done = list(s.get('migrations') or [])
     patch, did = {}, []
+    if '分区文字设置' not in done:
+        patch['text_styles'] = s['text_styles']
+        done.append('分区文字设置')
+        did.append('各内容区文字设置以当前字幕为默认，之后分别保存')
     if 'ai_校对_terra' not in done:
         if s.get('correct') in ('codex', 'chatgpt') and not (s['ai_tasks'].get('correct') or {}).get('model'):
             tasks = copy.deepcopy(s['ai_tasks'])  # update() 拿默认值合并整块，要传完整的，不然别的工作的设置会被冲掉

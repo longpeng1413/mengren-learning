@@ -16,6 +16,7 @@ function switchView(v) {
   if (S.view === v) return;
   const was = S.view;
   S.view = v;
+  closeMenus(); applyAreaText();
   $$('#libTabs .lib-tab').forEach(b => b.classList.toggle('active', b.dataset.view === v));
   $$('.course-only').forEach(el => { el.hidden = v === 'mentor'; });  // 书籍、课程共用媒体库那一套（文件夹按钮、筛选、列表）
   $$('.mentor-only').forEach(el => { el.hidden = v !== 'mentor'; });

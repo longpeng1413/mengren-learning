@@ -1075,7 +1075,7 @@ did = config.migrate()
 s_m = config.load()
 tm = s_m['ai_tasks']
 check('一次性调整：ChatGPT 校对改 Terra、中文识别改本机', tm['correct']['model'] == 'gpt-6.1-terra' and s_m['asr_zh'] == 'local'
-      and len(did) == 3 and set(s_m['migrations']) >= {'ai_校对_terra', '识别_本机', '推荐模型'}, did)
+      and len(did) == 4 and set(s_m['migrations']) >= {'ai_校对_terra', '识别_本机', '推荐模型', '分区文字设置'}, did)
 check('推荐模型：找新术语、书的对话改 Terra，课程重点等留空（用 Sol），自己选过的不动',
       tm['terms']['model'] == tm['book_chat']['model'] == 'gpt-6.1-terra' and tm['chat']['model'] == 'gpt-6.1-sol'
       and not tm['summary']['model'] and not tm['review']['model'] and not tm['distill']['model'], tm)
@@ -1083,6 +1083,29 @@ check('推荐模型：填了 OpenAI 的 Key、翻译用的服务没设置好时�
       tm['translate'] == {'provider': 'openai', 'model': 'gpt-6.1-terra', 'effort': ''}, tm['translate'])
 api.call('settings', {'settings': {'asr_zh': 'doubao'}})
 check('一次性调整只做一次：用户之后改回去的不再改', config.migrate() == [] and config.load()['asr_zh'] == 'doubao')
+_original_text_settings = config._read_json(config.SETTINGS_FILE, {})
+try:
+    _initial_text = dict(_original_text_settings, font_size=19, line_height=1.4, cue_gap=6,
+                         cue_width=480, font_family='kai', text_styles={},
+                         migrations=['ai_校对_terra', '识别_本机', '推荐模型'])
+    config._write_json(config.SETTINGS_FILE, _initial_text)
+    config.migrate()
+    _styles = config.load()['text_styles']
+    _base = {'font_size': 19, 'line_height': 1.4, 'gap': 6, 'width': 480, 'font_family': 'kai'}
+    check('全部内容区首次采用这台电脑当前的字幕设置，而非写死默认字号',
+          set(_styles) == set(config.TEXT_AREAS) and all(v == _base for v in _styles.values()), _styles)
+    config.update({'text_styles': {'summary': {'font_size': 22}}})
+    _text_now = config.load()
+    check('单独改课程重点字号，其他分区、行距、字幕和服务设置都保留',
+          _text_now['text_styles']['summary'] == dict(_base, font_size=22)
+          and all(v == _base for k, v in _text_now['text_styles'].items() if k != 'summary')
+          and _text_now['font_size'] == 19 and _text_now['providers'] == _initial_text['providers'])
+    config.update({'font_size': 20})
+    check('重启和字幕字号再变化不会覆盖已经初始化的分区设置',
+          config.migrate() == [] and config.load()['text_styles']['summary']['font_size'] == 22
+          and config.load()['text_styles']['book_note']['font_size'] == 19)
+finally:
+    config._write_json(config.SETTINGS_FILE, _original_text_settings)
 api.call('settings', {'settings': {'translate': 'deepseek', 'chat': 'deepseek', 'providers': {'openai': {'key': None}}}})
 tr, _n = config.recommended_tasks(dict(config.load(), ai_tasks=EMPTY_TASKS))
 check('推荐模型：没填 OpenAI、用的是 DeepSeek 时不改', not tr['translate']['model'] and not tr['terms']['model'], tr['translate'])

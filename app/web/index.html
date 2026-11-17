@@ -72,8 +72,8 @@
       <button class="btn icon-only small course-only" id="libAddFiles" title="添加单个文件"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M12 12v6m-3-3h6"/></svg></button>
       <button class="btn icon-only small course-only" id="libRefresh" title="刷新（电脑上新增、改了文件后点）"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
     </div>
-    <div class="lib-search course-only"><input id="libSearch" placeholder="筛选文件名"></div>
-    <div class="lib-search mentor-only" hidden><input id="mentorSearch" placeholder="搜索对话（标题和内容）"></div>
+    <div class="lib-search course-only"><input id="libSearch" placeholder="筛选文件名"><button type="button" class="btn icon-only small" data-area-text="library" title="调整列表文字"><b class="aa">Aa</b></button></div>
+    <div class="lib-search mentor-only" hidden><input id="mentorSearch" placeholder="搜索对话（标题和内容）"><button type="button" class="btn icon-only small" data-area-text="library" title="调整列表文字"><b class="aa">Aa</b></button></div>
     <div class="lib-body course-only" id="libBody"></div>
     <div class="lib-body mentor-only mentor-list" id="mentorList" hidden></div>
   </aside>
@@ -100,6 +100,7 @@
         <div class="mentor-title"><b id="mentorName">老师工作台</b><span class="muted" id="mentorChatTitle"></span></div>
         <span class="grow"></span>
         <span class="ai-model" id="mentorModel"></span>
+        <button type="button" class="btn icon-only small" data-area-text="mentor" title="文字设置"><b class="aa">Aa</b></button>
         <button class="btn small tts-btn" id="mentorTts" title="朗读（边听边看）：读老师的回答"><svg viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M3 14h3v6H4a1 1 0 0 1-1-1zM21 14h-3v6h2a1 1 0 0 0 1-1z"/></svg>朗读</button>
         <button class="btn small teacher-tools" id="mentorSaveAll" title="把整个对话收藏到「对话精选」">★ 收藏整个对话</button>
         <button class="btn small teacher-tools" id="mentorFav" title="在 Obsidian 里打开这位老师的「对话精选」">对话精选</button>
@@ -135,7 +136,7 @@
         <div class="bk-col-head"><b class="bk-col-name">原书</b>
           <span class="seg" id="bkSrcMode" title="切换 PDF / 文字版"><button data-m="orig" class="on">PDF</button><button data-m="read">文字版</button></span>
           <span class="grow"></span>
-          <div class="menu-wrap"><button class="btn icon-only small" data-bktx title="文字设置（字号、行距、字体）"><b class="aa">Aa</b></button></div>
+          <button type="button" class="btn icon-only small" data-area-text="book_source" title="调整原书文字版"><b class="aa">Aa</b></button>
           <button class="btn small tts-btn" id="bkSrcTts" title="朗读这一章原文"><svg viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M3 14h3v6H4a1 1 0 0 1-1-1zM21 14h-3v6h2a1 1 0 0 0 1-1z"/></svg>朗读原文</button>
           <button class="btn small" data-hide="src" title="隐藏原书列">隐藏</button>
         </div>
@@ -149,6 +150,7 @@
       <section class="bk-col bk-toc" id="bookToc" data-col="toc">
         <button class="bk-rail" data-show="toc" title="显示目录">目录</button>
         <div class="bk-col-head"><b class="bk-col-name">目录</b><span class="muted small-text" id="bkTocCount"></span><span class="grow"></span>
+          <button type="button" class="btn icon-only small" data-area-text="book_toc" title="调整目录文字"><b class="aa">Aa</b></button>
           <button class="btn small" data-hide="toc" title="隐藏目录这一列">隐藏</button></div>
         <div class="bk-col-body bk-toc-body">
           <details class="bk-meta" id="bkMetaBox">
@@ -175,20 +177,7 @@
         <div class="bk-col-head"><b class="bk-col-name">整理笔记</b>
           <span class="seg" id="bkNoteMode" title="看笔记，或问 AI"><button data-m="note" class="on">笔记</button><button data-m="chat">AI 对话</button></span>
           <span class="grow"></span>
-          <div class="menu-wrap"><button class="btn icon-only small" data-bktx title="文字设置（字号、行距、字体）"><b class="aa">Aa</b></button>
-            <div class="menu text-menu" id="menuBookText">
-              <div class="tm-row"><span>字号</span><button data-btx="book_font_size:-1">－</button><output id="bkTxSize"></output><button data-btx="book_font_size:1">＋</button></div>
-              <div class="tm-row"><span>行距</span><button data-btx="book_line_height:-0.1">－</button><output id="bkTxLine"></output><button data-btx="book_line_height:0.1">＋</button></div>
-              <div class="tm-row"><span>段间距</span><button data-btx="book_gap:-2">－</button><output id="bkTxGap"></output><button data-btx="book_gap:2">＋</button></div>
-              <div class="tm-row"><span>宽度</span><button data-btx="book_width:-60">→←</button><output id="bkTxWidth"></output><button data-btx="book_width:60">←→</button></div>
-              <div class="tm-row"><span>字体</span>
-                <select id="bkTxFont">
-                  <option value="yahei">微软雅黑</option><option value="hei">黑体</option><option value="deng">等线</option>
-                  <option value="song">宋体</option><option value="kai">楷体</option><option value="fang">仿宋</option>
-                </select></div>
-              <div class="tm-row"><span>主题</span><select id="bkTxTheme"></select></div>
-              <div class="hint">整理笔记和原文文字版共用这套设置；字幕栏的「Aa」单独设。</div>
-            </div></div>
+          <button type="button" class="btn icon-only small" data-area-text="book" title="文字设置"><b class="aa">Aa</b></button>
           <button class="btn small tts-btn" id="bkTts" title="朗读这一章笔记"><svg viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M3 14h3v6H4a1 1 0 0 1-1-1zM21 14h-3v6h2a1 1 0 0 0 1-1z"/></svg>朗读</button>
           <button class="btn small" id="bkEdit" disabled>编辑</button><button class="btn small" id="bkCopy" disabled>复制</button>
           <button class="btn small" id="bkZoom" title="放大笔记（再点还原）">放大</button>
@@ -307,6 +296,7 @@
     <button class="btn small icon-only" id="btnPdf" disabled title="把课程重点输出为PDF"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h4"/></svg></button>
     <label class="btn icon-only small icon-toggle" id="optPrintTsSumWrap" title="打印、PDF 带出处时间（亮着 = 带）"><input type="checkbox" id="optPrintTsSum" hidden><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></label>
     <span class="ai-model" id="aiModel"></span>
+    <button type="button" class="btn icon-only small" data-area-text="course" title="文字设置"><b class="aa">Aa</b></button>
     <button class="btn icon-only small" id="btnAiMax" title="放大 AI 区"><svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg></button>
     <button class="btn icon-only small" id="btnAiDock" title="移到右侧 / 移回视频下方"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>
     <button class="btn small icon-only" id="btnAiHide" data-pane-hide="ai" title="隐藏 AI 区"><svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 6.1A10 10 0 0 1 12 6c5 0 9 6 9 6a17 17 0 0 1-3 3.6M6.6 6.6A17 17 0 0 0 3 12s4 6 9 6a9 9 0 0 0 4-1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg></button>
@@ -453,6 +443,7 @@
 <dialog id="dlgDistill" class="dialog distill-dlg">
   <form method="dialog">
     <h2 id="dsTitle">从媒体库的课蒸馏一位老师</h2>
+    <button type="button" class="btn icon-only small area-text-dialog-btn" data-area-text="distill" title="文字设置"><b class="aa">Aa</b></button>
     <p class="muted">AI 逐节把老师讲的观点拆成观点库（每条带出处），再合并成课程蒸馏、写出老师画像，写进 Obsidian。做完就能在老师工作台里和这位老师对话。</p>
     <label class="ds-row">老师名字 <input id="dsName" placeholder="例如：人间落叶"></label>
     <label class="ds-row">课程在哪个文件夹 <select id="dsFolder"></select></label>
@@ -472,6 +463,7 @@
 <dialog id="dlgMulti" class="dialog distill-dlg">
   <form method="dialog">
     <h2 id="mlTitle">新建圆桌讨论</h2>
+    <button type="button" class="btn icon-only small area-text-dialog-btn" data-area-text="distill" title="文字设置"><b class="aa">Aa</b></button>
     <p class="muted" id="mlInfo"></p>
     <label class="ds-row topic-only">主题 <input id="mlTopic" placeholder="例如：止损、仓位管理、交易系统怎么建"></label>
     <label class="ds-row topic-only">想重点看什么（可以不填） <input id="mlNote" placeholder="例如：止损放在哪、亏了要不要加仓"></label>
@@ -501,6 +493,7 @@
 <dialog id="dlgPrompts" class="dialog settings prompts-dlg">
   <form method="dialog">
     <h2>蒸馏和对话用的提示词</h2>
+    <button type="button" class="btn icon-only small area-text-dialog-btn" data-area-text="prompts" title="文字设置"><b class="aa">Aa</b></button>
     <p class="muted">这是软件实际交给 AI 的原文。知识库里也存了一份一样的：<code>02、规则体系/01、通用规则/08、AI蒸馏提示词</code>。想改提示词请告诉 AI 改软件（软件不读那份文件）。</p>
     <div id="prList" class="prompts-list"></div>
     <div class="dialog-btns"><span class="grow"></span><button value="close" class="btn primary">关闭</button></div>
@@ -624,6 +617,7 @@
 
       <section data-h="library" hidden>
         <h3>左栏：媒体库</h3>
+        <p>筛选框旁的「Aa」调整当前列表的文字；书籍、课程、老师列表分别记住设置。</p>
         <ul>
           <li><b>左上角「书籍 / 课程 / 老师」</b>：书籍、课程是同一个媒体库分开列（书和文档一边，视频、音频一边），文件夹里没有这一类文件的不显示；「老师」换成<a class="help-go" data-go="mentor">老师工作台</a>。打开文件时会自动切到对应的那一栏。</li>
           <li><b>筛选文件名</b>：输入几个字，只显示名字（或所在文件夹名）里有这几个字的。</li>
@@ -720,6 +714,7 @@
           <div class="muted">缩进、取消缩进：正在改某一条时按，或者鼠标停在某一条上直接按 <kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd> 都行。</div>
         </div>
         <h4>标签旁边那一排按钮</h4>
+        <p>「Aa」调整当前正在看的课程重点或 AI 对话，两页分别记住字号、行距、段间距、宽度和字体；初始采用字幕设置，也可以随时点「采用当前字幕设置」。</p>
         <div class="help-btns" data-from="#aiPanel .ai-tabs"></div>
         <p class="muted">右上角还写着现在用的是哪个 AI 和模型。朗读的用法见<a class="help-go" data-go="tts">朗读</a>，打印、导出 PDF 见<a class="help-go" data-go="export">打印、导出 PDF、下载字幕</a>。</p>
 
@@ -765,6 +760,7 @@
 
       <section data-h="book" hidden>
         <h3>书籍界面（书和文档的整理）</h3>
+        <p>三列标题栏都有「Aa」。原书文字版、目录、笔记和 AI 对话分别记住文字设置，初始采用字幕设置；PDF 原页用阅读器自己的缩放。</p>
         <ol>
           <li>在媒体库里点要整理的书或文档：PDF、Word（.docx / 老版 .doc）、电子书（EPUB、MOBI、AZW3）、演示文稿（PPTX / 老版 .ppt，一张幻灯片算一「页」）。TXT / Markdown 用「打开」。扫描或拍照的 PDF（每页是整张图片）点目录列的「识别文字（OCR）」：用 Windows 自带的文字识别在这台电脑上把每页认成文字，不联网、不花钱，300 页大约 1.5 分钟；原文件挪进同一文件夹的「_OCR前的原件」，确认没问题可以删。别的软件识别得很差的，可以点「重新识别文字」。有 DRM 加密的电子书（书店买的加密书）读不了，软件会提示。老版 .doc / .ppt 读不出标题层级，章节分得不对就点「AI 读目录分章」或手动改。</li>
           <li>书分三列：左边「原书」（PDF 或文字版，「朗读原文」会读这一章的文字），中间「目录」，右边「整理笔记」；每一列都能点「隐藏」收成一条竖条、拖分隔线调宽度，「放大」让笔记占满。先在目录里核对：
@@ -789,6 +785,7 @@
 
       <section data-h="mentor" hidden>
         <h3>老师工作台（和老师对话、蒸馏）</h3>
+        <p>标题栏的「Aa」调整老师对话、圆桌讨论、主题蒸馏的正文和输入文字；左侧老师列表单独调整。蒸馏设置窗口和提示词页也有「Aa」，初始都采用字幕设置，之后各自记住。</p>
         <p>把一位老师的全部课程蒸馏好以后，AI 就能按这位老师的知识和思路和你对话，像向老师本人提问一样。</p>
         <h4>怎么开始：蒸馏一位老师</h4>
         <ul>
