@@ -1560,15 +1560,19 @@ function refollowActiveCue() {
     box.style.scrollBehavior = behavior;
   });
 }
-/* 字幕跟随：下面不足 3 句（或当前句已在画面外）时，滚动到当前句位于画面上数第三句。 */
+/* 字幕跟随：尽量保留前两句；截图占位太大时，优先保证当前句可见。 */
 const FOLLOW_KEEP = 3;
 function followCue(i) {
   const box = $('#cues'), el = cueEl(i); if (!el) return;
   const B = box.getBoundingClientRect(), r = el.getBoundingClientRect();
   const below = cueEl(Math.min(i + FOLLOW_KEEP, S.doc.segments.length - 1)) || el;
-  if (r.top >= B.top && below.getBoundingClientRect().bottom <= B.bottom) return;
+  if (r.top >= B.top && r.bottom <= B.bottom && below.getBoundingClientRect().bottom <= B.bottom) return;
   const top = cueEl(Math.max(0, i - FOLLOW_KEEP + 1)) || el;
-  box.scrollTo({ top: box.scrollTop + top.getBoundingClientRect().top - B.top - 4, behavior: 'smooth' });
+  const preferred = top.getBoundingClientRect().top - B.top - 4;
+  // 前两句之间可能有多张大图，按句数定位会把当前句留在视野之外。
+  // 超长句无法完整放进视野时，至少显示其开头和播放标记。
+  const ensureVisible = r.height <= B.height - 8 ? r.bottom - B.bottom + 4 : r.top - B.top - 4;
+  box.scrollTo({ top: box.scrollTop + Math.max(preferred, ensureVisible), behavior: 'smooth' });
 }
 // 单句循环开着时，开关旁边写明在循环哪一句，点一下关掉
 function updateLoopHint() {

@@ -314,6 +314,14 @@ Promise.race([new Promise(r => setTimeout(() => r((window.__R || []).concat(['TI
       followCue(lastIn - 1); await until(async () => { const a = box.scrollTop; await wait(120); return a === box.scrollTop && a > 0; }, 3000);
       const topIdx = S.doc.segments.findIndex((_, k) => cueEl(k).getBoundingClientRect().top >= B.top - 1);
       ok('字幕跟随：画面里还看得到下面 3 句时不动；快到底部时翻上去，让当前句位于上数第三句', still && topIdx === lastIn - 1 - 2, [still, lastIn, topIdx]);
+      // 前面的字幕之间夹着大图，即使放不下前两句，也必须看见当前句。
+      const largeShot = document.createElement('div');
+      largeShot.style.height = `${Math.ceil(B.height * 2)}px`;
+      cueEl(18).after(largeShot); box.scrollTop = 0;
+      followCue(20); await wait(900);
+      const currentRect = cueEl(20).getBoundingClientRect();
+      ok('字幕跟随：前面有大图时仍能看到正在播放的字幕', currentRect.top >= B.top - 1 && currentRect.bottom <= B.bottom + 1, [currentRect.top, currentRect.bottom, B.top, B.bottom]);
+      largeShot.remove();
       const fake = document.createElement('div'); S.editing = fake;
       ok('字幕跟随：记下的「正在编辑」那一句已经不在页面上了，不算在编辑（以前跟随会一直停住）', !isEditing() && S.editing === null);
       const keepShots = S.doc.sub_shots, keepTime = v.currentTime, keepPaused = v.paused;
